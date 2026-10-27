@@ -1,0 +1,77 @@
+# 8DDB0 port checks
+# 8DDB0: shuttle_update_volume: volume 0x7FFF - max(d - 0x3200, 0) / 4 (>= 0) for sound gShuttleSound, d = distance from
+# gCamEyeX/Y/Z >> 11 to gShuttlePos/gShuttlePosY/gShuttlePosZ. math_dist3 inlined (followed in the ref).
+# Source coordinates stay well inside +-2^30 (the asm's dead `sub` traps on overflow).
+shuttle_update_volume: -n 300 --seed 0 --ret void --sig snd_modify=a0,a1,a2 --follow math_dist3 --mem gShuttleSound=choice:0,0x80123450*3 --mem gCamEyeX=choice:0,0x800,-0x800,0x1000000,-0x1000000,0x7FFFFFFF,0x80000000,0x123456 --mem gCamEyeY=choice:0,0x800,-0x800,0x1000000,-0x1000000,0x7FFFFFFF,0x80000000,0x123456 --mem gCamEyeZ=choice:0,0x800,-0x800,0x1000000,-0x1000000,0x7FFFFFFF,0x80000000,0x123456 --mem gShuttlePos=choice:0,1,-1,0x3200,-0x3200,0x10000,0x30000,-0x30000 --mem gShuttlePosY=choice:0,1,-1,0x3200,-0x3200,0x10000,0x30000,-0x30000 --mem gShuttlePosZ=choice:0,1,-1,0x3200,-0x3200,0x10000,0x30000,-0x30000
+# boundaries on one axis: d around 0x3200 (clamp at 0) and 0x3200 + 4*0x7FFF (volume clamp at 0)
+shuttle_update_volume: -n 200 --seed 1 --ret void --sig snd_modify=a0,a1,a2 --follow math_dist3 --mem gShuttleSound=0x80123450 --mem gCamEyeX=choice:0,0x7FF,0x800,-1,-0x801 --mem gCamEyeY=0 --mem gCamEyeZ=0 --mem gShuttlePosY=0 --mem gShuttlePosZ=0 --mem gShuttlePos=choice:0,0x31FF,0x3200,0x3201,0x3203,0x3204,0x231FB,0x231FC,0x231FF,0x23200,0x23203,0x23204,-0x23204
+# NO-DIST: no sound (gShuttleSound NULL): nothing happens
+shuttle_update_volume: -n 50 --seed 2 --ret void --sig snd_modify=a0,a1,a2 --follow math_dist3 --mem gShuttleSound=0 --mem gCamEyeX=int --mem gShuttlePos=int
+
+# shuttle_follow_path: calls util_shuttle_path_step() with gp saved around it
+shuttle_follow_path: -n 50 --ret void --sig util_shuttle_path_step=
+
+# shuttle_update_events(): vehicle 0xFD per-frame events (gShuttlePathEvent 2/3/0xB/0xC/0xD), one-shot sounds when gShuttleTriggerY
+# reaches word +4 of gVehPoints record (0xFD, 1..3), gShuttleShakeOn override, effect countdowns gShuttleSmokeTimer/FlameTimer.
+# fx_spawn's ignored fields (the asm passes leftover t6/t7/s0-s4) are left out of the comparison.
+shuttle_update_events: -n 300 --ret void --mem gShuttlePathEvent:1=bytes:0,1,2,3,0xB,0xC,0xD,0xE,0xFF --mem gShuttleAborted:1=bytes:0*3,1 \
+    --mem gShuttlePoint1Sounded:1=bytes:0,1 --mem gShuttlePoint2Sounded:1=bytes:0,1 --mem gShuttlePoint3Sounded:1=bytes:0,1 --mem gShuttleSmokeOn:1=bytes:0,1 \
+    --mem gShuttleSmokeTimer:1=bytes:0*2,1,4,0xFF --mem gShuttleFlamesOn:1=bytes:0,1 --mem gShuttleFlameTimer:1=bytes:0*2,1,4,0xFF \
+    --mem gShuttleShakeOn:1=bytes:0,1 --mem gShakeTime:1=rand --mem gShakeSize=int --mem gShuttleTriggerY=choice:0,99,100,101,-1,0x7FFFFFFF \
+    --stub-ret veh_find_point.a0=ptr:0x20 --sig fx_spawn=*a0,a1,a2,a3,stack0,stack1,stack2,stack8 --sig snd_play=a0,a1,a2
+# record lookups for real: thresholds at / around gShuttleTriggerY
+shuttle_update_events: -n 300 --seed 1 --ret void --follow veh_find_point --mem gShuttlePathEvent:1=bytes:0,2,3,0xB,0xC,0xD \
+    --mem gShuttleAborted:1=bytes:0*3,1 --mem gShuttlePoint1Sounded:1=bytes:0*2,1 --mem gShuttlePoint2Sounded:1=bytes:0*2,1 --mem gShuttlePoint3Sounded:1=bytes:0*2,1 \
+    --mem gShuttleSmokeOn:1=bytes:0,1 --mem gShuttleSmokeTimer:1=bytes:0,1 --mem gShuttleFlamesOn:1=bytes:0,1 --mem gShuttleFlameTimer:1=bytes:0,1 \
+    --mem gShuttleShakeOn:1=bytes:0,1 --mem gShakeTime:1=rand --mem gShakeSize=int --mem gShuttleTriggerY=choice:99,100,101 \
+    --mem gVehPoints:0x80=rand --mem gVehPoints+0xC:1=0xFD --mem gVehPoints+4*0x10:3=choice:99,100,101,-1,0x7FFFFFFF \
+    --sig fx_spawn=*a0,a1,a2,a3,stack0,stack1,stack2,stack8 --sig snd_play=a0,a1,a2
+# whole call tree but the sound player (spawns into gEffects at records (0xFD, 4..6))
+shuttle_update_events: -n 200 --seed 2 --ret void --follow veh_find_point,fx_spawn,anim_play,anim_set_speed,anim_set_reverse \
+    --mem gShuttlePathEvent:1=bytes:0,2,0xB,0xD --mem gShuttleAborted:1=bytes:0,1 --mem gShuttlePoint1Sounded:1=bytes:0,1 --mem gShuttlePoint2Sounded:1=bytes:0,1 \
+    --mem gShuttlePoint3Sounded:1=bytes:0,1 --mem gShuttleSmokeOn:1=bytes:0,1 --mem gShuttleSmokeTimer:1=bytes:0*3,1 --mem gShuttleFlamesOn:1=bytes:0,1 \
+    --mem gShuttleFlameTimer:1=bytes:0*3,1 --mem gShuttleShakeOn:1=bytes:0,1 --mem gShuttleTriggerY=choice:99,100,101 \
+    --mem gVehPoints:0x80=rand --mem gVehPoints+0xC:1=0xFD --mem gVehPoints+4*0x10:3=choice:99,100,101 \
+    --mem gEffects:0x3C0=rand --mem gEffects+0x33*0x3C:16/1=bytes:0,1*3 --mem gFxTileSlots:16=bytes:0*2,1 \
+    --mem gFxSpawnTag:1=rand --mem gShuttleAnim:0x40=rand --sig snd_play=a0,a1,a2 --sig tex_queue_palette=a0,a1
+# shuttle_build_model: model placement (angles, mtx_build_model, veh_points_transform id 0xFD); regs pointer not compared
+shuttle_build_model: -n 300 --arg gp=sym:gShuttleState --heap 0x200 --heap 0x100 --mem gShuttleModel=rel:heap0 \
+    --mem @heap0=int:0:0x100 --mem @heap0+4=int:0:0x100 --mem @heap0+0x18=choice:0x80,0x40,0x100 \
+    --mem gShuttleMtxA=int --mem gShuttleMtxB=int --mem gBufferIndex:1=choice:0,1,0xFF \
+    --mem gShuttleState:0xA0=rand --mem gShuttlePos:12=rand --mem gShuttleHeading:8=rand --mem gModelRot:6=rand \
+    --sig veh_points_transform=a0,a1,a2,a3
+# followed: one point entry with one matrix, the gVehPoints record for 0xFD first
+shuttle_build_model: -n 200 --seed 1 --arg gp=sym:gShuttleState --heap 0x200 --heap 0x100 --mem gShuttleModel=rel:heap0 \
+    --mem @heap0=0x40 --mem @heap0+4=0x4C --mem @heap0+0x18=0x80 --mem @heap0+0x84=int \
+    --mem @heap0+0x40:6=rand --mem @heap0+0x46:2=1 --mem @heap0+0x48=choice:0,0x40 \
+    --mem gShuttleMtxA=rel:heap1 --mem gShuttleMtxB=rel:heap1+0x80 --mem gBufferIndex:1=choice:0,1 \
+    --mem gShuttleState:0xA0=rand --mem gShuttlePos:12=int:-0x10000:0x10000 --mem gShuttleHeading:8=rand --mem gModelRot:6=rand \
+    --mem gVehPoints:0x20=rand --mem gVehPoints=1 --mem gVehPoints+0xC:1=0xFD \
+    --follow mtx_build_model,veh_points_transform,mtx_chain_transform
+# shuttle_update: per-frame driver
+shuttle_update: -n 300 --mem gShuttleState:0xA0=rand --mem gShuttleState+0x9A:1=choice:0,1 --mem gBufferIndex:1=choice:0,1,0x80 \
+    --mem gShuttleMtxA=int --mem gShuttleMtxB=int --sig shuttle_follow_path= --sig shuttle_update_volume= --sig shuttle_update_events= --sig shuttle_build_model=
+shuttle_update: -n 200 --seed 1 --heap 0x200 --heap 0x100 --mem gShuttleModel=rel:heap0 \
+    --mem @heap0=0x40 --mem @heap0+4=0x4C --mem @heap0+0x18=0x80 --mem @heap0+0x84=int \
+    --mem @heap0+0x40:6=rand --mem @heap0+0x46:2=1 --mem @heap0+0x48=choice:0,0x40 \
+    --mem gShuttleMtxA=rel:heap1 --mem gShuttleMtxB=rel:heap1+0x80 --mem gBufferIndex:1=choice:0,1 \
+    --mem gShuttleState:0xA0=rand --mem gShuttleState+0x9A:1=choice:0,1 --mem gShuttlePos:12=int:-0x10000:0x10000 \
+    --mem gShuttleHeading:8=rand --mem gModelRot:6=rand \
+    --mem gVehPoints:0x20=rand --mem gVehPoints=1 --mem gVehPoints+0xC:1=0xFD \
+    --sig shuttle_follow_path= --sig shuttle_update_volume= --sig shuttle_update_events= \
+    --follow shuttle_build_model,mtx_build_model,veh_points_transform,mtx_chain_transform
+# shuttle_spawn: vehicle 0xFD setup (header in s2); sound mode gShuttlePathKind 0/1 only (other values hit the asm's syscall);
+# the sound calls keep f0 (0.0 from the asm's mtc1; anim_set_frame gets it in mode 0)
+shuttle_spawn: -n 300 --heap 0x100 --arg s2=rel:heap0 --mem @heap0+0x18=0x40 --mem @heap0+0x44=int \
+    --mem gHeapPtr=int:0x80100000:0x80200000 --mem gShuttleState:0xA0=rand --mem gShuttleModel:0x28=rand --mem gShuttlePathKind:1=choice:0,1 \
+    --stub-preserve snd_play=f0 --stub-preserve snd_modify=f0 \
+    --sig anim_play=a0,a1,a2 --sig anim_set_speed=a0,a1,a2 --sig anim_set_reverse=a0,a1,a2 --sig anim_set_loop_mode=a0,a1,a2 \
+    --sig anim_rewind=a0,a1 --sig anim_update_model=a0,a1,a2 --sig shuttle_update= --sig util_shuttle_path_init= --sig mtx_copy_at=a0,a1,a2 \
+    --sig veh_add_shadow=a0:1,a1,a2:2,a3:2 --sig snd_play=a0,a1:2,a2 --sig snd_modify=a0,a1:2,a2
+# followed: channel setters, matrix copy and the whole per-frame update shuttle_update (its callees stubbed)
+shuttle_spawn: -n 200 --seed 1 --heap 0x100 --heap 0x1000 --arg s2=rel:heap0 --mem @heap0+0x18=0x40 --mem @heap0+0x44=choice:0,0x40,0x80 \
+    --mem gHeapPtr=rel:heap1 --mem gShuttleState:0xA0=rand --mem gShuttlePos:0x34=rand --mem gShuttlePathKind:1=choice:0,1 --mem gBufferIndex:1=choice:0,1 \
+    --mem gShuttleAnim:0x300=rand --stub-preserve snd_play=f0 --stub-preserve snd_modify=f0 \
+    --follow anim_play,anim_rewind,anim_set_frame,anim_set_speed,anim_set_reverse,anim_set_loop_mode,anim_set_interp,mtx_copy_at,shuttle_update \
+    --sig anim_update_model=a0,a1,a2 --sig util_shuttle_path_init= --sig veh_add_shadow=a0:1,a1,a2:2,a3:2 --sig snd_play=a0,a1:2,a2 \
+    --sig snd_modify=a0,a1:2,a2 --sig shuttle_follow_path= --sig shuttle_update_volume= --sig shuttle_update_events= --sig shuttle_build_model=

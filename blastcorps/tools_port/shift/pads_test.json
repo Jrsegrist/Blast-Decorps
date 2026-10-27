@@ -1,0 +1,13 @@
+{
+  "_doc": "shift-test padding (docs/shiftable.md). ram: SEG -> {text|data|bss: [[before_unit, bytes]]} (unit ordinals count within that section; text/data pads are assembled objects: a dummy function / a data object, bss pads are space). rom: pads [[before_rom_offset, bytes]], add [{before, name, size}] (a new file), drop [rom_offset] (units nothing refers to: here the 11 zero bytes between the last building model and the static segment). The texture-area pad (0x2D9750) follows a texture the test run never loads: a texture's DMA length is the distance to the next table entry, so bytes inserted after a texture are read and decoded as part of it.",
+  "ram": {
+    "init": {"text": [[1, 32]], "bss": [[0, 16]]},
+    "hd_code": {"text": [[0, 64], [58, 32]], "data": [[0, 32], [3, 16]], "bss": [[0, 48], [5, 16]]},
+    "hd_front_end": {"text": [[0, 64]], "data": [[0, 32]], "bss": [[0, 32]]}
+  },
+  "rom": {
+    "pads": [["0x2D9750", 16], ["0x4A5660", 16], ["0x6ECCC0", 32]],
+    "add": [{"before": "0x787F35", "name": "shift_test_file", "size": 256}],
+    "drop": ["0x787F35"]
+  }
+}

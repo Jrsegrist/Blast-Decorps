@@ -1,0 +1,9 @@
+# tools_port/vermap.py: us.v11 address = us.v10 address (or none), for what the
+# code comparison can't settle (the code that uses it changed).
+0x803F7812 = none  # gCollExitProbe: new in us.v11 (driver_try_exit sets it, obj_hit_tri tests it)
+0x8021A828 = none  # gBestItemCount: new in us.v11 (bestTimes.c; us.v10 reads the menu header's count)
+0x802153E8 = none  # gDiggerPrevVehicle: new in us.v11 (digger_loop.c: B restores the vehicle)
+# digger_loop.c's other .bss around it (only the changed digger code refers to them)
+0x802153E4 = 0x802153B4  # gDiggerScrollLeft
+0x802153E6 = 0x802153B6  # gDiggerScrollRight
+0x802153EC = 0x802153B8  # gDiggerArrowPulse (after the missing gDiggerPrevVehicle)

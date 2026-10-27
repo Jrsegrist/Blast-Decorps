@@ -1,0 +1,24 @@
+# 60D50: cam_apply_height_zone (highest HeightZone containing the player) and
+# cam_load_level_defaults (per-level s16 triple lookup)
+
+# cam_apply_height_zone(level): words at level+0x40 / +0x44 are the start/end offsets of a list
+# of 0xA-byte HeightZones (end must be start + n*10); here the list starts at +0x50
+cam_apply_height_zone: -n 400 --ret void --arg a0=0x80B00000 --mem 0x80B00040=0x50 --mem 0x80B00044=choice:0x50,0x5A,0x6E,0xA0,0xF0 --mem 0x80B00050:160=halves:0,1,2,3,0xFFFF,0x7FFF,0x8000,0xBB8 --mem gPlayerX=choice:0,32,64,96,-32,-1,96000,0x7FFFFFFF --mem gPlayerZ=choice:0,32,64,96,-32,-1,96000,0x7FFFFFFF --mem gCamHeightBase:2=int:0:0xFFFF --mem gCamNoHeightZone:1=int:0:255 --mem gCamHeight:2=int:0:0xFFFF
+# dense hits: all boxes contain px,pz in 0..3
+cam_apply_height_zone: -n 200 --seed 1 --ret void --arg a0=0x80B00000 --mem 0x80B00040=0x50 --mem 0x80B00044=choice:0x50,0x5A,0x6E,0xA0 --mem 0x80B00050:160=halves:0,1,2,3 --mem gPlayerX=choice:0,32,64,96 --mem gPlayerZ=choice:0,32,64,96 --mem gCamHeightBase:2=int:0:0xFFFF
+# one box always containing the player; height = sentinel 3000 (0xBB8), its neighbours, extremes
+cam_apply_height_zone: -n 200 --seed 2 --ret void --arg a0=0x80B00000 --mem 0x80B00040=0x50 --mem 0x80B00044=0x5A --mem 0x80B00050:8=halves:0 --mem 0x80B00054:4=halves:0x7FFF --mem 0x80B00058:2=halves:0xBB8,0xBB7,0xBB9,0xFFFF,0x8000,0x7FFF --mem gPlayerX=choice:0,32 --mem gPlayerZ=choice:0,32 --mem gCamHeightBase:2=int:0:0xFFFF
+# same as the first run, written with a ptr block and @a0-relative --mem targets
+cam_apply_height_zone: -n 200 --seed 3 --ret void --arg a0=ptr:0x100 --mem @a0+0x40=0x50 --mem @a0+0x44=choice:0x50,0x5A*2,0x6E,0xA0,0xF0 --mem @a0+0x50:160=halves:0,1,2,3,0xFFFF,0x7FFF,0x8000,0xBB8 --mem gPlayerX=choice:0,32,64,96,-32,-1,96000,0x7FFFFFFF --mem gPlayerZ=choice:0,32,64,96,-32,-1,96000,0x7FFFFFFF --mem gCamHeightBase:2=int:0:0xFFFF --mem gCamNoHeightZone:1=int:0:255 --mem gCamHeight:2=int:0:0xFFFF
+
+cam_load_level_defaults: -n 300 --mem gStartVehicle:1=int:0:255 --mem gVehCamDefaults:1536=halves:0,1,0x7FFF,0x8000,0xFFFF,0x1234
+
+# chopper_find_cruise_height(level): HeightZone list at level+0x44 / +0x48 (start/end offsets), point
+# (gChopperX, gChopperZ) >> 5 logical; result (best or -1) << 5 in gChopperCruiseY
+chopper_find_cruise_height: -n 400 --ret void --arg a0=ptr:0x100 --mem @a0+0x44=0x50 --mem @a0+0x48=choice:0x50,0x5A*2,0x6E,0xA0,0xF0 --mem @a0+0x50:160=halves:0,1,2,3,0xFFFF,0x7FFF,0x8000,0xBB8 --mem gChopperX=choice:0,32,64,96,-32,-1,96000,0x7FFFFFFF --mem gChopperZ=choice:0,32,64,96,-32,-1,96000,0x7FFFFFFF --mem gChopperCruiseY=int
+# dense hits: every box contains the point in 0..3
+chopper_find_cruise_height: -n 200 --seed 1 --ret void --arg a0=ptr:0x100 --mem @a0+0x44=0x50 --mem @a0+0x48=choice:0x50,0x5A,0x6E,0xA0 --mem @a0+0x50:160=halves:0,1,2,3 --mem gChopperX=choice:0,32,64,96 --mem gChopperZ=choice:0,32,64,96
+# one box always containing the point; height extremes (-1 ties the start value, 0x8000 is below it)
+chopper_find_cruise_height: -n 200 --seed 2 --ret void --arg a0=ptr:0x100 --mem @a0+0x44=0x50 --mem @a0+0x48=0x5A --mem @a0+0x50:4=halves:0 --mem @a0+0x54:4=halves:0x7FFF --mem @a0+0x58:2=halves:0,1,0xFFFF,0xFFFE,0x8000,0x7FFF --mem gChopperX=choice:0,32 --mem gChopperZ=choice:0,32
+# the point on each edge of a box (inclusive bounds) and just outside
+chopper_find_cruise_height: -n 200 --seed 3 --ret void --arg a0=ptr:0x100 --mem @a0+0x44=0x50 --mem @a0+0x48=0x5A --mem @a0+0x50:2=halves:2 --mem @a0+0x52:2=halves:2 --mem @a0+0x54:2=halves:4 --mem @a0+0x56:2=halves:4 --mem @a0+0x58:2=halves:7 --mem gChopperX=choice:32,63,64,128,159,160,31 --mem gChopperZ=choice:32,63,64,128,159,160,31

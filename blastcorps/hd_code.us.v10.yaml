@@ -1,0 +1,341 @@
+# splat's split of hd_code, the game: text (to 0xA4410) and data, inflated by
+# init's boot from the ROM's hd_code_text and hd_code_data members
+options:
+  # generated from hd_code.us.v11.yaml by tools_port/vermap.py: do not edit (the comments,
+  # and the offsets in the file names, are us.v11's)
+  build_path: build/us.v10
+  asm_path: asm/us.v10
+  asset_path: assets/us.v10
+  basename: hd_code.us.v10
+  target_path: hd_code.us.v10.bin          # the inflated segment (top-level `make extract`)
+  base_path: .
+  src_path: src.us.v11
+  compiler: IDO
+  symbol_addrs_path: symbol_addrs.hd_code.us.v10.txt
+  undefined_funcs_auto_path: undefined_funcs_auto.hd_code.us.v10.txt
+  undefined_syms_auto_path: undefined_syms_auto.hd_code.us.v10.txt
+  find_file_boundaries: true
+  create_detected_syms: true
+segments:
+  - name: hd_code
+    type: code
+    start: 0x0
+    vram: 0x802447C0
+    subsegments:
+    - [0x00000, c, hd_code/00000]
+    - [0x12D80, c, hd_code/12D80]
+    - [0x13A70, c, hd_code/13A70]
+    - [0x14B30, c, hd_code/14B30]
+    - [0x168B0, c, hd_code/168B0] # font.c (from its assert strings)
+    - [0x17210, c, hd_code/17210] # recording.c (from its assert strings)
+    - [0x17A70, c, hd_code/17A70]
+    - [0x17E10, c, hd_code/17E10]
+    - [0x1A630, c, hd_code/1A630] # Rare sound player (GoldenEye snd.c ancestor)
+    - [0x1C460, c, hd_code/1C460]
+    - [0x1D990, c, hd_code/1D990]
+    - [0x20460, c, hd_code/20460]
+    - [0x22EE0, c, hd_code/22EE0] # audio.c (Rare-modified SDK audiomgr.c)
+    - [0x23C20, c, hd_code/23C20]
+    - [0x26570, c, hd_code/26570] # yoshi.c (from its assert strings)
+    - [0x2C560, c, hd_code/2C560] # scheduler (Rare-modified SDK sched.c)
+    - [0x2D810, c, hd_code/2D810] # the file after sched.c (own .rodata and .bss)
+    - [0x2E490, c, hd_code/2E490]
+    - [0x30430, c, hd_code/30430] # fade.c (from its assert strings)
+    - [0x30C70, c, hd_code/30C70] # rodata is constants only
+    - [0x32E00, c, hd_code/32E00] # own .rodata (strings, jump table) and .bss (0x8036C8D0)
+    - [0x34430, c, hd_code/34430] # mb.c (from its assert strings)
+    - [0x37530, c, hd_code/37530] # rodata is constants only
+    - [0x39050, c, hd_code/39050]
+    - [0x3E4C0, c, hd_code/3E4C0]
+    - [0x405F0, c, hd_code/405F0]
+    - [0x409D0, c, hd_code/409D0]
+    - [0x41930, c, hd_code/41930]
+    - [0x42240, c, hd_code/42240]
+    - [0x43A60, c, hd_code/43A60]
+    - [0x45BB0, c, hd_code/45BB0]
+    - [0x46C20, c, hd_code/46C20]
+    - [0x46F60, c, hd_code/46F60]
+    - [0x479D0, c, hd_code/479D0]
+    - [0x48D00, c, hd_code/48D00]
+    - [0x4B5E0, c, hd_code/4B5E0]
+    - [0x4DA80, c, hd_code/4DA80]
+    - [0x4EBE0, c, hd_code/4EBE0]
+    - [0x50670, c, hd_code/50670] # ghostdigger.c
+    - [0x51690, c, hd_code/51690]
+    - [0x52D70, c, hd_code/52D70]
+    - [0x53220, c, hd_code/53220]
+    - [0x54E30, c, hd_code/54E30]
+    - [0x55970, c, hd_code/55970]
+    - [0x55D40, c, hd_code/55D40]
+    - [0x56010, c, hd_code/56010]
+    - [0x56040, c, hd_code/56040]
+    - [0x5BF40, c, hd_code/5BF40]
+    - [0x5CB60, c, hd_code/5CB60]
+    - [0x5FD40, c, hd_code/5FD50]
+    - [0x60D40, c, hd_code/60D50]
+    - [0x60F50, c, hd_code/60F60]
+    - [0x62730, c, hd_code/62740]
+    - [0x67960, c, hd_code/679E0]
+    - [0x68790, bin, hd_code/68810] # u16 table gAtanTable (read by math_atan); its last 5 words are in 69000.c
+    - [0x68F80, c, hd_code/69000] # hand asm: asin lookup (math_asin_c/math_asin); unit starts 0x14 early for 16-alignment
+    - [0x69040, bin, hd_code/690C0] # asin tables gAsinTable (1025 x u16) + gAsinSteepTable (64 x u16); its last 5 words are in 69930.c
+    - [0x698B0, c, hd_code/69930] # hand asm: fixed-point sin/cos (math_cos/math_sin + float cores); starts 0x14 early
+    - [0x69B30, c, hd_code/69BB0]
+    - [0x6B400, c, hd_code/6B4A0]
+    - [0x6C540, c, hd_code/6C5E0]
+    - [0x6E160, c, hd_code/6E200]
+    - [0x710A0, c, hd_code/71140]
+    - [0x72AE0, c, hd_code/72B80]
+    - [0x753F0, c, hd_code/75490]
+    - [0x77200, c, hd_code/772A0]
+    - [0x77D80, c, hd_code/77E20]
+    - [0x7D920, bin, hd_code/7D9D0_data] # data inside .text (tables used by the hand asm, gRamdozerTrackTexAnimA..gFxDefsByKind)
+    - [0x7F800, c, hd_code/7F8B0] # hand asm: decompressor + sound-effect wrappers (lzss_decompress..veh_update_horn)
+    - [0x80030, bin, hd_code/800E0_data] # more data inside .text (pointer table at 0x802C48A0, gParticleDefs)
+    - [0x801D0, c, hd_code/7FB50]
+    - [0x83860, c, hd_code/83910]
+    - [0x85320, c, hd_code/853D0]
+    - [0x86E20, c, hd_code/86ED0]
+    - [0x86EB0, c, hd_code/86F60]
+    - [0x880B0, c, hd_code/88160]
+    - [0x891A0, c, hd_code/89250]
+    - [0x89FD0, c, hd_code/8A080]
+    - [0x8A230, c, hd_code/8A2E0]
+    - [0x8AE30, c, hd_code/8AEE0]
+    - [0x8DD00, c, hd_code/8DDB0]
+    - [0x8E860, bin, hd_code/8E910] # data in the text, kept as bytes
+    - [0x8F7B0, c, hd_code/ul_initialize]  # src/os/initialize.c, old SDK
+    - [0x8F9E0, c, hd_code/ul_pirawread]
+    - [0x8FA40, c, hd_code/ul_createthread]
+    - [0x8FB90, c, hd_code/ul_startthread]
+    - [0x8FCE0, c, hd_code/8FD90]
+    - [0x8FCF0, c, hd_code/ul_pimgr]  # src/io/pimgr.c, old SDK (no EPI)
+    - [0x8FE70, c, hd_code/ul_setthreadpri]
+    - [0x8FF50, c, hd_code/ul_sendmesg]
+    - [0x900A0, c, hd_code/ul_recvmesg]
+    - [0x901E0, c, hd_code/ul_viblack]
+    - [0x90250, c, hd_code/ul_gettime]
+    - [0x902E0, c, hd_code/ul_ll]
+    - [0x905A0, c, hd_code/ul_cspgetstate]
+    - [0x905B0, c, hd_code/ul_virtualtophysical]
+    - [0x90630, c, hd_code/906E0]
+    - [0x906B0, c, hd_code/ul_translate]
+    - [0x90750, c, hd_code/ul_ortho]
+    - [0x90910, c, hd_code/ul_perspective]  # src/gu/perspective.c
+    - [0x90BA0, c, hd_code/ul_rotate]  # src/gu/rotate.c
+    - [0x90D90, c, hd_code/ul_mtxcatf]
+    - [0x90FA0, c, hd_code/ul_mtxutil]
+    - [0x91210, c, hd_code/ul_scale]
+    - [0x912B0, c, hd_code/ul_lookatref]  # src/gu/lookatref.c, old FTOFRAC8
+    - [0x91770, c, hd_code/91820]
+    - [0x91780, c, hd_code/ul_lookat]
+    - [0x91AB0, c, hd_code/ul_sinf]  # src/gu/sinf.c
+    - [0x91C70, c, hd_code/ul_createmesgqueue]
+    - [0x91CA0, bin, hd_code/91D50] # 0x40 zero bytes between objects
+    - [0x91CE0, c, hd_code/ul_visetspecial]
+    - [0x91EA0, c, hd_code/91F50]
+    - [0x91ED0, c, hd_code/91F80]
+    - [0x91F80, c, hd_code/ul_destroythread]  # src/os/destroythread.c, old SDK
+    - [0x92080, c, hd_code/ul_cosf]  # src/gu/cosf.c
+    - [0x921F0, c, hd_code/ul_sprintf]  # src/libc/sprintf.c (libc at -O1 in this SDK)
+    - [0x922A0, c, hd_code/ul_heapalloc]
+    - [0x92300, c, hd_code/ul_event]
+    - [0x92640, c, hd_code/ul_sl]  # src/audio/sl.c
+    - [0x92700, c, hd_code/ul_synaddplayer]
+    - [0x92750, c, hd_code/ul_synallocvoice]
+    - [0x92980, c, hd_code/ul_synsetvol]
+    - [0x92A20, c, hd_code/ul_synstartvoice]
+    - [0x92AB0, c, hd_code/ul_synsetpan]
+    - [0x92B40, c, hd_code/ul_synsetpitch]
+    - [0x92BD0, c, hd_code/ul_synsetfxmix]
+    - [0x92C70, c, hd_code/ul_synstopvoice]
+    - [0x92CF0, c, hd_code/ul_synfreevoice]
+    - [0x92DA0, c, hd_code/ul_cents2ratio]  # src/audio/cents2ratio.c
+    - [0x92DF0, c, hd_code/92EA0]
+    - [0x92E50, c, hd_code/ul_cspstop]
+    - [0x92E80, c, hd_code/ul_cseq]  # src/audio/cseq.c
+    - [0x93940, c, hd_code/ul_cspsetseq]
+    - [0x93980, c, hd_code/ul_cspplay]
+    - [0x939B0, c, hd_code/ul_cspsetvol]
+    - [0x939F0, c, hd_code/ul_cspgettempo]
+    - [0x93A30, c, hd_code/ul_cspsettempo]
+    - [0x93AA0, c, hd_code/93B50]
+    - [0x93AB0, c, hd_code/ul_heapinit]
+    - [0x93AF0, c, hd_code/ul_bnkf]
+    - [0x93D40, c, hd_code/ul_csplayer]  # src/audio/csplayer.c
+    - [0x94F70, c, hd_code/ul_cspsetbank]
+    - [0x94FB0, c, hd_code/95060]
+    - [0x94FC0, c, hd_code/ul_sins]  # src/gu/sins.c
+    - [0x95030, c, hd_code/ul_coss]
+    - [0x95060, c, hd_code/ul_vi]  # src/io/vi.c, old SDK
+    - [0x95190, c, hd_code/ul_aisetfreq]
+    - [0x952F0, c, hd_code/ul_aisetnextbuf]  # src/io/aisetnextbuf.c, old SDK
+    - [0x953A0, c, hd_code/ul_aigetlen]
+    - [0x953B0, c, hd_code/ul_synthesizer]  # src/audio/synthesizer.c, old alAudioFrame
+    - [0x95A80, c, hd_code/ul_pidma]  # src/io/pidma.c, old SDK (no piHandle)
+    - [0x95B90, c, hd_code/ul_llcvt]  # src/libc/llcvt.c
+    - [0x95DA0, c, hd_code/ul_vimgr]  # src/io/vimgr.c, old SDK (no EPI, short OSIoMesg)
+    - [0x96100, c, hd_code/ul_visetmode]
+    - [0x96170, c, hd_code/ul_seteventmesg]  # src/os/seteventmesg.c
+    - [0x961E0, c, hd_code/ul_visetevent]
+    - [0x96250, c, hd_code/96300]
+    - [0x96260, c, hd_code/ul_vigetcurrframebuf]
+    - [0x962A0, c, hd_code/ul_vigetnextframebuf]
+    - [0x962E0, c, hd_code/ul_viswapbuf]
+    - [0x96330, c, hd_code/ul_settimer]
+    - [0x96410, c, hd_code/ul_sptaskyielded]
+    - [0x96490, c, hd_code/ul_sptask]  # src/io/sptask.c, old osSpTaskLoad
+    - [0x96750, c, hd_code/ul_sptaskyield]
+    - [0x96770, c, hd_code/ul_mtxcatl]
+    - [0x96830, c, hd_code/ul_controller]  # src/io/controller.c, old SDK
+    - [0x96BF0, c, hd_code/ul_contsetch]
+    - [0x96C60, c, hd_code/ul_contreaddata]  # src/io/contreaddata.c, old SDK
+    - [0x96EC0, c, hd_code/96F70]
+    - [0x96F40, c, hd_code/96FF0]
+    - [0x96FE0, c, hd_code/ul_contquery]
+    - [0x97090, c, hd_code/ul_normalize]
+    - [0x97120, c, hd_code/971D0]
+    - [0x97140, c, hd_code/971F0]
+    - [0x97150, c, hd_code/ul_sirawread]
+    - [0x971A0, c, hd_code/ul_sirawwrite]
+    - [0x971F0, c, hd_code/972A0]
+    - [0x97AC0, c, hd_code/97B70]
+    - [0x97B00, c, hd_code/ul_thread]  # src/os/thread.c
+    - [0x97B40, c, hd_code/ul_piacs]  # src/io/piacs.c
+    - [0x97C00, c, hd_code/ul_getthreadpri]
+    - [0x97C20, c, hd_code/ul_pirawdma]
+    - [0x97D00, c, hd_code/ul_devmgr]  # src/io/devmgr.c, old SDK (no EPI/64DD)
+    - [0x97E80, c, hd_code/ul_timerintr]  # src/os/timerintr.c
+    - [0x98280, c, hd_code/98330]
+    - [0x98340, c, hd_code/ul_xprintf]  # src/libc/xprintf.c, old _Printf (-O1)
+    - [0x994D0, c, hd_code/ul_string]
+    - [0x99570, c, hd_code/ul_copy]
+    - [0x995F0, c, hd_code/996A0]
+    - [0x99600, c, hd_code/ul_seqplayer]  # src/audio/seqplayer.c
+    - [0x9AF40, c, hd_code/ul_synstartvoiceparam]
+    - [0x9B030, c, hd_code/ul_viswapcontext]
+    - [0x9B390, c, hd_code/ul_ai]
+    - [0x9B3C0, c, hd_code/ul_drvrnew]  # src/audio/drvrnew.c, old alFxNew
+    - [0x9BB40, c, hd_code/ul_synallocfx]
+    - [0x9BBE0, c, hd_code/ul_mainbus]
+    - [0x9BD30, c, hd_code/ul_load]
+    - [0x9C880, c, hd_code/ul_resample]  # src/audio/resample.c
+    - [0x9CB80, c, hd_code/ul_env]  # src/audio/env.c, old linear envelope + Rare asserts
+    - [0x9D760, c, hd_code/ul_auxbus]
+    - [0x9D870, c, hd_code/ul_save]
+    - [0x9D930, c, hd_code/ul_jammesg]
+    - [0x9DA80, c, hd_code/ul_pigetcmdq]
+    - [0x9DAB0, c, hd_code/ul_vigetcurrcontext]
+    - [0x9DAC0, c, hd_code/9DB70]
+    - [0x9DAD0, c, hd_code/9DB80]
+    - [0x9DDF0, c, hd_code/ul_spsetpc]
+    - [0x9DE30, c, hd_code/ul_sprawdma]
+    - [0x9DEC0, c, hd_code/ul_sp]
+    - [0x9DEF0, c, hd_code/ul_sirawdma]
+    - [0x9DFA0, c, hd_code/ul_siacs]  # src/io/siacs.c
+    - [0x9E060, c, hd_code/ul_si]
+    - [0x9E090, c, hd_code/ul_kdebugserver]  # src/debug/kdebugserver.c, old SDK
+    - [0x9E510, c, hd_code/ul_syncputchars]  # src/os/syncputchars.c, old rdbPacket
+    - [0x9E640, c, hd_code/9E6F0]
+    - [0x9E650, c, hd_code/ul_xlitob]  # src/libc/xlitob.c (-O1)
+    - [0x9E950, c, hd_code/ul_xldtob]  # src/libc/xldtob.c (-O1)
+    - [0x9F720, c, hd_code/ul_seq]  # src/audio/seq.c
+    - [0x9FD40, c, hd_code/ul_synsetpriority]
+    - [0x9FD50, c, hd_code/ul_filter]
+    - [0x9FD70, c, hd_code/ul_reverb]  # src/audio/reverb.c, old alFxParamHdl
+    - [0xA0980, c, hd_code/A0A30]
+    - [0xA0990, c, hd_code/ul_atomic]
+    - [0xA09F0, c, hd_code/ul_ldiv]  # src/libc/ldiv.c, lldiv first
+    - [0xA0B80, bin, hd_code/A0C30] # more data (RSP boot microcode first)
+    - [0xA4360, linker, data]
+    - [0xA4360, bin, hd_code/hd_code_data] # the data segment (start of the hd_code_data member)
+    - [0xA4470, .data, hd_code/1A630]
+    - [0xA4480, bin, hd_code/hd_code_data_A4530]
+    - [0xAF280, .data, hd_code/22EE0]
+    - [0xAF3A0, bin, hd_code/hd_code_data_AF450]
+    - [0xB92A0, .data, hd_code/45BB0]
+    - [0xB92C0, bin, hd_code/hd_code_data_B9370]
+    - [0xC13A0, .data, hd_code/60F60] # gFxCachedDefs (definition list into the 7D9D0 text tables) + 2 strings
+    - [0xC13E0, bin, hd_code/hd_code_data_C1490]
+    - [0xC1D20, .data, hd_code/ul_initialize]
+    - [0xC1D30, .data, hd_code/ul_pimgr]
+    - [0xC1D50, .data, hd_code/ul_sl]
+    - [0xC1D60, .data, hd_code/ul_sins]
+    - [0xC2560, .data, hd_code/ul_vi]
+    - [0xC25D0, .data, hd_code/ul_aisetnextbuf]
+    - [0xC25E0, .data, hd_code/ul_vimgr]
+    - [0xC2600, bin, hd_code/hd_code_data_C26B0]
+    - [0xC2EC0, .data, hd_code/ul_controller]
+    - [0xC2ED0, bin, hd_code/hd_code_data_C2F80]
+    - [0xC2EF0, .data, hd_code/ul_thread]
+    - [0xC2F10, .data, hd_code/ul_piacs]
+    - [0xC2F20, .data, hd_code/ul_timerintr]
+    - [0xC2F30, .data, hd_code/ul_xprintf]
+    - [0xC2F80, bin, hd_code/hd_code_data_C3030]
+    - [0xC3020, .data, hd_code/ul_drvrnew]
+    - [0xC31B0, .data, hd_code/ul_env]
+    - [0xC32B0, .data, hd_code/ul_siacs]
+    - [0xC32C0, .data, hd_code/ul_kdebugserver]
+    - [0xC32D0, .data, hd_code/ul_syncputchars]
+    - [0xC32E0, .data, hd_code/ul_xlitob]
+    - [0xC3310, bin, hd_code/hd_code_data_C33C0]
+    - [0xC3320, .rodata, hd_code/00000] # hd.c
+    - [0xC4470, .rodata, hd_code/14B30] # drawtext.c
+    - [0xC4670, .rodata, hd_code/168B0]
+    - [0xC4720, .rodata, hd_code/17210]
+    - [0xC47C0, .rodata, hd_code/17A70]
+    - [0xC4800, .rodata, hd_code/17E10]
+    - [0xC4830, .rodata, hd_code/1A630]
+    - [0xC4980, .rodata, hd_code/1C460]
+    - [0xC4A40, .rodata, hd_code/1D990]
+    - [0xC4DD0, .rodata, hd_code/20460]
+    - [0xC4E90, .rodata, hd_code/22EE0]
+    - [0xC4FC0, .rodata, hd_code/23C20]
+    - [0xC5160, bin, hd_code/hd_code_data_C5210]
+    - [0xC72E0, .rodata, hd_code/26570]
+    - [0xC77B0, .rodata, hd_code/2C560]
+    - [0xC7C60, .rodata, hd_code/2D810]
+    - [0xC7C80, .rodata, hd_code/30430]
+    - [0xC7CD0, .rodata, hd_code/30C70]
+    - [0xC7D00, .rodata, hd_code/32E00]
+    - [0xC7DA0, .rodata, hd_code/34430]
+    - [0xC7E60, .rodata, hd_code/37530]
+    - [0xC7E70, .rodata, hd_code/39050]
+    - [0xC7F80, .rodata, hd_code/3E4C0]
+    - [0xC8020, .rodata, hd_code/405F0]
+    - [0xC8040, .rodata, hd_code/409D0]
+    - [0xC8160, .rodata, hd_code/41930]
+    - [0xC8330, .rodata, hd_code/42240]
+    - [0xC8340, .rodata, hd_code/43A60]
+    - [0xC8360, .rodata, hd_code/45BB0]
+    - [0xC8430, .rodata, hd_code/46C20]
+    - [0xC8440, .rodata, hd_code/46F60]
+    - [0xC8470, .rodata, hd_code/48D00]
+    - [0xC8480, .rodata, hd_code/4DA80]
+    - [0xC84C0, .rodata, hd_code/4EBE0]
+    - [0xC84F0, .rodata, hd_code/50670]
+    - [0xC8570, bin, hd_code/hd_code_data_C8620]
+    - [0xC8D10, .rodata, hd_code/54E30]
+    - [0xC9000, bin, hd_code/hd_code_data_C90B0]
+    - [0xC9180, .rodata, hd_code/ul_perspective]
+    - [0xC9190, .rodata, hd_code/ul_rotate]
+    - [0xC91A0, .rodata, hd_code/ul_lookatref]
+    - [0xC91B0, .rodata, hd_code/ul_sinf]
+    - [0xC9200, .rodata, hd_code/ul_cosf]
+    - [0xC9250, .rodata, hd_code/ul_cents2ratio]
+    - [0xC9260, bin, hd_code/hd_code_data_C9310]
+    - [0xC92E0, .rodata, hd_code/ul_cseq]
+    - [0xC92F0, .rodata, hd_code/ul_csplayer]
+    - [0xC9530, .rodata, hd_code/ul_synthesizer]
+    - [0xC9540, .rodata, hd_code/ul_llcvt]
+    - [0xC9550, bin, hd_code/hd_code_data_C9600]
+    - [0xC95B0, .rodata, hd_code/ul_xprintf]
+    - [0xC96B0, .rodata, hd_code/ul_seqplayer]
+    - [0xC98F0, .rodata, hd_code/ul_drvrnew]
+    - [0xC9920, .rodata, hd_code/ul_resample]
+    - [0xC9960, .rodata, hd_code/ul_env]
+    - [0xC9A80, .rodata, hd_code/ul_xldtob]
+    - [0xC9AE0, .rodata, hd_code/ul_seq]
+    - [0xC9AF0, .rodata, hd_code/ul_reverb]
+    - [0xC9B20, bin, hd_code/hd_code_data_C9BD0]
+  - [0xCADF0]

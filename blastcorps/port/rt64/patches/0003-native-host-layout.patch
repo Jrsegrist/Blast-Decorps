@@ -1,0 +1,379 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index d423a9c..675cb82 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -10,6 +10,10 @@ endif()
+ 
+ option(RT64_STATIC "Build RT64 as a static library" OFF)
+ 
++option(RT64_NATIVE_HOST_LAYOUT "RDRAM is a native port's host memory (see src/common/rt64_rdram_layout.h)" OFF)
++if (${RT64_NATIVE_HOST_LAYOUT})
++    add_compile_definitions(RT64_NATIVE_HOST_LAYOUT)
++endif()
+ 
+ option(RT64_SDL_WINDOW_VULKAN "Build RT64 to expect an SDL Window outside of Windows" OFF)
+ 
+diff --git a/src/common/rt64_rdram_layout.h b/src/common/rt64_rdram_layout.h
+new file mode 100644
+index 0000000..f4b527f
+--- /dev/null
++++ b/src/common/rt64_rdram_layout.h
+@@ -0,0 +1,51 @@
++//
++// RT64
++//
++
++#pragma once
++
++#include <stdint.h>
++
++// How the RDRAM buffer handed to RT64 is laid out.
++//
++// Default (emulator layout): every 32-bit word is stored as a host-endian uint32_t holding the
++// big-endian word, so the N64 byte at address A lives at RDRAM[A ^ 3] and the halfword at RDRAM[A ^ 2].
++//
++// RT64_NATIVE_HOST_LAYOUT (for native ports that run the game's own code on a little-endian host
++// and use their memory as RDRAM directly):
++//  - structures the game builds or reads field by field (Gfx, Mtx, Vtx, Vp, Light, LookAt) have
++//    host-endian fields in their declared order: the halfword at A is at RDRAM[A], a Vtx is
++//    {x, y, z, flag, s, t, r, g, b, a};
++//  - byte streams (textures, palettes, colour and depth images, microcode) are big-endian bytes:
++//    the N64 byte at A is RDRAM[A].
++// 32-bit words (display list commands, Mtx elements, addresses) are host-endian uint32_t in both.
++
++#ifdef RT64_NATIVE_HOST_LAYOUT
++#   define RT64_RDRAM_BYTE_XOR 0
++#   define RT64_RDRAM_HALF_XOR 0
++#else
++#   define RT64_RDRAM_BYTE_XOR 3
++#   define RT64_RDRAM_HALF_XOR 2
++#endif
++
++// Vp_t element indices for the x, y and z components.
++#ifdef RT64_NATIVE_HOST_LAYOUT
++#   define RT64_VP_X 0
++#   define RT64_VP_Y 1
++#   define RT64_VP_Z 2
++#else
++#   define RT64_VP_X 1
++#   define RT64_VP_Y 0
++#   define RT64_VP_Z 3
++#endif
++
++namespace RT64 {
++    // A word of light colour (G_MOVEWORD G_MW_LIGHTCOL: 0xRRGGBBxx) as stored in a Light.
++    inline uint32_t lightColorWord(uint32_t value) {
++#   ifdef RT64_NATIVE_HOST_LAYOUT
++        return ((value >> 24) & 0xFFU) | ((value >> 8) & 0xFF00U) | ((value << 8) & 0xFF0000U) | (value << 24);
++#   else
++        return value;
++#   endif
++    }
++};
+diff --git a/src/gbi/rt64_gbi.cpp b/src/gbi/rt64_gbi.cpp
+index 7006549..93a1a96 100644
+--- a/src/gbi/rt64_gbi.cpp
++++ b/src/gbi/rt64_gbi.cpp
+@@ -4,8 +4,13 @@
+ 
+ #include "rt64_gbi.h"
+ 
++#include <algorithm>
+ #include <cassert>
+ #include <cinttypes>
++#include <cstring>
++#include <vector>
++
++#include "common/rt64_rdram_layout.h"
+ 
+ #include "rt64_gbi_extended.h"
+ #include "rt64_gbi_f3d.h"
+@@ -397,7 +402,31 @@ namespace RT64 {
+         assert(RDRAM != nullptr);
+ 
+         int32_t textSegmentIndex = -1;
++#   ifdef RT64_NATIVE_HOST_LAYOUT
++        // The database hashes are of the emulator layout (host-endian words): convert the big-endian
++        // microcode bytes into that layout before hashing.
++        auto emulatorLayoutCopy = [&](uint32_t address, const auto &segments) {
++            uint32_t maxLength = 0;
++            for (const GBISegment &segment : segments) {
++                maxLength = std::max(maxLength, segment.hashLength);
++            }
++
++            std::vector<uint8_t> copy((maxLength + 3) & ~3U);
++            for (uint32_t i = 0; i < copy.size(); i += 4) {
++                const uint8_t *src = &RDRAM[address + i];
++                const uint32_t word = (uint32_t(src[0]) << 24) | (uint32_t(src[1]) << 16) | (uint32_t(src[2]) << 8) | uint32_t(src[3]);
++                memcpy(&copy[i], &word, sizeof(word));
++            }
++
++            return copy;
++        };
++
++        std::vector<uint8_t> textCopy = emulatorLayoutCopy(textAddress, textSegments);
++        std::vector<uint8_t> dataCopy = emulatorLayoutCopy(dataAddress, dataSegments);
++        uint8_t *rdramCursor = textCopy.data();
++#   else
+         uint8_t *rdramCursor = &RDRAM[textAddress];
++#   endif
+         uint32_t rdramHashed = 0;
+         uint64_t rdramHash = 0;
+         XXH3_state_t xxh3;
+@@ -428,7 +457,11 @@ namespace RT64 {
+ 
+         int32_t dataSegmentIndex = -1;
+         XXH3_64bits_reset(&xxh3);
++#   ifdef RT64_NATIVE_HOST_LAYOUT
++        rdramCursor = dataCopy.data();
++#   else
+         rdramCursor = &RDRAM[dataAddress];
++#   endif
+         rdramHashed = 0;
+         rdramHash = 0;
+         for (uint32_t i = 0; i < dataSegments.size(); i++) {
+@@ -516,7 +549,7 @@ namespace RT64 {
+         uint8_t dataSegmentBytes[0x800];
+         uint8_t *dataSegmentBytesEnd = dataSegmentBytes + std::size(dataSegmentBytes);
+         for (size_t i = 0; i < std::size(dataSegmentBytes); i++) {
+-            dataSegmentBytes[i] = RDRAM[(dataAddress + i) ^ 0x3];
++            dataSegmentBytes[i] = RDRAM[(dataAddress + i) ^ RT64_RDRAM_BYTE_XOR];
+         }
+ 
+         const uint8_t *searchResult = std::search(dataSegmentBytes, dataSegmentBytesEnd, rspPattern, rspPattern + std::size(rspPattern) - 1);
+diff --git a/src/hle/rt64_framebuffer.cpp b/src/hle/rt64_framebuffer.cpp
+index 873883d..dd2ac67 100644
+--- a/src/hle/rt64_framebuffer.cpp
++++ b/src/hle/rt64_framebuffer.cpp
+@@ -81,6 +81,10 @@ namespace RT64 {
+             nativeSwappedRAM.resize(nativeSize);
+         }
+ 
++#   ifdef RT64_NATIVE_HOST_LAYOUT
++        // Images are already big-endian bytes in RDRAM.
++        memcpy(nativeSwappedRAM.data(), src, nativeSize);
++#   else
+         const uint32_t *srcWords = reinterpret_cast<const uint32_t *>(src);
+         uint32_t *dstWords = reinterpret_cast<uint32_t *>(nativeSwappedRAM.data());
+         uint32_t wordsToSwap = nativeSize / sizeof(uint32_t);
+@@ -90,6 +94,7 @@ namespace RT64 {
+             srcWords++;
+             dstWords++;
+         }
++#   endif
+ 
+         uint32_t differentPixels = nativeTarget.copyFromRAM(worker, fbChange, width, rowCount, rowStart, siz, fmt, nativeSwappedRAM.data(), invalidateTargets, shaderLibrary);
+         return differentPixels;
+@@ -146,6 +151,11 @@ namespace RT64 {
+         uint32_t dstFirstWord = dstWords[0];
+         nativeTarget.copyToRAM(dstRowStart, dstRowEnd, dstRowWidth, siz, dstBytes);
+ 
++#   ifdef RT64_NATIVE_HOST_LAYOUT
++        // Images stay big-endian bytes in RDRAM.
++        (void)(bytesToSwap);
++        (void)(dstFirstWord);
++#   else
+         // Write back to RDRAM by swapping every word.
+         if (bytesToSwap >= sizeof(uint32_t)) {
+             uint32_t wordsToSwap = (bytesToSwap) / sizeof(uint32_t);
+@@ -164,6 +174,7 @@ namespace RT64 {
+ 
+             dstWords[0] = dstFirstWord;
+         }
++#   endif
+ 
+ #   ifdef DUMP_RAW_RDRAM
+         char path[1024];
+diff --git a/src/hle/rt64_rdp.cpp b/src/hle/rt64_rdp.cpp
+index a10c11a..01c41c0 100644
+--- a/src/hle/rt64_rdp.cpp
++++ b/src/hle/rt64_rdp.cpp
+@@ -9,6 +9,7 @@
+ #include "../include/rt64_extended_gbi.h"
+ 
+ #include "common/rt64_math.h"
++#include "common/rt64_rdram_layout.h"
+ #include "gbi/rt64_f3d.h"
+ 
+ #include "rt64_color_converter.h"
+@@ -379,19 +380,19 @@ namespace RT64 {
+         if constexpr (RGBA32) {
+             // Split the lower and upper half of the word into the lower and upper half of TMEM.
+             const uint32_t UpperTMEM = (RDP_TMEM_BYTES >> 1);
+-            TMEM[(tmemAddress + 0) ^ tmemXorMask] = RDRAM[(textureAddress + (0 & offsetMask)) ^ 3];
+-            TMEM[(tmemAddress + 1) ^ tmemXorMask] = RDRAM[(textureAddress + (1 & offsetMask)) ^ 3];
+-            TMEM[(tmemAddress + 2) ^ tmemXorMask] = RDRAM[(textureAddress + (4 & offsetMask)) ^ 3];
+-            TMEM[(tmemAddress + 3) ^ tmemXorMask] = RDRAM[(textureAddress + (5 & offsetMask)) ^ 3];
+-            TMEM[((tmemAddress + 0) ^ tmemXorMask) | UpperTMEM] = RDRAM[(textureAddress + (2 & offsetMask)) ^ 3];
+-            TMEM[((tmemAddress + 1) ^ tmemXorMask) | UpperTMEM] = RDRAM[(textureAddress + (3 & offsetMask)) ^ 3];
+-            TMEM[((tmemAddress + 2) ^ tmemXorMask) | UpperTMEM] = RDRAM[(textureAddress + (6 & offsetMask)) ^ 3];
+-            TMEM[((tmemAddress + 3) ^ tmemXorMask) | UpperTMEM] = RDRAM[(textureAddress + (7 & offsetMask)) ^ 3];
++            TMEM[(tmemAddress + 0) ^ tmemXorMask] = RDRAM[(textureAddress + (0 & offsetMask)) ^ RT64_RDRAM_BYTE_XOR];
++            TMEM[(tmemAddress + 1) ^ tmemXorMask] = RDRAM[(textureAddress + (1 & offsetMask)) ^ RT64_RDRAM_BYTE_XOR];
++            TMEM[(tmemAddress + 2) ^ tmemXorMask] = RDRAM[(textureAddress + (4 & offsetMask)) ^ RT64_RDRAM_BYTE_XOR];
++            TMEM[(tmemAddress + 3) ^ tmemXorMask] = RDRAM[(textureAddress + (5 & offsetMask)) ^ RT64_RDRAM_BYTE_XOR];
++            TMEM[((tmemAddress + 0) ^ tmemXorMask) | UpperTMEM] = RDRAM[(textureAddress + (2 & offsetMask)) ^ RT64_RDRAM_BYTE_XOR];
++            TMEM[((tmemAddress + 1) ^ tmemXorMask) | UpperTMEM] = RDRAM[(textureAddress + (3 & offsetMask)) ^ RT64_RDRAM_BYTE_XOR];
++            TMEM[((tmemAddress + 2) ^ tmemXorMask) | UpperTMEM] = RDRAM[(textureAddress + (6 & offsetMask)) ^ RT64_RDRAM_BYTE_XOR];
++            TMEM[((tmemAddress + 3) ^ tmemXorMask) | UpperTMEM] = RDRAM[(textureAddress + (7 & offsetMask)) ^ RT64_RDRAM_BYTE_XOR];
+         }
+         else {
+             // Copy the entire word.
+             for (uint32_t i = 0; i < 8; i++) {
+-                TMEM[(tmemAddress + i) ^ tmemXorMask] = RDRAM[(textureAddress + (i & offsetMask)) ^ 3];
++                TMEM[(tmemAddress + i) ^ tmemXorMask] = RDRAM[(textureAddress + (i & offsetMask)) ^ RT64_RDRAM_BYTE_XOR];
+             }
+         }
+     }
+diff --git a/src/hle/rt64_rsp.cpp b/src/hle/rt64_rsp.cpp
+index 1da2550..1c86dbf 100644
+--- a/src/hle/rt64_rsp.cpp
++++ b/src/hle/rt64_rsp.cpp
+@@ -393,10 +393,10 @@ namespace RT64 {
+             dst.z = src.z;
+             dst.s = src.s;
+             dst.t = src.t;
+-            dst.color.r = col[3];
+-            dst.color.g = col[2];
+-            dst.color.b = col[1];
+-            dst.color.a = col[0];
++            dst.color.r = col[0 ^ RT64_RDRAM_BYTE_XOR];
++            dst.color.g = col[1 ^ RT64_RDRAM_BYTE_XOR];
++            dst.color.b = col[2 ^ RT64_RDRAM_BYTE_XOR];
++            dst.color.a = col[3 ^ RT64_RDRAM_BYTE_XOR];
+         }
+ 
+         setVertexCommon<true, sizeof(VertexPD)>(rdramAddress, dstIndex, dstIndex + vtxCount);
+@@ -903,12 +903,12 @@ namespace RT64 {
+         const uint32_t rdramAddress = fromSegmentedMasked(address);
+         const Vp_t *vp = reinterpret_cast<const Vp_t *>(state->fromRDRAM(rdramAddress));
+         interop::RSPViewport &viewport = viewportStack[viewportStackSize - 1];
+-        viewport.scale.x = float(vp->vscale[1]) / 4.0f;
+-        viewport.scale.y = float(vp->vscale[0]) / 4.0f;
+-        viewport.scale.z = float(vp->vscale[3]) / DepthRange;
+-        viewport.translate.x = float(state->rdp->movedFromOrigin(vp->vtrans[1], ori) + offx) / 4.0f;
+-        viewport.translate.y = float(vp->vtrans[0] + offy) / 4.0f;
+-        viewport.translate.z = float(vp->vtrans[3]) / DepthRange;
++        viewport.scale.x = float(vp->vscale[RT64_VP_X]) / 4.0f;
++        viewport.scale.y = float(vp->vscale[RT64_VP_Y]) / 4.0f;
++        viewport.scale.z = float(vp->vscale[RT64_VP_Z]) / DepthRange;
++        viewport.translate.x = float(state->rdp->movedFromOrigin(vp->vtrans[RT64_VP_X], ori) + offx) / 4.0f;
++        viewport.translate.y = float(vp->vtrans[RT64_VP_Y] + offy) / 4.0f;
++        viewport.translate.z = float(vp->vtrans[RT64_VP_Z]) / DepthRange;
+         extended.viewportOriginStack[viewportStackSize - 1] = ori;
+         viewportChanged = true;
+     }
+@@ -939,8 +939,8 @@ namespace RT64 {
+     void RSP::setLightColor(uint8_t index, uint32_t value) {
+         assert((index >= 0) && (index <= RSP_MAX_LIGHTS));
+         auto &rawLight = lights[index].raw;
+-        rawLight.words[0] = value;
+-        rawLight.words[1] = value;
++        rawLight.words[0] = lightColorWord(value);
++        rawLight.words[1] = lightColorWord(value);
+         lightsChanged = true;
+     }
+ 
+diff --git a/src/hle/rt64_rsp.h b/src/hle/rt64_rsp.h
+index 61bb3b1..35a91c2 100644
+--- a/src/hle/rt64_rsp.h
++++ b/src/hle/rt64_rsp.h
+@@ -9,6 +9,7 @@
+ #include <stdint.h>
+ 
+ #include "common/rt64_common.h"
++#include "common/rt64_rdram_layout.h"
+ #include "gbi/rt64_display_list.h"
+ #include "shared/rt64_other_mode.h"
+ #include "shared/rt64_rsp_fog.h"
+@@ -33,6 +34,82 @@ namespace RT64 {
+     struct GBI;
+ 
+     struct RSP {
++#   ifdef RT64_NATIVE_HOST_LAYOUT
++        // Host-endian fields in the order the game declares them (see rt64_rdram_layout.h).
++        struct Vertex {
++            int16_t x;
++            int16_t y;
++            int16_t z;
++            uint16_t flag;
++            int16_t s;
++            int16_t t;
++
++            union {
++                struct {
++                    uint8_t r;
++                    uint8_t g;
++                    uint8_t b;
++                    uint8_t a;
++                } color;
++
++                struct {
++                    int8_t x;
++                    int8_t y;
++                    int8_t z;
++                    int8_t a;
++                } normal;
++            };
++        };
++
++        struct VertexPD {
++            int16_t x, y, z;
++            uint16_t ci;
++            int16_t s, t;
++        };
++
++        struct VertexEXV1 {
++            Vertex v;
++            int16_t xp;
++            int16_t yp;
++            int16_t zp;
++            uint16_t pad;
++        };
++
++        struct RawLight {
++            uint32_t words[4];
++        };
++
++        struct PosLight {
++            uint8_t colr;
++            uint8_t colg;
++            uint8_t colb;
++            uint8_t kc;
++            uint8_t colcr;
++            uint8_t colcg;
++            uint8_t colcb;
++            uint8_t kl;
++            int16_t posx;
++            int16_t posy;
++            int16_t posz;
++            uint8_t kq;
++            uint8_t reserved1;
++        };
++
++        struct DirLight {
++            uint8_t colr;
++            uint8_t colg;
++            uint8_t colb;
++            uint8_t pad1;
++            uint8_t colcr;
++            uint8_t colcg;
++            uint8_t colcb;
++            uint8_t pad2;
++            int8_t dirx;
++            int8_t diry;
++            int8_t dirz;
++            uint8_t pad3;
++        };
++#   else
+         struct Vertex {
+             int16_t y;
+             int16_t x;
+@@ -109,6 +186,7 @@ namespace RT64 {
+             int8_t diry;
+             int8_t dirx;
+         };
++#   endif
+ 
+         union Light {
+             RawLight raw;

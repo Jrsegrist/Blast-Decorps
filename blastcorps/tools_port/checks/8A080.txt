@@ -1,0 +1,48 @@
+# 8A080: radar marker table gRadarMarkers (25 x 0x14-byte RadarMarker, word 0 = id, -1 = free)
+# Format: func_XXXXXXXX: <eqcheck.py args>   (see tools_port/README.md, "Regression suite")
+
+radar_clear_markers: -n 200 --ret void --mem gRadarMarkers:500=rand
+
+# insert/update (id, x, y, z, size); mixed table with frequent free slots
+radar_set_marker: -n 300 --ret void --mem gRadarMarkers:500=words:-1,0,1,2,3,0x100,0x10000 --arg a0=choice:-1,0,1,2,3,0x100,0x10000,0x7FFFFFFF --arg a1=int --arg a2=int --arg a3=int --arg sp+0x10=int
+# table full (no free slot), id often absent
+radar_set_marker: -n 300 --ret void --seed 1 --mem gRadarMarkers:500=words:0,1,2,0x100 --arg a0=choice:-1,0,1,2,3,0x100,0x10000,0x7FFFFFFF --arg a1=int --arg a2=int --arg a3=int --arg sp+0x10=int
+# all free
+radar_set_marker: -n 50 --ret void --seed 2 --mem gRadarMarkers:500=words:-1 --arg a0=choice:-1,0,1,2,3,0x100,0x10000,0x7FFFFFFF --arg a1=int --arg a2=int --arg a3=int --arg sp+0x10=int
+# only the last slot free
+radar_set_marker: -n 100 --ret void --seed 3 --mem gRadarMarkers:500=words:0,1,2 --mem gRadarMarkers+0x1E0=0xFFFFFFFF --arg a0=choice:-1,0,1,2,3,0x100,0x10000,0x7FFFFFFF --arg a1=int --arg a2=int --arg a3=int --arg sp+0x10=int
+# exactly one free slot (first, last or random), or exactly one matching id
+radar_set_marker: -n 200 --ret void --seed 4 --mem gRadarMarkers:500=onehot:0x14:-1:words:0,1,2 --arg a0=choice:0,3,0x100 --arg a1=int --arg a2=int --arg a3=int --arg sp+0x10=int
+radar_set_marker: -n 200 --ret void --seed 5 --mem gRadarMarkers:500=onehot:0x14:0x100:words:-1,0,1 --arg a0=choice:0x100*3,0x101 --arg a1=int --arg a2=int --arg a3=int --arg sp+0x10=int
+
+# remove id
+radar_remove_marker: -n 300 --ret void --mem gRadarMarkers:500=words:-1,0,1,2,3,0x100,0x10000 --arg a0=choice:-1,0,1,2,3,0x100,0x10000,0x7FFFFFFF
+# match only in the last slot
+radar_remove_marker: -n 100 --ret void --seed 3 --mem gRadarMarkers:500=words:0,1 --mem gRadarMarkers+0x1E0=0x100 --arg a0=choice:0x100,0x101
+# match in exactly one slot (first, last or random)
+radar_remove_marker: -n 200 --ret void --seed 4 --mem gRadarMarkers:500=onehot:0x14:0x100:words:0,1,-1 --arg a0=choice:0x100*3,0x101
+
+# find id -> index
+radar_has_marker: -n 300 --ret int --mem gRadarMarkers:500=words:-1,0,1,2,3,0x100,0x10000 --arg a0=choice:-1,0,1,2,3,0x100,0x10000,0x7FFFFFFF
+radar_has_marker: -n 200 --ret int --seed 1 --mem gRadarMarkers:500=words:0,1 --arg a0=choice:-1,0,1,2,3,0x100,0x10000,0x7FFFFFFF
+radar_has_marker: -n 100 --ret int --seed 3 --mem gRadarMarkers:500=words:0,1 --mem gRadarMarkers+0x1E0=0x100 --arg a0=choice:0x100,0x101
+radar_has_marker: -n 200 --ret int --seed 4 --mem gRadarMarkers:500=onehot:0x14:0x100:words:0,1,-1 --arg a0=choice:0x100*3,0x101
+
+coll_reset_dyn_tris: -n 200 --ret void --mem gDynTrisEnd=int
+
+# collision triangles at *gDynTrisEnd from n 0x16-byte items, with the caller's leaked
+# v0 / t6 / t9 / s1 (C: a3 / stack0..2); stubbed lvl_build_coll_tri (mapped), then followed
+coll_add_dyn_tris: -n 300 --ret void --heap 0x400 --mem gDynTrisEnd=rel:heap0 --arg a0=ptr:0xB0 \
+    --arg a1=choice:0,1,2,3,8 --arg a2=int:0:0xFF --arg v0=int --arg t6=int --arg t9=int --arg s1=int \
+    --stub-ret lvl_build_coll_tri=0x80B00060
+coll_add_dyn_tris: -n 300 --seed 1 --ret void --follow lvl_build_coll_tri,sqrtf --heap 0x400 --mem gDynTrisEnd=rel:heap0 \
+    --arg a0=ptr:0xB0 --arg a1=choice:0,1,2,3,8 --arg a2=int:0:0xFF --arg v0=int --arg t6=int --arg t9=int --arg s1=int
+# small coordinates (finite plane lengths), s1 0 / chain
+coll_add_dyn_tris: -n 200 --seed 2 --ret void --follow lvl_build_coll_tri,sqrtf --heap 0x400 --mem gDynTrisEnd=rel:heap0 \
+    --arg a0=ptr:0xB0 --mem @a0:0xB0=halves:0,1,0xFFFF,0x100,0x8000,0x7FFF --arg a1=choice:1,2,8 --arg a2=int:0:0xFF \
+    --arg v0=int --arg t6=int --arg t9=int --arg s1=choice:0,1,0x80000000
+
+# clear [start, end) in 0x60-byte steps (end must be start + k*0x60)
+coll_disable_tris: -n 300 --ret void --mem 0x80B00000:0x600=rand --arg a0=0x80B00000 --arg a1=choice:0x80B00000,0x80B00060,0x80B000C0,0x80B00120,0x80B005A0
+# same with a ptr block and a pointer-relative end (0..16 records)
+coll_disable_tris: -n 200 --ret void --seed 1 --arg a0=ptr:0x600 --arg a1=rel:a0+0x60*int:0:16

@@ -1,0 +1,137 @@
+# 6C5E0 (vehicle module) port checks
+# thunderfist_exit_check: exit check, 1 iff bytes +0x96/+0x97/+0x98 of gThunderfistState are all != 1 and +0xA1 == 0
+thunderfist_exit_check: -n 300 --seed 0 --ret int --mem gThunderfistState+0x96:3=bytes:0,1*3,2,0xFF --mem gThunderfistState+0xA1:1=bytes:0*3,1,0x80,0xFF
+# all three flags clear: only +0xA1 decides
+thunderfist_exit_check: -n 100 --seed 1 --ret int --mem gThunderfistState+0x96:3=bytes:0,2,0xFF --mem gThunderfistState+0xA1:1=bytes:0,1,0xFF
+# exactly one of the three flags == 1 (first/last/middle), +0xA1 == 0
+thunderfist_exit_check: -n 100 --seed 2 --ret int --mem gThunderfistState+0x96:3=onehot:1/1:1:bytes:0,2 --mem gThunderfistState+0xA1:1=bytes:0
+# thunderfist_set_physics: gGravity = gLevelGravity * 4.0f; gBounceThreshold/Damping = 40, 3 (same shape as 69BB0 driver_set_physics)
+thunderfist_set_physics: -n 300 --seed 0 --ret void --mem gLevelGravity:4=floats:-100000:100000
+thunderfist_set_physics: -n 200 --seed 1 --ret void \
+    --mem gLevelGravity:4=words:0,0x80000000,0x3F800000,0x7F800000,0xFF800000,0x7FC00000,0x00000001,0x7F7FFFFF,0xC2C80000
+
+# thunderfist_save_state: return veh_serialize_state(a0, gThunderfistState, gThunderfistPos) (serialize vehicle state; v0 passed through)
+thunderfist_save_state: -n 300 --seed 0 --ret int --sig veh_serialize_state=a0,a1,a2 --stub-ret veh_serialize_state=rand \
+    --arg a0=choice:0,1,-1,0x80000000,0x7FFFFFFF,0x80B00000,0x80B00003,0x803FFFFF
+thunderfist_save_state: -n 50 --seed 1 --ret int --sig veh_serialize_state=a0,a1,a2 --stub-ret veh_serialize_state=0xB2 --arg a0=choice:0,0x80B00000
+# end to end with the callee run for real (asm vs its C rewrite): unaligned dst, random state
+thunderfist_save_state: -n 100 --seed 2 --ret int --follow veh_serialize_state --arg a0=choice:0x80B00000,0x80B00001,0x80B00002,0x80B00003,0x80B00005 --mem 0x80B00000:0x100=rand \
+    --mem gThunderfistState:0xA6=rand --mem gThunderfistPos:12=rand
+# thunderfist_load_state: veh_deserialize_state(a0, gThunderfistState, gThunderfistPos) (restore vehicle state)
+thunderfist_load_state: -n 300 --seed 0 --ret void --sig veh_deserialize_state=a0,a1,a2 \
+    --arg a0=choice:0,1,-1,0x80000000,0x7FFFFFFF,0x80B00000,0x80B00003,0x803FFFFF
+thunderfist_load_state: -n 100 --seed 1 --ret void --follow veh_deserialize_state --arg a0=choice:0x80B00000,0x80B00001,0x80B00002,0x80B00003,0x80B00005 --mem 0x80B00000:0x100=rand \
+    --mem gThunderfistState:0xA6=rand --mem gThunderfistPos:12=rand
+
+# thunderfist_steer_rate: s3 (-> v0) = speed(+0x76) == 0 ? 0 : (+0xA1 is 1 or 2 ? 50 : 120); $gp = gThunderfistState
+thunderfist_steer_rate: -n 300 --seed 0 --arg gp=sym:gThunderfistState --mem gThunderfistState+0x76:2=halves:0*4,1,0x8000,0xFFFF,0x1234,0x100 \
+    --mem gThunderfistState+0xA1:1=bytes:0,1,2,3,0x81,0xFF
+thunderfist_steer_rate: -n 100 --seed 1 --arg gp=sym:gThunderfistState --mem gThunderfistState+0x76:2=int:1:0xFFFF --mem gThunderfistState+0xA1:1=int:0:0xFF
+
+# zone lookup wrapper (id 2 at gThunderfistPos): veh_zone_alpha stubbed (scan registers mapped through r)
+thunderfist_zone_alpha: -n 200 --mem gThunderfistPos:12=rand
+thunderfist_zone_alpha: -n 300 --seed 1 --follow veh_zone_alpha,math_dist3 --mem gThunderfistPos=int:-100:100 --mem gThunderfistPos+4=int:-100:100 \
+    --mem gThunderfistPos+8=int:-100:100 --mem gAlphaZonesEnd=rel:gAlphaZones+0x24*int:0:4 --mem gAlphaZones:0x90=rand \
+    --mem gAlphaZones*0x24:4=int:-100:100 --mem gAlphaZones+4*0x24:4=int:-100:100 --mem gAlphaZones+8*0x24:4=int:-100:100 \
+    --mem gAlphaZones+0xC*0x24:4=choice:1,10,50,100,200,1000 --mem gAlphaZones+0x10*0x24:4/1=choice:0,1,1,2 \
+    --mem gAlphaZones+0x12*0x24:4/1=choice:0,1,1,1 --mem gAlphaZones+0x13*0x24:4/1=choice:0,1,2,3 \
+    --mem gAlphaZones+0x14*0x24:4/1=choice:0,0,5,0xFF --mem gAlphaZones+0x15*0x24:4/1=choice:2,2,0x30 \
+    --mem gAlphaZones+0x16*0x24:4/1=choice:2,0x31 --mem gAlphaZones+0x17*0x24:4/1=choice:2,0x32 \
+    --mem gDefaultVehAlpha:1=choice:0,1,0x80,0xFF,0x40 --mem gVehicles+0x5C*0x74:3=choice:0x100,0x200 \
+    --mem gVehicles+0x1B8=2 --mem gVehicles+0x60*0x74:4=int
+
+# thunderfist_enter (vehicle-type 2 setup): setters stubbed (asm conventions mapped), then followed with the
+# gThunderfistTexAnim key in exactly one gTexAnims entry
+thunderfist_enter: -n 200 --ret void --mem gThunderfistState+0x99:1=rand --mem gCamDistance:2=rand --mem gCamHeightBase:2=rand \
+    --mem gSfxBank=int --sig snd_play=a0,a1,a2
+thunderfist_enter: -n 200 --seed 1 --ret void --follow anim_set_speed,anim_set_loop_mode,anim_set_interp,anim_tex_set_speed,anim_tex_set_reverse,anim_tex_set_loop_mode,anim_tex_find \
+    --mem gThunderfistState+0x99:1=rand --mem gCamDistance:2=rand --mem gCamHeightBase:2=rand --mem gSfxBank=int \
+    --mem gThunderfistAnim:0x100=rand --mem gTexAnims:0x180=onehot:0x18:0x802C2308:rand --sig snd_play=a0,a1,a2
+
+# thunderfist_leave (vehicle-type 2 shutdown): speed = 0, veh_sync_buffers(gThunderfistMtxA, gThunderfistMtxB, 0x1400), stop channel 31, veh_stop_engine_sounds, stop engine sound
+thunderfist_leave: -n 200 --seed 1 --mem gThunderfistMtxA=int --mem gThunderfistMtxB=int --mem gThunderfistEngineSound=words:0,0x80380000 --mem gThunderfistState+0x76:2=rand \
+    --sig veh_sync_buffers=a0,a1,a2 --sig veh_stop_engine_sounds= --sig snd_stop=a0
+# callees followed (copy direction both ways, NULL and non-NULL sound handle); alEvtqPostEvent's a1 is a stack address (frames differ)
+thunderfist_leave: -n 100 --seed 2 --heap 0x1400 --heap 0x1400 --heap 0x100 --mem gThunderfistAnim:0x300=rand --mem gThunderfistMtxA=rel:heap0 \
+    --mem gThunderfistMtxB=rel:heap1 --mem gThunderfistEngineSound=choice:0,0x80B02820 --mem gThunderfistState+0x76:2=0xFFFF --mem gBufferIndex:1=choice:0,1 \
+    --follow veh_sync_buffers,anim_stop,snd_stop --sig veh_stop_engine_sounds= --sig debug_printf=a0 --sig alEvtqPostEvent=a0,a2
+# thunderfist_update_actions (vehicle 2 state machine on +0xA1; t6, t7, s0-s4 through to fx_spawn; gp = gThunderfistState): all states, callees stubbed
+thunderfist_update_actions: -n 400 --seed 0 --arg gp=sym:gThunderfistState --arg t6=int --arg t7=int --arg s0=int --arg s1=int --arg s2=int --arg s3=int --arg s4=int \
+    --mem gThunderfistState+0xA1:1=choice:0*4,1,2,3,4 --mem gThunderfistState+0xA2:1=choice:0,1 --mem gThunderfistState+0xA3:1=choice:0,1,2 \
+    --mem gThunderfistState+0x9C:1=choice:0,1 --mem gThunderfistState+0x9D:1=choice:0,1 --mem gThunderfistHeadOnHit:1=choice:0,0,1 \
+    --mem gThunderfistState+0x76:2=halves:0,0,0,1,0xFFFF,0x77,0x78,0x79,0xFF88,0xFF87,0x95,0x96,0x97,0x8000,0x7FFF,0x18,0x17,0x1234 \
+    --mem gEngineSound=words:0,0x80B00000 --mem gControlMethod:1=choice:0,1 --mem gHeldA:1=choice:0,0,1 --mem gHeldB:1=choice:0,0,1 \
+    --mem gHeldL:1=choice:0,0,1 --mem gHeldR:1=choice:0,0,1 --mem gFrameDrawTime=int --mem D_803649DC=words:0,0xFF,0x1000,0x100,0xD0FF,0x12345678,0x2F00 \
+    --mem gThunderfistStepPose:2=halves:0,2,6,0xFFFF,0xFFFE --mem gVehAttacking:1=rand --stub-ret util_rand2_range=choice:0,0,1,2,5 \
+    --stub-ret anim_get_state.v1=choice:0,1,1,2,0xFFFFFFFF --stub-ret anim_get_state.a0=choice:0,1 --stub-ret anim_get_state.t1=choice:0,2,6,0xFFFFFFFE \
+    --sig snd_play=a0,a1:2,a2 --sig mb_start=a0,a1,a2 --sig mb_stop= --sig veh_prev_contacts_clear= --sig veh_stop_engine_sounds= --sig util_rand2_range=a0,a1
+# state 0: speed around 0x18 / 0x78 / 0x96 (both signs), button combos, frame-mask bits, pose-sound bytes, channel results
+thunderfist_update_actions: -n 400 --seed 1 --arg gp=sym:gThunderfistState --arg t6=int --arg t7=int --arg s0=int --arg s1=int --arg s2=int --arg s3=int --arg s4=int \
+    --mem gThunderfistState+0xA1:1=0 --mem gThunderfistState+0xA2:1=choice:0,1 --mem gThunderfistState+0xA3:1=choice:0,1,0xFF \
+    --mem gThunderfistState+0x76:2=halves:0,0,1,0xFFFF,0x17,0x18,0x19,0x77,0x78,0x79,0xFF88,0xFF89,0xFF87,0x95,0x96,0x97,0x8000,0x7FFF \
+    --mem gControlMethod:1=choice:0,1 --mem gHeldA:1=choice:0,1 --mem gHeldB:1=choice:0,1 --mem gHeldL:1=choice:0,0,1 --mem gHeldR:1=choice:0,0,1 \
+    --mem D_803649DC=words:0,0xFF,0x1000,0x100,0x2000,0x800,0x8000,0x400,0x200,0xD0FF,0xFFFFFFFF --mem gThunderfistStepPose:2=halves:0,2,6,0xFFFF,0xFFFE,0x102,0x106 \
+    --mem gVehAttacking:1=rand --stub-ret util_rand2_range=seq:0,0,0,1,0,2,5,0,3 --stub-ret anim_get_state.v1=choice:0*3,1*3,2,0xFFFFFFFF,0x101 \
+    --stub-ret anim_get_state.a0=choice:0,1,0xFFFFFFFF --stub-ret anim_get_state.t1=choice:0,2,6,0xFFFFFFFE,0x102,0x106 \
+    --sig snd_play=a0,a1:2,a2 --sig mb_start=a0,a1,a2 --sig mb_stop= --sig veh_prev_contacts_clear= --sig veh_stop_engine_sounds= --sig util_rand2_range=a0,a1
+# states 1-4: flags, speed halving (odd / negative), sound handle NULL or not
+thunderfist_update_actions: -n 300 --seed 2 --arg gp=sym:gThunderfistState --arg t6=int --arg t7=int --arg s0=int --arg s1=int --arg s2=int --arg s3=int --arg s4=int \
+    --mem gThunderfistState+0xA1:1=choice:1,2,3,4 --mem gThunderfistState+0x9C:1=choice:0,1,0x80 --mem gThunderfistState+0x9D:1=choice:0,1 --mem gThunderfistHeadOnHit:1=choice:0,1 \
+    --mem gThunderfistState+0x76:2=halves:0,1,2,3,0xFFFF,0xFFFE,0xFFFD,0x8000,0x7FFF,0x1BE,0x3C,0xFFC4 --mem gEngineSound=words:0,0x80B00000 \
+    --mem gVehAttacking:1=rand --stub-ret anim_get_state.v1=choice:0,1,2,0xFFFFFFFF,0x101 \
+    --sig snd_play=a0,a1:2,a2 --sig mb_stop= --sig veh_prev_contacts_clear= --sig veh_stop_engine_sounds=
+# channel getters/setters, fx_spawn and util_rand2_range followed (anim_blend_channels stubbed: it needs real track data)
+thunderfist_update_actions: -n 300 --seed 3 --arg gp=sym:gThunderfistState --arg t6=int --arg t7=int --arg s0=int --arg s1=int --arg s2=int --arg s3=int --arg s4=int \
+    --mem gThunderfistAnim:0x300=rand --mem gThunderfistAnim+0x10*0x18:32/1=bytes:0,1,1,2 --mem gThunderfistAnim+0x11*0x18:32/1=bytes:0,1 \
+    --mem gThunderfistState+0xA1:1=choice:0*4,1,2,3,4 --mem gThunderfistState+0xA2:1=choice:0,1 --mem gThunderfistState+0xA3:1=choice:0,1 \
+    --mem gThunderfistState+0x9C:1=choice:0,1 --mem gThunderfistState+0x9D:1=choice:0,1 --mem gThunderfistHeadOnHit:1=choice:0,0,1 \
+    --mem gThunderfistState+0x76:2=halves:0,0,1,0xFFFF,0x77,0x78,0xFF88,0x96,0x8000,0x7FFF,0x1234 --mem gEngineSound=words:0,0x80B00000 \
+    --mem gControlMethod:1=choice:0,1 --mem gHeldA:1=choice:0,1 --mem gHeldB:1=choice:0,1 --mem gHeldL:1=choice:0,0,1 --mem gHeldR:1=choice:0,0,1 \
+    --mem D_803649DC=words:0,0x1000,0x100 --mem gThunderfistStepPose:2=halves:0,2,6 --mem gEffects:0x3C0=rand --mem gEffects+0x33*0x3C:16/1=bytes:0,1,1 \
+    --mem gFxTileSlots:16=bytes:0,1 --mem gFxSpawnTag:1=rand --mem gVehPoints:0x100=onehot:0x10@0xC/1:2:bytes:1,3,4 \
+    --follow anim_get_state,anim_set_frame,anim_set_speed,anim_set_reverse,anim_set_loop_mode,anim_play,anim_stop,fx_spawn,veh_find_point,util_rand2_range \
+    --sig snd_play=a0,a1:2,a2 --sig mb_start=a0,a1,a2 --sig mb_stop= --sig veh_prev_contacts_clear= --sig veh_stop_engine_sounds= --sig tex_queue_palette=a0,a1
+
+# thunderfist_build_model: vehicle 2 model matrices (scale 0x6590, tag 2); gp = gThunderfistState
+thunderfist_build_model: -n 300 --arg gp=sym:gThunderfistState --heap 0x200 --heap 0x400 --mem gThunderfistModel=rel:heap0 --mem @heap0+0x18=choice:0x40,0x80 \
+    --mem @heap0+0x44=int:0:0x100 --mem @heap0+0x84=int:0:0x100 --mem @heap0+0=int:0:0x100 --mem @heap0+4=int:0:0x100 --mem @heap0+8=int:0:0x100 \
+    --mem gThunderfistMtxA=rel:heap1 --mem gThunderfistMtxB=rel:heap1+0x200 --mem gBufferIndex:1=choice:0,1 --mem gThunderfistState+0x4C:2=int:0:0xFFF \
+    --mem gThunderfistPos:12=rand --mem gModelRot:6=rand --sig 'veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2,*stack3+8,*stack3+0xC,*stack3+0x14'
+thunderfist_build_model: -n 100 --seed 1 --arg gp=sym:gThunderfistState --heap 0x200 --heap 0x400 --mem gThunderfistModel=rel:heap0 --mem @heap0+0x18=choice:0x40,0x80 \
+    --mem @heap0+0x44=int:0:0x100 --mem @heap0+0x84=int:0:0x100 --mem @heap0+0=int:0:0x100 --mem @heap0+4=int:0:0x100 --mem @heap0+8=int:0:0x100 \
+    --mem gThunderfistMtxA=rel:heap1 --mem gThunderfistMtxB=rel:heap1+0x200 --mem gBufferIndex:1=choice:0,1 --mem gThunderfistState+0x4C:2=int:0:0xFFF \
+    --mem gThunderfistPos:12=rand --mem gModelRot:6=rand --follow mtx_build_model
+# whole tree: one count-0 point, empty part list; heading wrap at 0xC00
+thunderfist_build_model: -n 200 --seed 2 --arg gp=sym:gThunderfistState --heap 0x200 --heap 0x400 --mem gThunderfistModel=rel:heap0 --mem @heap0+0=0x100 --mem @heap0+4=0x108 \
+    --mem @heap0+8=0x10C --mem @heap0+0x18=0x40 --mem @heap0+0x44=choice:0,0x40,0x80 --mem @heap0+0x100:6=rand --mem @heap0+0x106:2=0 \
+    --mem gThunderfistMtxA=rel:heap1 --mem gThunderfistMtxB=rel:heap1+0x200 --mem gBufferIndex:1=choice:0,1 --mem gThunderfistPos:12=words:0,1,-1,0x1000,-0x1000,0x7FFF,0x12345 \
+    --mem gModelRot:6=rand --mem gVehPoints=-1 --mem gVehBoundSpheres+0x10:1=2 --mem gThunderfistState+0x4C:2=choice:0,1,0xBFE,0xBFF,0xC00,0xC01,0xFFE,0xFFF --follow-all
+
+# thunderfist_reground: re-ground vehicle 2 (veh_reground, matrices, record); fp, a3, f12-f26 pass through
+thunderfist_reground: -n 300 --mem gThunderfistPos:12=rand --arg f12=fbits --arg f14=fbits --arg f20=fbits --arg f22=fbits --arg f24=fbits --arg f26=fbits
+thunderfist_reground: -n 200 --seed 1 --mem gThunderfistPos:12=rand --heap 0x200 --heap 0x400 --mem gThunderfistModel=rel:heap0 --mem @heap0+0x18=choice:0x40,0x80 \
+    --mem @heap0+0x44=int:0:0x100 --mem @heap0+0x84=int:0:0x100 --mem @heap0+0=int:0:0x100 --mem @heap0+4=int:0:0x100 --mem @heap0+8=int:0:0x100 \
+    --mem gThunderfistMtxA=rel:heap1 --mem gThunderfistMtxB=rel:heap1+0x200 --mem gBufferIndex:1=choice:0,1 --mem gThunderfistState+0x4C:2=int:0:0xFFF --follow thunderfist_build_model \
+    --sig 'veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2,*stack3+8,*stack3+0xC,*stack3+0x14'
+
+# thunderfist_update: vehicle 2 per-frame update; ring-distance boundary 0x190 (heading 0x800 makes the distance the midpoint)
+thunderfist_update: -n 300 --mem gThunderfistState:0xA6=rand --mem gThunderfistState+0x9A:1=bytes:0,1 --mem gThunderfistState+0xA1:1=bytes:0,1,4 --mem gThunderfistState+0x4E:2=int:0:0xFFF \
+    --mem gThunderfistPos:12=rand --mem gThunderfistMtxA=rand --mem gThunderfistMtxB=rand --mem gThunderfistDeflectHeading:8=rand --mem gThunderfistDeflecting:1=bytes:0,1,0x80 --mem gBufferIndex:1=choice:0,1 \
+    --mem gBounceSound:1=rand --mem gCollVehicleAnim=rand --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand --sig thunderfist_set_physics= --sig veh_prepare_escape=a0 \
+    --sig veh_free_arc_mid= --sig thunderfist_steer_rate= --mem gCollBlocked:1=choice:0,1*2 --stub-ret veh_free_arc_mid=int:0:0xFFF
+thunderfist_update: -n 200 --seed 1 --mem gThunderfistState:0xA6=rand --mem gThunderfistState+0x9A:1=bytes:0,1 --mem gThunderfistState+0xA1:1=bytes:0,1,4 --mem gThunderfistPos:12=rand \
+    --mem gThunderfistMtxA=rand --mem gThunderfistMtxB=rand --mem gThunderfistDeflectHeading:8=rand --mem gThunderfistDeflecting:1=bytes:0,1,0x80 --mem gBufferIndex:1=choice:0,1 \
+    --mem gBounceSound:1=rand --mem gCollVehicleAnim=rand --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand --sig thunderfist_set_physics= --sig veh_prepare_escape=a0 \
+    --sig veh_free_arc_mid= --sig thunderfist_steer_rate= --mem gCollBlocked:1=1 --mem gThunderfistState+0x4E:2=halves:0x800 \
+    --stub-ret veh_free_arc_mid=choice:0,0x18E,0x18F,0x190,0x191,0x7FF,0x800,0x801,0xFFF
+
+# thunderfist_spawn: spawn vehicle 2 (model in s2); then with the per-frame chain followed
+thunderfist_spawn: -n 300 --heap 0x200 --arg s2=rel:heap0 --mem @heap0+4=int:0:0x100 --mem @heap0+8=int:0:0x100 --mem @heap0+0x18=choice:0x40,0x80 \
+    --mem @heap0+0x44=int:0:0x100 --mem @heap0+0x84=int:0:0x100 --mem gHeapPtr=rand --mem gThunderfistState:0xA6=rand --mem gThunderfistPos:0x24=rand \
+    --mem gEngineSound=rand --sig veh_add_shadow=a0:1,a1,a2:2,a3:2 --sig veh_sync_buffers=a0,a1,a2
+thunderfist_spawn: -n 200 --seed 1 --heap 0x200 --heap 0x2800 --arg s2=rel:heap0 --mem @heap0+0=int:0:0x100 --mem @heap0+4=int:0:0x100 --mem @heap0+8=int:0:0x100 \
+    --mem @heap0+0x18=choice:0x40,0x80 --mem @heap0+0x44=int:0:0x100 --mem @heap0+0x84=int:0:0x100 --mem gHeapPtr=rel:heap1 --mem gThunderfistState:0xA6=rand \
+    --mem gThunderfistPos:0x24=rand --mem gEngineSound=rand --mem gBufferIndex:1=choice:0,1 --mem gCollBlocked:1=choice:0,1 --stub-ret veh_free_arc_mid=int:0:0xFFF \
+    --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= --sig thunderfist_set_physics= --sig thunderfist_steer_rate= --sig veh_add_shadow=a0:1,a1,a2:2,a3:2 \
+    --sig veh_sync_buffers=a0,a1,a2 --sig 'veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2,*stack3+8,*stack3+0xC,*stack3+0x14' \
+    --follow thunderfist_update,thunderfist_build_model,thunderfist_zone_alpha

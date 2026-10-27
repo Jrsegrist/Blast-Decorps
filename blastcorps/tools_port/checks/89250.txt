@@ -1,0 +1,235 @@
+# 89250: ring span helpers (coll_heading_in_ring, coll_begin_probe)
+
+# coll_heading_in_ring(idx): a candidate index 0x78 beyond the span end nearer to idx, or
+# veh_free_arc_mid() (stubbed rand) when the candidate falls outside the span
+coll_heading_in_ring: -n 400 --sig veh_free_arc_mid= --arg a0=int:0:0xFFF --mem gFreeArcStart:2=int:0:0xFFF --mem gFreeArcEnd:2=int:0:0xFFF
+# boundaries: the 0x800 fold, the 0x78 step across 0 / 0x1000, equal ends, the empty 0/0xFFF span
+coll_heading_in_ring: -n 400 --seed 1 --sig veh_free_arc_mid= \
+    --arg a0=choice:0,1,0x77,0x78,0x79,0x7FF,0x800,0x801,0xF87,0xF88,0xF89,0xFFE,0xFFF \
+    --mem gFreeArcStart:2=halves:0,1,0x77,0x78,0x79,0x7FF,0x800,0x801,0xF87,0xF88,0xF89,0xFFE,0xFFF \
+    --mem gFreeArcEnd:2=halves:0,1,0x77,0x78,0x79,0x7FF,0x800,0x801,0xF87,0xF88,0xF89,0xFFE,0xFFF
+# full u16 globals and sign-extended s16 idx (outside the 12-bit domain)
+coll_heading_in_ring: -n 300 --seed 2 --sig veh_free_arc_mid= --arg a0=choice:-0x8000,-0x1000,-1,0x1000,0x7FFF,0x7FF \
+    --mem gFreeArcStart:2=int:0:0xFFFF --mem gFreeArcEnd:2=int:0:0xFFFF
+# the real fallback (each build's own veh_free_arc_mid)
+coll_heading_in_ring: -n 200 --seed 3 --follow veh_free_arc_mid --arg a0=int:0:0xFFF --mem gFreeArcStart:2=int:0:0xFFF --mem gFreeArcEnd:2=int:0:0xFFF
+
+# coll_begin_probe(x, y, z): reset span to 0/0xFFF, store position, clear flags, set gNonBlockingParts,
+# call veh_contacts_clear (random pre-fill so the zero stores show)
+coll_begin_probe: -n 100 --ret void --sig veh_contacts_clear= --arg a0=int --arg a1=int --arg a2=int --mem gCollX:0x40=rand
+# [e1] coll_spawn_blast_fx(x, y, z): fx_spawn record for gFxDefBlast at (x, y, z) << 11 (stubbed, then followed)
+coll_spawn_blast_fx: -n 200 --ret void --arg a0=int --arg a1=int --arg a2=int
+coll_spawn_blast_fx: -n 200 --seed 1 --ret void --follow fx_spawn --sig veh_find_point=a0,a1 --sig tex_queue_palette=a0,a1 \
+    --arg a0=int:-0x8000:0x8000 --arg a1=int:-0x8000:0x8000 --arg a2=int:-0x8000:0x8000 \
+    --mem gEffects:0x3C0=rand --mem gEffects+0x33*0x3C:16/1=choice:0,1,1 --mem gFxTileSlots:16=bytes:0,1,1 \
+    --mem gFxSpawnTag:1=rand
+# coll_blast_at_probe(amount, radius): blast damage at gCollX/Y/Z << 11 (obj_blast_damage stubbed, then followed on an empty list)
+coll_blast_at_probe: -n 200 --ret void --arg a0=int --arg a1=int --mem gCollX=int --mem gCollY=int --mem gCollZ=int
+coll_blast_at_probe: -n 100 --seed 1 --ret void --follow obj_blast_damage --arg a0=int --arg a1=int:0:0x1000 \
+    --mem gCollX=int --mem gCollY=int --mem gCollZ=int --mem gObjectsEnd=sym:gObjects
+# coll_ground_height(x, z, y): ground height from the three triangle scans. Stubbed: heights random (both widths), with
+# and without a grid hit; no hit at all; equal distances (ties) between the three.
+coll_ground_height: -n 300 --arg a0=int --arg a1=int --arg a2=int:-3000:3000 --mem gGroundTriId:1=rand \
+    --sig ground_scan_part_tris=a0,a1,a2 --sig ground_scan_moveable=a0,a1,a2,a3 --sig ground_scan_grid=a0,a1,a2
+coll_ground_height: -n 200 --seed 1 --arg a0=int --arg a1=int --arg a2=int:-3000:3000 --mem gGroundTriId:1=rand \
+    --stub-ret ground_scan_grid=0 --sig ground_scan_part_tris=a0,a1,a2 --sig ground_scan_moveable=a0,a1,a2,a3 --sig ground_scan_grid=a0,a1,a2
+coll_ground_height: -n 100 --seed 2 --arg a0=int --arg a1=int --arg a2=choice:-0x79,-0x78,-0x77,0,-1000,1000 \
+    --mem gGroundTriId:1=rand --stub-ret ground_scan_grid=0 --stub-ret ground_scan_part_tris=0x5F5E0FF \
+    --stub-ret ground_scan_moveable=0x5F5E0FF --sig ground_scan_part_tris=a0,a1,a2 --sig ground_scan_moveable=a0,a1,a2,a3 --sig ground_scan_grid=a0,a1,a2
+coll_ground_height: -n 100 --seed 3 --arg a0=int --arg a1=int --arg a2=int:-200:200 --mem gGroundTriId:1=rand \
+    --stub-ret ground_scan_grid=0 --stub-ret ground_scan_part_tris=0x5F5E0FF --sig ground_scan_part_tris=a0,a1,a2 \
+    --sig ground_scan_moveable=a0,a1,a2,a3 --sig ground_scan_grid=a0,a1,a2
+coll_ground_height: -n 100 --seed 4 --arg a0=int --arg a1=int --arg a2=int:-200:200 --mem gGroundTriId:1=rand \
+    --stub-ret ground_scan_grid=0 --stub-ret ground_scan_moveable=0x5F5E0FF --sig ground_scan_part_tris=a0,a1,a2 \
+    --sig ground_scan_moveable=a0,a1,a2,a3 --sig ground_scan_grid=a0,a1,a2
+# ties: heights 100 / 140 / 100..140 around y' = y + 0x78 in 80..160
+coll_ground_height: -n 200 --seed 5 --arg a0=int --arg a1=int --arg a2=choice:-40,-20,0,1,-1,20,40,10 --mem gGroundTriId:1=rand \
+    --stub-ret ground_scan_part_tris=100 --stub-ret ground_scan_moveable=140 --stub-ret ground_scan_grid=0 \
+    --sig ground_scan_part_tris=a0,a1,a2 --sig ground_scan_moveable=a0,a1,a2,a3 --sig ground_scan_grid=a0,a1,a2
+coll_ground_height: -n 200 --seed 6 --arg a0=int --arg a1=int --arg a2=choice:-40,-20,0,1,-1,20,40,10 --mem gGroundTriId:1=rand \
+    --stub-ret ground_scan_part_tris=100 --stub-ret ground_scan_moveable=140 --stub-ret ground_scan_grid=1 --stub-ret ground_scan_grid.t3=120 \
+    --sig ground_scan_part_tris=a0,a1,a2 --sig ground_scan_moveable=a0,a1,a2,a3 --sig ground_scan_grid=a0,a1,a2
+coll_ground_height: -n 200 --seed 7 --arg a0=int --arg a1=int --arg a2=choice:-40,-20,0,1,-1,20,40,10 --mem gGroundTriId:1=rand \
+    --stub-ret ground_scan_part_tris=140 --stub-ret ground_scan_moveable=100 --stub-ret ground_scan_grid=1 --stub-ret ground_scan_grid.t3=100 \
+    --sig ground_scan_part_tris=a0,a1,a2 --sig ground_scan_moveable=a0,a1,a2,a3 --sig ground_scan_grid=a0,a1,a2
+# negative result clamp
+coll_ground_height: -n 100 --seed 8 --arg a0=int --arg a1=int --arg a2=int:-300:100 --mem gGroundTriId:1=rand \
+    --stub-ret ground_scan_part_tris=0xFFFFFF00 --stub-ret ground_scan_moveable=0xFFFFFFF0 --stub-ret ground_scan_grid=1 \
+    --stub-ret ground_scan_grid.t3=0xFFFFFFC0 --sig ground_scan_part_tris=a0,a1,a2 --sig ground_scan_moveable=a0,a1,a2,a3 --sig ground_scan_grid=a0,a1,a2
+# followed: the three scans on small random triangles (as in 62740's checks)
+coll_ground_height: -n 300 --seed 9 --follow ground_scan_part_tris,ground_scan_moveable,ground_scan_grid,ground_tri_box_contains,ground_tri_contains,ground_tri_height,__ll_mul,__ll_to_d,__d_to_ll \
+    --heap 0xC8=words:0,1,2,3,4,5,0xFFFFFFFF,0xFFFFFFFE,0xFFFFFFFD,0xFFFFFC18,0x3E8 \
+    --heap 0x150=halves:0,0,1,2,0xFFFF,0xFFFE,0x100 --arg a0=int:0:3 --arg a1=int:0:3 --arg a2=int:-2120:380 \
+    --mem gGroundTriId:1=rand --mem gGroupTris=rel:heap0 --mem gGroupTrisEnd=rel:heap0+0x28*int:0:5 \
+    --mem gMoveableTris:0x118=words:0,1,2,3,4,5,0xFFFFFFFF,0xFFFFFFFE,0xFFFFFFFD,0xFFFFFC18,0x3E8 \
+    --mem gMoveableTris+0x36*0x38:5/2=choice:0,1,2,3 --mem gMoveableTrisEnd=rel:gMoveableTris+0x38*int:0:5 \
+    --mem gGroundCellW=choice:1,2 --mem gGroundCellD=choice:1,2 --mem gGroundCols:2=choice:1,2 \
+    --mem gGroundCells=rel:heap1 --mem gGroundCells+4=rel:heap1+0x18 --mem gGroundCells+8=rel:heap1+0x30 \
+    --mem gGroundCells+12=rel:heap1+0x34 --mem gGroundCells+16=rel:heap1+0x60 --mem gGroundCells+20=rel:heap1+0xA0 \
+    --mem gGroundCells+24=rel:heap1+0xB8 --mem gGroundCells+28=rel:heap1+0xE4 --mem gGroundCells+32=rel:heap1+0xE8 \
+    --mem gGroundCells+36=rel:heap1+0x100 --mem gGroundCells+40=rel:heap1+0x12C --mem gGroundCells+44=rel:heap1+0x144 \
+    --mem gGroundCellTris:12=rand
+# followed, tie-prone: the same triangle (corners (-64, 0|32, -64), (64, 0|32, -64), (0, 0|32, 64)) in all three
+# lists, y' in {0, 8, 16, 24, 32}
+coll_ground_height: -n 300 --seed 10 --follow ground_scan_part_tris,ground_scan_moveable,ground_scan_grid,ground_tri_box_contains,ground_tri_contains,ground_tri_height,__ll_mul,__ll_to_d,__d_to_ll \
+    --heap 0xC8 --mem @heap0*0x28:5=0xFFFFFFC0 --mem @heap0+4*0x28:5=choice:0,32 --mem @heap0+8*0x28:5=0xFFFFFFC0 \
+    --mem @heap0+12*0x28:5=64 --mem @heap0+16*0x28:5=choice:0,32 --mem @heap0+20*0x28:5=0xFFFFFFC0 \
+    --mem @heap0+24*0x28:5=0 --mem @heap0+28*0x28:5=choice:0,32 --mem @heap0+32*0x28:5=64 \
+    --mem gGroupTris=rel:heap0 --mem gGroupTrisEnd=rel:heap0+0x28*int:0:5 \
+    --mem gMoveableTris:0x118=rand --mem gMoveableTris*0x38:5=0xFFFFFFC0 --mem gMoveableTris+4*0x38:5=choice:0,32 \
+    --mem gMoveableTris+8*0x38:5=0xFFFFFFC0 --mem gMoveableTris+12*0x38:5=64 --mem gMoveableTris+16*0x38:5=choice:0,32 \
+    --mem gMoveableTris+20*0x38:5=0xFFFFFFC0 --mem gMoveableTris+24*0x38:5=0 --mem gMoveableTris+28*0x38:5=choice:0,32 \
+    --mem gMoveableTris+32*0x38:5=64 --mem gMoveableTris+0x36*0x38:5/2=choice:0,1,2,3 --mem gMoveableTrisEnd=rel:gMoveableTris+0x38*int:0:5 \
+    --heap 0x150 --mem @heap1*0x14:16/2=0xFFFE --mem @heap1+2*0x14:16/2=choice:0,1 --mem @heap1+4*0x14:16/2=0xFFFE \
+    --mem @heap1+6*0x14:16/2=2 --mem @heap1+8*0x14:16/2=choice:0,1 --mem @heap1+10*0x14:16/2=0xFFFE \
+    --mem @heap1+12*0x14:16/2=0 --mem @heap1+14*0x14:16/2=choice:0,1 --mem @heap1+16*0x14:16/2=2 \
+    --mem @heap1+0x12*0x14:16/2=choice:0x100,0x200,0x300,0x301 \
+    --mem gGroundCellW=choice:1,2 --mem gGroundCellD=choice:1,2 --mem gGroundCols:2=choice:1,2 \
+    --mem gGroundCells=rel:heap1 --mem gGroundCells+4=rel:heap1+0x18 --mem gGroundCells+8=rel:heap1+0x30 \
+    --mem gGroundCells+12=rel:heap1+0x34 --mem gGroundCells+16=rel:heap1+0x60 --mem gGroundCells+20=rel:heap1+0xA0 \
+    --mem gGroundCells+24=rel:heap1+0xB8 --mem gGroundCells+28=rel:heap1+0xE4 --mem gGroundCells+32=rel:heap1+0xE8 \
+    --mem gGroundCells+36=rel:heap1+0x100 --mem gGroundCells+40=rel:heap1+0x12C --mem gGroundCells+44=rel:heap1+0x144 \
+    --mem gGroundCellTris:12=rand --arg a0=int:0:3 --arg a1=int:0:3 --arg a2=choice:-0x68*3,-0x70,-0x60,-0x78,-0x58 \
+    --mem gGroundTriId:1=rand
+# end-block
+# ---- phase D wave 3 (wt-f1) ----
+# coll_block_toward (x1 v0, z1 a0, x2 a2, z2 t0): heading -> veh_clip_free_arc(angle + 0x400, angle - 0x400). Arcsine stubbed
+# (any value: the quadrant offsets and srl), then followed over a wide range, tiny differences (all quadrant
+# boundaries, the zero case), axis-aligned and diagonal (rounding ties); then veh_clip_free_arc followed too.
+coll_block_toward: -n 300 --stub-ret math_asin=choice:0,1,0xF,0x10,0x3FFF,0x4000,0xFFFF,-1 --sig veh_clip_free_arc=a0,a1 \
+    --arg v0=int:-100000:100000 --arg a0=int:-100000:100000 --arg a2=int:-100000:100000 --arg t0=int:-100000:100000
+coll_block_toward: -n 400 --seed 1 --follow math_asin --sig veh_clip_free_arc=a0,a1 \
+    --arg v0=int:-100000:100000 --arg a0=int:-100000:100000 --arg a2=int:-100000:100000 --arg t0=int:-100000:100000
+coll_block_toward: -n 400 --seed 2 --follow math_asin --sig veh_clip_free_arc=a0,a1 \
+    --arg v0=int:-3:3 --arg a0=int:-3:3 --arg a2=int:-3:3 --arg t0=int:-3:3
+coll_block_toward: -n 200 --seed 3 --follow math_asin --sig veh_clip_free_arc=a0,a1 \
+    --arg v0=choice:0,0x1000,-0x1000 --arg a0=choice:0,0x1000,-0x1000 --arg a2=choice:0,0x1000,-0x1000,0x7FFF \
+    --arg t0=choice:0,0x1000,-0x1000,0x7FFF
+coll_block_toward: -n 300 --seed 4 --follow math_asin,veh_clip_free_arc --sig veh_free_arc_length= \
+    --arg v0=int:-100000:100000 --arg a0=int:-100000:100000 --arg a2=int:-100000:100000 --arg t0=int:-100000:100000
+# end-block
+
+# coll_probe_vehicle_spheres (point v0, v1, a0, radius a1, vehicle t4 -> s4): the run of vehicle t4's gVehPartSpheres spheres.
+# 12 spheres then the -1 marker; radius 0x3BD (skipped for vehicle 6) and its neighbour in the pool.
+coll_probe_vehicle_spheres: -n 300 --seed 0 --arg t4=choice:0,1,5,6,0xFF \
+    --mem gVehPartSpheres:0x104=rand --mem gVehPartSpheres+0x12*0x14:12/1=bytes:0,1,5,6,0xFF --mem gVehPartSpheres+0x13*0x14:12/1=bytes:0,1,0x80 \
+    --mem gVehPartSpheres+0xC*0x14:12=choice:0x3BD,0x3BC,100 --mem gVehPartSpheres+0x103:1=0xFF \
+    --mem gCurVehicle:1=bytes:0,1,5,6 --mem gProbeHitCarrier:1=rand --mem gProbeHitPlayer:1=rand --stub-ret math_spheres_overlap=choice:0,1
+# the -1 marker in one random slot (first / last / middle)
+coll_probe_vehicle_spheres: -n 200 --seed 1 --arg t4=choice:0,6,0xFF --mem gVehPartSpheres:0x104=onehot:0x14@0x13/1:0xFF:rand \
+    --mem gVehPartSpheres+0x12*0x14:12/1=bytes:0,6,0xFF --mem gVehPartSpheres+0x103:1=0xFF --mem gVehPartSpheres+0xC*0x14:12=choice:0x3BD,0x3BC,100 \
+    --mem gCurVehicle:1=bytes:0,6,0xFF --mem gProbeHitCarrier:1=rand --mem gProbeHitPlayer:1=rand --stub-ret math_spheres_overlap=choice:0,1
+# range test and the plane-side update run for real
+coll_probe_vehicle_spheres: -n 300 --seed 2 --arg t4=choice:0,1,5,6,0xFF \
+    --mem gVehPartSpheres:0x104=rand --mem gVehPartSpheres+0x12*0x14:12/1=bytes:0,1,5,6,0xFF --mem gVehPartSpheres+0x13*0x14:12/1=bytes:0,1,0x80 \
+    --mem gVehPartSpheres+0xC*0x14:12=choice:0x3BD,0x3BC,100 --mem gVehPartSpheres+0x103:1=0xFF \
+    --mem gCurVehicle:1=bytes:0,1,5,6 --mem gProbeHitCarrier:1=rand --mem gProbeHitPlayer:1=rand \
+    --arg v0=int:-3000:3000 --arg v1=int:-3000:3000 --arg a0=int:-3000:3000 --arg a1=int:0:2000 \
+    --mem gVehPartSpheres*0x14:12=int:-3000:3000 --mem gVehPartSpheres+4*0x14:12=int:-3000:3000 --mem gVehPartSpheres+8*0x14:12=int:-3000:3000 \
+    --follow math_spheres_overlap,coll_block_toward,math_asin,veh_clip_free_arc,veh_free_arc_length
+
+# coll_probe_vehicles(r): the point gCollX..F8 against the 11 vehicle spheres of gVehBoundSpheres (then the -1 marker)
+coll_probe_vehicles: -n 300 --seed 0 --arg a0=int \
+    --mem gVehBoundSpheres:0xF0=rand --mem gVehBoundSpheres+0x10*0x14:11/1=bytes:0,1,5,0xFF --mem gVehBoundSpheres+0x11*0x14:11/1=bytes:0,1,0x80 \
+    --mem gVehBoundSpheres+0xED:1=0xFF --mem gDriverHidden=choice:0,1 --mem gProbeHitCarrier:1=rand --mem gProbeHitPlayer:1=rand \
+    --mem gCollX=int --mem gCollY=int --mem gCollZ=int \
+    --mem gFreeArcStart:2=choice:0,1,0xFFF --mem gFreeArcEnd:2=choice:0xFFF,0xFFE,0 --mem gCollHit:1=rand --mem gCollBlocked:1=rand \
+    --mem gFreeArcCollapsed:1=bytes:0,1 --stub-ret math_spheres_overlap=choice:0,1 --stub-ret coll_probe_vehicle_spheres=choice:0,1
+# coll_probe_vehicle_spheres and the range tests run for real (small coordinates; plane-side updates stubbed)
+coll_probe_vehicles: -n 300 --seed 1 --arg a0=int:0:2000 \
+    --mem gVehBoundSpheres:0xF0=rand --mem gVehBoundSpheres+0x10*0x14:11/1=bytes:0,1,5,0xFF --mem gVehBoundSpheres+0x11*0x14:11/1=bytes:0,1,0x80 \
+    --mem gVehBoundSpheres+0xED:1=0xFF --mem gDriverHidden=choice:0,1 --mem gProbeHitCarrier:1=rand --mem gProbeHitPlayer:1=rand \
+    --mem gVehBoundSpheres*0x14:11=int:-3000:3000 --mem gVehBoundSpheres+4*0x14:11=int:-3000:3000 --mem gVehBoundSpheres+8*0x14:11=int:-3000:3000 \
+    --mem gVehBoundSpheres+0xC*0x14:11=int:0:2000 \
+    --mem gVehPartSpheres:0x104=rand --mem gVehPartSpheres+0x12*0x14:12/1=bytes:0,1,5,0xFF --mem gVehPartSpheres+0x13*0x14:12/1=bytes:0,1,0x80 \
+    --mem gVehPartSpheres*0x14:12=int:-3000:3000 --mem gVehPartSpheres+4*0x14:12=int:-3000:3000 --mem gVehPartSpheres+8*0x14:12=int:-3000:3000 \
+    --mem gVehPartSpheres+0xC*0x14:12=int:0:2000 --mem gVehPartSpheres+0x103:1=0xFF --mem gCurVehicle:1=bytes:0,1,5 \
+    --mem gCollX=int:-3000:3000 --mem gCollY=int:-3000:3000 --mem gCollZ=int:-3000:3000 \
+    --mem gFreeArcStart:2=choice:0,1,0xFFF --mem gFreeArcEnd:2=choice:0xFFF,0xFFE,0 --mem gCollHit:1=rand --mem gCollBlocked:1=rand \
+    --mem gFreeArcCollapsed:1=bytes:0,1 --follow math_spheres_overlap,coll_probe_vehicle_spheres
+
+# coll_damage_object_part (object t9, triangle s0, amount fp): impact damage. Object heap0, info heap1, 8 triangles heap2.
+coll_damage_object_part: -n 300 --seed 0 --arg fp=choice:0,1,2,50,99,100,101,0x7FFF,0xFFFF \
+    --heap 0x100 --heap 0x40 --heap 0x300 --arg t9=rel:heap0 --arg s0=rel:heap2+0x60*int:0:7 \
+    --mem @heap0=rel:heap1 --mem @heap0+4=rel:heap2 --mem @heap0+8=rel:heap2+0x300 --mem @heap0+0x30=choice:5*3,0x38 \
+    --mem @heap0+0xEB:17=bytes:0,50,99,100 --mem @heap1+4:1=bytes:1,2,3,0x80,0xFF \
+    --mem @heap2+0x51*0x60:8/1=bytes:0,1 --mem @heap2+0x52*0x60:8/2=choice:0,1,2,3,4 --mem @heap2+0x57*0x60:8/1=bytes:1,2,3,4,9 \
+    --mem gShakeTime:1=rand --mem gShakeSize=int
+# divisor 1, percentages 0/99/100 around the cap: mostly collapses
+coll_damage_object_part: -n 200 --seed 1 --arg fp=choice:1,99,100 \
+    --heap 0x100 --heap 0x40 --heap 0x300 --arg t9=rel:heap0 --arg s0=rel:heap2+0x60*int:0:7 \
+    --mem @heap0=rel:heap1 --mem @heap0+4=rel:heap2 --mem @heap0+8=rel:heap2+0x300 --mem @heap0+0x30=5 \
+    --mem @heap0+0xEB:17=bytes:0,99,100 --mem @heap1+4:1=1 \
+    --mem @heap2+0x51*0x60:8/1=bytes:0,1 --mem @heap2+0x52*0x60:8/2=choice:1,2 --mem @heap2+0x57*0x60:8/1=bytes:0,1,2 \
+    --mem gShakeTime:1=rand --mem gShakeSize=int
+
+# coll_probe_object_tris (sphere v0, v1, a0, radius a1, object t3, hit flag fp in/out): 0..8 triangles at heap1
+coll_probe_object_tris: -n 300 --seed 0 --heap 0x40 --heap 0x300 --arg t3=rel:heap0 --arg fp=choice:0*3,1,5 \
+    --arg v0=int --arg v1=int --arg a0=int --arg a1=choice:-1,0,1,3,4,7,0x100,-0x100 \
+    --mem @heap0+4=rel:heap1 --mem @heap0+8=rel:heap1+0x60*int:0:8 --mem @heap1+0x51*0x60:8/1=bytes:0,1,1 \
+    --mem gImpactDamage:2=choice:0,1,100,0xFFFF --sig math_sphere_tri_plane=a0,a1,a2,a3,stack0 \
+    --stub-ret math_sphere_tri_plane=choice:0,1 --stub-ret math_point_in_tri_2d=choice:0,1 --stub-ret math_sphere_hits_tri_edges=choice:0,1 --stub-ret math_sphere_hits_tri_vertex0=choice:0,1
+# projection / 2-D / edge / vertex tests and the damage (coll_damage_object_part, info heap2) run for real; small coordinates
+coll_probe_object_tris: -n 300 --seed 1 --heap 0x100 --heap 0x300 --heap 0x40 --arg t3=rel:heap0 --arg fp=choice:0*3,1 \
+    --arg v0=int:0:1600 --arg v1=int:0:1600 --arg a0=int:0:1600 --arg a1=int:0:1600 \
+    --mem @heap0=rel:heap2 --mem @heap2+4:1=bytes:1,2,3 --mem @heap0+0x30=choice:5,0x38 --mem @heap0+0xEC:16=bytes:0,50,99 \
+    --mem @heap0+4=rel:heap1 --mem @heap0+8=rel:heap1+0x60*int:0:8 --mem @heap1+0x51*0x60:8/1=bytes:0,1,1 \
+    --mem @heap1+0x52*0x60:8/2=choice:1,2,3 --mem @heap1+0x57*0x60:8/1=bytes:1,2,9 \
+    --mem @heap1+0x28*0x60:8/4=int:0:100 --mem @heap1+0x2C*0x60:8/4=int:0:100 --mem @heap1+0x30*0x60:8/4=int:0:100 \
+    --mem @heap1+0x34*0x60:8/4=int:0:100 --mem @heap1+0x38*0x60:8/4=int:0:100 --mem @heap1+0x3C*0x60:8/4=int:0:100 \
+    --mem @heap1+0x40*0x60:8/4=int:0:100 --mem @heap1+0x44*0x60:8/4=int:0:100 --mem @heap1+0x48*0x60:8/4=int:0:100 \
+    --mem @heap1+0x4E*0x60:8/1=bytes:0,1,2 --mem gImpactDamage:2=choice:0,1,100 --mem gShakeTime:1=rand --mem gShakeSize=int \
+    --sig math_sphere_tri_plane=a0,a1,a2,a3,stack0 --stub-ret math_sphere_tri_plane=choice:0,1*3 \
+    --follow math_tri_project_2d,math_point_in_tri_2d,math_sphere_hits_tri_edges,math_sphere_hits_tri_vertex0,sqrtf,coll_damage_object_part
+
+# coll_probe_objects(r, amount): the point gCollX..F8 against 0..4 gObjects objects
+coll_probe_objects: -n 300 --seed 0 --arg a0=int --arg a1=choice:0,1,100,0x12345 \
+    --mem gCollX=int --mem gCollY=int --mem gCollZ=int \
+    --mem gObjects:0x3F0=rand --mem gObjects+0x30*0xFC:4=choice:5,0x38 --mem gObjectsEnd=rel:gObjects+0xFC*int:0:4 \
+    --mem gImpactDamage:2=rand --mem gFreeArcStart:2=rand --mem gFreeArcEnd:2=rand --mem gFreeArcCollapsed:1=bytes:0,1 \
+    --stub-ret math_spheres_overlap=choice:0,1 --stub-ret obj_end_object_hidden=choice:0,1 --stub-ret coll_probe_object_tris=choice:0,1
+# the range test and coll_probe_object_tris run for real (sphere tests inside stubbed), objects' triangles at heap0
+coll_probe_objects: -n 300 --seed 1 --heap 0x300 --arg a0=int:0:2000 --arg a1=choice:0,1,100 \
+    --mem gCollX=int:0:3000 --mem gCollY=int:0:3000 --mem gCollZ=int:0:3000 \
+    --mem gObjects:0x3F0=rand --mem gObjects+0x30*0xFC:4=choice:5,0x38 --mem gObjectsEnd=rel:gObjects+0xFC*int:0:4 \
+    --mem gObjects+0xC*0xFC:4=int:0:2000 --mem gObjects+0x10*0xFC:4=int:0:3000 --mem gObjects+0x14*0xFC:4=int:0:3000 \
+    --mem gObjects+0x18*0xFC:4=int:0:3000 \
+    --mem gObjects+4*0xFC:4=rel:heap0 --mem gObjects+8*0xFC:4=rel:heap0+0x60*int:0:8 --mem @heap0+0x51*0x60:8/1=bytes:0,1 \
+    --mem gImpactDamage:2=rand --mem gFreeArcStart:2=rand --mem gFreeArcEnd:2=rand --mem gFreeArcCollapsed:1=bytes:0,1 \
+    --stub-ret obj_end_object_hidden=choice:0,1 --sig math_sphere_tri_plane=a0,a1,a2,a3,stack0 \
+    --stub-ret math_sphere_tri_plane=choice:0,1 --stub-ret math_point_in_tri_2d=choice:0,1 --stub-ret math_sphere_hits_tri_edges=choice:0,1 --stub-ret math_sphere_hits_tri_vertex0=choice:0,1 \
+    --follow math_spheres_overlap,coll_probe_object_tris
+
+# coll_step_xz(x, z, len, angle): offset (x, z) along the heading; stubbed, then with the trig run for real
+coll_step_xz: -n 300 --seed 0 --arg a0=int --arg a1=int --arg a2=int --arg a3=int \
+    --mem gCollStepX=int --mem gCollStepZ=int --mem gCollStepLen:2=rand
+coll_step_xz: -n 300 --seed 1 --arg a0=int:-100000:100000 --arg a1=int:-100000:100000 \
+    --arg a2=choice:0,1,-1,100,0x7FFF,0x8000,0x12345 --arg a3=choice:0,1,0x3FF,0x400,0x7FF,0x800,0xBFF,0xC00,0xFFF,0x1000,-1 \
+    --follow veh_move_along_heading,math_cos,math_sin,math_cosf,math_sinf
+# coll_probe_tris: tag byte -> gProbeSkipPart, veh_report_world_hits(x>>2, y>>2, z>>2, r>>2, kind, 0), ring span reset if gFreeArcCollapsed
+coll_probe_tris: -n 300 --arg a0=int --arg a1=int --arg a2=int --arg a3=int --arg stack0=choice:0,1,9,0xC8 --arg stack1=int \
+    --mem gProbeSkipPart:1=rand --mem gFreeArcCollapsed:1=choice:0,1,0xFF --mem gFreeArcStart:2=rand --mem gFreeArcEnd:2=rand
+coll_probe_tris: -n 200 --seed 1 --arg a0=int:-0x80000000:0x7FFFFFFF --arg a1=choice:-1,-4,-5,0,3,4,0x7FFFFFFF,0x80000000 \
+    --arg a2=int:-0x80000000:0x7FFFFFFF --arg a3=choice:-1,-4,-5,0,3,4,0x7FFF,0x8000,0xFFFF8000 --arg stack0=int:-0x80000000:0x7FFFFFFF \
+    --arg stack1=choice:0,1,0xFF,0x100,0x1FF,-1 --mem gProbeSkipPart:1=rand --mem gFreeArcCollapsed:1=choice:0,1 --mem gFreeArcStart:2=rand --mem gFreeArcEnd:2=rand
+# followed veh_report_world_hits (tables as in 56040's veh_report_world_hits seed 1 run; kind 0xC8 weighted so the tag test matters)
+coll_probe_tris: -n 200 --seed 2 --follow veh_report_world_hits --stub-ret math_sphere_tri_plane=1 --stub-ret math_point_in_tri_2d=0 --stub-ret math_sphere_hits_tri_edges=0 \
+    --stub-ret math_sphere_hits_tri_vertex0=0 --stub-ret veh_sphere_hits_object=1 --stub-ret obj_end_object_hidden=0 \
+    --sig math_sphere_tri_plane=a0,a1,a2,a3,stack0 --sig obj_end_object_hidden= \
+    --heap 0x480 --mem @heap0+0x51*0x60:12/1=choice:0,1,1 --mem @heap0+0x4F*0x60:12/1=choice:0,1,5,9,0xC8 \
+    --mem @heap0+0x52*0x60:12/2=choice:0,1,7 \
+    --mem gObjSolidKinds*0xC:4=choice:0xFFFF,0,1 --mem gObjSolidKinds+4*0xC:4=choice:5,6,0x38 \
+    --mem gObjSolidKinds+8*0xC:4=choice:1,2,0x200,0x101,0xFFFFFFFF,0x80000000 --mem gObjSolidKinds+0x38=0 \
+    --mem levelno=choice:0,1 --mem gObjects:0x2F4=rand --mem gObjects+0x30*0xFC:3=choice:5,6,0x38 \
+    --mem gObjects+4*0xFC:3=rel:heap0+0x60*int:0:2 --mem gObjects+8*0xFC:3=rel:heap0+0x180 \
+    --mem gObjectsEnd=rel:gObjects+0xFC*int:0:3 \
+    --mem gDynTris:0x120=rand --mem gDynTris+0x51*0x60:3/1=choice:0,1,1 --mem gDynTris+0x52*0x60:3/2=choice:0,1,7 \
+    --mem gDynTrisEnd=rel:gDynTris+0x60*int:0:3 \
+    --mem gSwitchTris=rel:heap0+0x180 --mem gSwitchTrisEnd=rel:heap0+0x180+0x60*int:0:3 \
+    --mem gCollTris:0x120=rand --mem gCollTris+0x51*0x60:3/1=choice:0,1,1 --mem gCollTris+0x4F*0x60:3/1=choice:0,1,5,9,0xC8 \
+    --mem gCollTrisEnd=rel:gCollTris+0x60*int:0:3 \
+    --mem gCollCells:2=halves:0,1 --mem gCollCells+2:2=halves:1,0xFFFF --mem gCollCells+4:2=halves:0xFFFF \
+    --mem gCollCellsB=rel:heap0+0x2A0 --mem gCollCellsB+4=rel:heap0+0x300 --mem gCollCellsB+8=rel:heap0+0x360 \
+    --mem gCollCellsA=rel:heap0+0x360 --mem gCollCellsA+4=rel:heap0+0x3C0 --mem gCollCellsA+8=rel:heap0+0x480 \
+    --mem gFreeArcCollapsed:1=choice:0,1 --mem gFreeArcStart:2=rand --mem gFreeArcEnd:2=rand --mem gProbeSkipPart:1=rand \
+    --arg a0=int --arg a1=int --arg a2=int --arg a3=int --arg stack0=choice:0,1,5,6,9,0xC8,0xC8,0xC8 --arg stack1=choice:0,1,7,0x107

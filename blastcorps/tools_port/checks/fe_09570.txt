@@ -1,0 +1,12 @@
+# fe_09570: hd_front_end 09570.c, fe_lvlsel_build_globe_dl (globe display list: inflate the textures, set their
+# pointers, build the vertices, then 6 faces x 7 x 7 cells of five mip levels and two triangles).
+# Its output depends only on the heap pointer gHeapPtr (the inflate, hd_rom_load, is stubbed and
+# leaves the size at the ROM range's length); the display list (~64 KB) lands in the heap.
+fe_lvlsel_build_globe_dl: -n 12 --ret ptr --heap 0x60000 --mem gHeapPtr=rel:heap0+0x8*int:0:0x40 --follow fe_lvlsel_build_globe_vtx \
+    --mem gLvlselMarkerFrames:12=rand --mem gLvlselGlowTex:12=rand --mem gStarTextures=rand \
+    --sig hd_rom_load=a0,a1,a3,stack0,stack1
+# vertices stubbed (only their addresses go into the list)
+fe_lvlsel_build_globe_dl: -n 6 --seed 1 --ret ptr --heap 0x60000 --mem gHeapPtr=rel:heap0+choice:0,4,0x1000 \
+    --sig fe_lvlsel_build_globe_vtx= --sig hd_rom_load=a0,a1,a3,stack0,stack1
+fe_lvlsel_build_globe_dl: -n 6 --seed 2 --ret ptr --follow-all --no-follow hd_rom_load --heap 0x60000 \
+    --mem gHeapPtr=rel:heap0+0x10*int:0:16 --sig hd_rom_load=a0,a1,a3,stack0,stack1

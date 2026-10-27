@@ -1,0 +1,79 @@
+# Regions compare.py skips: they legitimately differ between the emulator and
+# bc_headless.exe.  `LO HI reason` (hex, [LO, HI)) or `SYMBOL [SIZE] reason`.
+# Also skipped automatically (compare.py load_ignore): the .data/.bss of the
+# libultra objects the platform layer replaces, and the hd_code text range
+# except the tables pinned there (the .nm_pin_* sections of the NM ELF).
+
+# --- graphics
+80000400 8004B400 the two 320x240 16-bit framebuffers gFrameBuffers (nothing renders natively)
+8004B400 80055400 in levels the RSP output buffer (gRdpOutputBuffer, 0xA000: the cull test's RDP output); before, the decompressors' scratch (inflate tables, size-probe copies)
+8021ED00 80244000 the Z-buffer (cleared by the RDP); also the staging area of compressed loads (port_assets.c)
+
+# --- code and code images
+80000000 80000400 exception vectors and the OS's low-memory globals (IPL3/osInitialize)
+801E7000 80208040 front-end text + RSP ucode (emulator: the NM ROM's trampolined image; exe: native code)
+80244000 802E8BD0 hd_code text (not loaded natively; the NM ROM has the original text + trampolines)
+802AD7C0 802AD7E0 NM ROM trampolines on the functions after the pinned table gAtanTable (its C size, 0x802, overlaps them)
+802AE0F0 802AE110 NM ROM trampolines on the functions after the pinned table gAsinSteepTable
+
+# --- audio
+# The audio heap gAudioHeapBuf (0x2A280 bytes, 1C460.c music_init_audio) holds the
+# banks and the sequence table (compared), then the synthesizer, the
+# sequence player and the sound player.  Natively the synthesizer comes from
+# ultralib's newer libaudio (synthesizer/drvrnew/reverb/env are still the old
+# SDK's hand asm in the ROM), whose allocations differ by 0x10-0x40 bytes,
+# so everything allocated after the sequence table is shifted.
+80370C80 8037C720 audio heap: the music and effects banks (libaudio rounds an ADPCM wavetable's length to whole frames when a voice first plays it: audio timing)
+8037C720 8039AF00 audio heap after the sequence table: synthesizer (newer SDK natively), sequence + sound players
+
+80368070 80368308 audio manager (22EE0.c __am): Acmd list / AudioInfo pointers into the audio heap, its queues and OSThread
+gAudCmdLen 4 Acmd count of the last audio frame (the native synthesizer is ultralib's)
+# The audio thread's bookkeeping follows the RSP: natively a frame's gfx task
+# holds the RSP until its RDP finishes (no yield to audio tasks), so audio
+# frames run a retrace later than in the emulator.  Its state (buffer ring,
+# AudioInfo, Acmd lists, queues) and the sound player's lists, which point
+# into the shifted audio heap, are not compared.
+802F3AF0 802F3B00 audio manager .data (22EE0.c): buffer ring indices
+8036A300 8036AFB0 audio manager .bss (22EE0.c): AudioInfo records, Acmd lists, message queues
+80367518 80367708 the music sequences' read state (ALCSeq gSeqs[]): advanced by the sequence player in audio time
+gSndPlayer 60 the sound player (1A630.c): ALPlayer timing, event queue, lists into the audio heap
+802E8CE0 802E8CF4 the sound player's active/free lists and its active sound count gSndVoiceCount (1A630.c .data)
+803F7844 803F7848 a vehicle's special-move sound handle (8AEE0.c): which sound-player slot sndPlaySfx hands out follows the audio thread's timing (the game only tests it for NULL)
+
+# --- graphics buffers
+803BE780 803C2B80 the visibility test's RSP task: its dram stack and RDP output buffer (5FD50.c cull_rsp_test)
+803C2B80 803C2B88 ... and the u64 its output_buff_size points at (gCullOutputEnd): the ucode stores the output's length (LLE RSP); the game never reads it
+gDynamicBufs 42930 per-frame graphics data, two of 0x21498 (display lists, matrices, vertices)
+
+# --- the scheduler (2C560.c): message history and performance timers
+80315458 80315498 scheduler interrupt queue's message ring (history; the platform posts SP/DP done together)
+8031544C 80315450 scheduler interrupt queue: ring position (message history)
+803156A4 803156A8 scheduler audioListHead (audio tasks live in the shifted audio heap)
+803156AC 803156B0 scheduler audioListTail
+803156B4 803156B8 scheduler curRSPTask (often an audio task)
+803154A4 803154A8 scheduler command queue: ring position (audio task history)
+803154B0 803154F0 scheduler command queue's message ring (audio tasks in the shifted audio heap)
+80364AC8 80364AD8 the main loop's CPU meters (osGetTime deltas / 7825, 00000.c hd_main_thread)
+80368050 80368070 audio thread timing (22EE0.c .bss: osGetTime stamps)
+803156C8 803156D8 scheduler: rdpStartTime / gfxStartTime (osGetTime, performance display only)
+gSchedTimeGfxStart 4 scheduler: "frame task done, time the next one" flag (gates gfxStartTime only; RSP timing)
+8036BEF0 8036BF10 scheduler yield timers (osGetTime deltas, printed only)
+8036BF20 8036BF58 scheduler RDP/gfx/retrace times (osGetTime deltas, performance display only)
+
+# --- libultra state the platform layer keeps elsewhere
+80314D80 803150A0 the PI manager's command queue + buffer (osCreatePiManager is a no-op natively)
+gAudioFrameTimer 20 OSTimer of the audio retrace timer: libultra's timer list links and countdown
+803FDF60 803FDF70 guRotate's lazily computed degrees-to-radians factor (old SDK; native gu is ultralib's)
+803FFFF8 80400000 the front end's ROM range left by init (the NM ROM has its own copy of the front end)
+
+# --- threads: the platform runs game threads on host fibers with host stacks
+gIdleThread 1B0 OSThread: idle thread (register contexts, OS links)
+gMainThread 1B0 OSThread: main thread
+gIdleThreadStack 200 idle thread stack
+gMainThreadStack 2000 main thread stack
+gSchedStack 2000 scheduler thread stack
+80368088 80368238 OSThread: the audio thread (__am + 0x18)
+gAudioThreadStack 2000 audio thread stack
+803154F0 803156A0 OSThread: the scheduler thread (gScheduler + 0xB0)
+gPakThread 1B0 OSThread: the front end's pak/save thread
+gPakThreadStack 1000 front-end pak thread stack

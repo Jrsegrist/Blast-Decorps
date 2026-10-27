@@ -1,0 +1,41 @@
+# Overrides for the shiftable build (tools_port/shift/shiftbuild.py, docs/shiftable.md).
+#
+#   sym SEG NAME = EXPR      the value of NAME in SEG's shifted link
+#   site SEG ADDR ignore     ADDR (an original address in SEG) holds no address after all
+#   site SEG ADDR end        the address it holds is the end of the unit before it, not the start of the next
+#   site SEG ADDR = EXPR     it holds EXPR
+#   lowbits SEG NAME BITS    the unit holding NAME keeps the low BITS bits of its address
+#                            (the game uses part of that address as a number)
+#   glue SEG OBJ             OBJ's unit must follow the unit before it directly (a table
+#                            in that unit runs into it): no pad may go between them
+#
+# EXPR: SEG:NAME (a symbol of that segment's shifted ELF), rom:UNIT / rom_end:UNIT
+# (a ROM unit's new start / end; units are named as `python3 tools_port/romsplit.py units
+# --rom ../baserom.us.v11.z64` lists them), numbers, and sums of those.
+
+# init's boot code ends with `j .L802447C0`: hd_code's entry point, which is not
+# necessarily the first byte of the section (init inflates to the section start).
+sym init .L802447C0 = hd_code:hd_boot
+
+# hd_mode_setup DMAs romStaticSegment..romStaticSegmentEnd (0xC0 bytes: the 0x90-byte
+# static segment and 0x30 bytes past it) to gStaticSegmentBuf: keep the size.
+sym hd_code romStaticSegmentEnd = rom:static_segment + 0xC0
+
+# Tables that run into the next unit: gAtanTable (68810 bin) and gAsinSteepTable (690C0 bin)
+# end in the first 0x14 bytes of 69000.c / 69930.c (hd_code.us.v11.yaml)
+glue hd_code hd_code/69000.c.o
+glue hd_code hd_code/69930.c.o
+
+# Addresses the game turns into values (leaked registers in the hand asm, see the
+# FIDELITY notes in 75490.c and 71140.c): keep their low bytes so the values stay.
+#   carrier_check_crash: gImpactEffectScale = (u8) &gCarrierHit (0xD6), the sparks' size
+lowbits hd_code gCarrierHit 8
+#   veh_maze_object_hits: its b0 input is the asm's t0 = &gPlayerZ
+lowbits hd_code gPlayerZ 8
+#   lvl_add_object: lvl_build_coll_tri's id (byte 0x50 of every building's collision
+#   triangle) is v0, still &gObjectsEnd (0x54)
+lowbits hd_code gObjectsEnd 8
+#   block_spawn_all -> coll_add_dyn_tris: byte 0x57 of each block's triangles is
+#   (u8) &gBlockSlots[i], byte 0x4F (u8) of the old gDynTrisEnd (a gDynTris address,
+#   in gObjectsEnd's unit) (8A080.c)
+lowbits hd_code gBlockSlots 8

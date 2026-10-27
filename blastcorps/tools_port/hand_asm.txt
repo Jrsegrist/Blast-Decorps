@@ -1,0 +1,76 @@
+# Permanent hand-written assembly: GLOBAL_ASM pragmas that no C compiler produced.
+# Read by tools_port/decomp_status.py.  One entry per line:
+#     <segment>/<file>  *              every #pragma GLOBAL_ASM in src.us.v11/<segment>/<file>.c
+#     <segment>/<file>  name [name...] only those functions
+# Evidence per group is in the comment above it and in the source files.  If one of these is
+# ever matched as C, decomp_status.py reports the stale entry.
+
+# --- init: boot entry and libultra/libkmc .s routines (COP0/cache/TLB ops, mtc0/mfc0) ---
+init/0000  entry                     # boot entry: sets $sp, trapping addi
+init/1EA0  bzero                     # libkmc bzero.s
+init/2260  __osSetSR                 # os/setsr.s (mtc0)
+init/2270  __osGetSR                 # os/getsr.s (mfc0)
+init/2280  __osSetFpcCsr             # os/setfpccsr.s (ctc1)
+init/2330  __osExceptionPreamble     # os/exceptasm.s
+init/2BA0  osWritebackDCache         # os/writebackdcache.s (cache)
+init/2C20  osInvalICache             # os/invalicache.s (cache)
+init/38D0  __osProbeTLB              # os/probetlb.s (tlbp/tlbr)
+init/3990  __osGetCause              # os/getcause.s (mfc0)
+init/3A00  __osDisableInt            # os/interrupt.s (mfc0/mtc0)
+init/3A20  __osRestoreInt            # os/interrupt.s
+
+# --- hd_code: libultra .s routines ---
+hd_code/906E0  osWritebackDCache     # os/writebackdcache.s
+hd_code/91820  sqrtf                 # gu/sqrtf.s
+hd_code/91F50  osWritebackDCacheAll  # os/writebackdcacheall.s
+hd_code/91F80  osInvalDCache         # os/invaldcache.s
+hd_code/92EA0  osSetIntMask          # os/setintmask.s
+hd_code/95060  osGetCount            # os/getcount.s
+hd_code/96F70  osInvalICache         # os/invalicache.s
+hd_code/96FF0  bzero                 # libc/bzero.s
+hd_code/971D0  __osSetSR __osGetSR   # os/setsr.s, os/getsr.s
+hd_code/971F0  __osSetFpcCsr         # os/setfpccsr.s
+hd_code/972A0  *                     # os/exceptasm.s (8 entries incl. send_mesg) + os/maptlbrdb.s
+hd_code/97B70  __osDisableInt __osRestoreInt   # os/interrupt.s
+hd_code/98330  __osProbeTLB          # os/probetlb.s
+hd_code/9DB80  bcopy                 # libc/bcopy.s
+hd_code/9E6F0  __osSetCompare        # os/setcompare.s
+hd_code/A0A30  __osGetCause          # os/getcause.s
+
+# --- hd_code: Rare's hand-written game asm, 56040..8DDB0 (sd $ra frames, trapping
+#     add/addi/sub, non-ABI registers).  The port uses NON_MATCHING C for these. ---
+hd_code/56040  *
+hd_code/5BF40  *
+hd_code/5CB60  *
+hd_code/5FD50  *
+hd_code/60D50  *
+hd_code/60F60  *
+hd_code/62740  *
+hd_code/679E0  *
+hd_code/69000  *
+hd_code/69930  *
+hd_code/69BB0  *
+hd_code/6B4A0  *
+hd_code/6C5E0  *
+hd_code/6E200  *
+hd_code/71140  *
+hd_code/72B80  *
+hd_code/75490  *
+hd_code/772A0  *
+hd_code/77E20  *
+hd_code/7F8B0  *
+hd_code/7FB50  *
+hd_code/83910  *
+hd_code/853D0  *
+hd_code/86ED0  *
+hd_code/86F60  *
+hd_code/88160  *
+hd_code/89250  *
+hd_code/8A080  *
+hd_code/8A2E0  *
+hd_code/8AEE0  *
+hd_code/8DDB0  *
+
+# --- hd_front_end: o32 wrappers around hd_code's non-ABI functions (sd $ra, ld/sd of
+#     s0-s7/gp/fp, trapping addi/sub) ---
+hd_front_end/1B100  *

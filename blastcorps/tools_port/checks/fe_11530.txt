@@ -1,0 +1,78 @@
+# fe_11530: hd_front_end 11530.c, fe_globe_draw_route (one route between two levels on the globe: an arc of
+# n = clamp(dist / 32, 3, 15) + 1 vertices in gRouteVtxBufs[fb] + gRouteCount * 16 vertices, lines into gdl).
+# Args: a0 dyn (only passed on), a1 gdl, a2 from, a3 to, stack0 out (s8 *), stack1 lon (f32 *), stack2
+# curved, stack3..8 r0 g0 b0 r1 g1 b1.  Level positions are gGlobeLevels[i].unk24/28/2C (radius ~250);
+# sinf / acos / sqrtf / the projection run for real so the arc is a real one.
+# general: random level positions, light direction, route bits (gRouteDrawn), progress state
+fe_globe_draw_route: -n 400 --ret ptr --arg a0=int --arg a1=ptr:0x400 --arg a2=int:0:59 --arg a3=int:0:59 \
+    --arg stack0=ptr:4 --arg stack1=ptr:4 --arg stack2=choice:0,1 --arg stack3=int:0:255 --arg stack4=int:0:255 \
+    --arg stack5=int:0:255 --arg stack6=int:0:255 --arg stack7=int:0:255 --arg stack8=int:0:255 \
+    --heap 0x1000 --mem gRouteVtxBufs=rel:heap0 --mem gRouteVtxBufs+4=rel:heap0+0x100 --mem gBufferIndex:1=choice:0,1 \
+    --mem gRouteCount:1=int:0:8 --mem gGlobeLevels+0x24*0x30:60=floats:-250:250 \
+    --mem gGlobeLevels+0x28*0x30:60=floats:-250:250 --mem gGlobeLevels+0x2C*0x30:60=floats:-250:250 \
+    --mem gRouteDrawn:480=words:0,0,-1,0x12345678 --mem gGlobeSelLevel:1=int:0:59 --mem playerNumber:1=int:0:3 \
+    --mem players:0x400=bytes:0,1,2,5,6,0xFF --mem gGlobeCamX=floats:-1:1 --mem gGlobeCamY=floats:-1:1 \
+    --mem gGlobeCamZ=floats:-1:1 --mem angd=floats:-2:2 --mem dmm=floats:0:20 --mem mmm=floats:0:20 \
+    --mem gGlobeOverlayAlpha:1=rand --mem gGlobeCamDist=floats:0:5000 --mem gRouteRevealFlags:1=choice:0,1,2,3 --mem gGlobeState:2=choice:0,1 \
+    --mem gRouteRevealMin=floats:0:1 --mem gSchedFrameCount=int:0:200 --mem gGlobeZoomDoneTime=int:0:100 --mem gRouteRevealSound=choice:0,0x80B00000 \
+    --mem gGlobePlanet=choice:3,2 --stub-ret lvl_planet=choice:3*3,1 --stub-ret fe_globe_level_locked=choice:0*4,1 \
+    --follow hd_sinf,math_asin_c,sqrtf,hud_project_point --sig lvl_planet=a0:1 --sig fe_globe_level_locked=a0 \
+    --sig snd_stop=a0 --sig snd_play=a0,a1,a2 --sig math_angle_2d_deg=a0,a1,a2,a3
+# drawn routes: unvisited pair (gRouteDrawn clear), both levels open (lvl_planet 3), mostly lit
+# vertices, the start level selected (out / lon set; projection when gGlobePlanet is 3)
+fe_globe_draw_route: -n 400 --seed 1 --ret ptr --arg a0=int --arg a1=ptr:0x400 --arg a2=int:0:59 --arg a3=int:0:59 \
+    --arg stack0=ptr:4 --arg stack1=ptr:4 --arg stack2=choice:0,1 --arg stack3=int:0:255 --arg stack4=int:0:255 \
+    --arg stack5=int:0:255 --arg stack6=int:0:255 --arg stack7=int:0:255 --arg stack8=int:0:255 \
+    --heap 0x1000 --mem gRouteVtxBufs=rel:heap0 --mem gRouteVtxBufs+4=rel:heap0+0x100 --mem gBufferIndex:1=choice:0,1 \
+    --mem gRouteCount:1=int:0:8 --mem gGlobeLevels+0x24*0x30:60=floats:-250:250 \
+    --mem gGlobeLevels+0x28*0x30:60=floats:-250:250 --mem gGlobeLevels+0x2C*0x30:60=floats:-250:250 \
+    --mem gRouteDrawn:480=zero --mem gGlobeSelLevel:1=choice:0,1,2,3,40,59 --mem playerNumber:1=int:0:3 \
+    --mem players:0x400=bytes:1,2,5,6 --mem gGlobeCamX=floats:0:1 --mem gGlobeCamY=floats:0:1 \
+    --mem gGlobeCamZ=floats:-0.5:1 --mem angd=floats:-2:2 --mem dmm=floats:0:20 --mem mmm=floats:0:20 \
+    --mem gGlobeOverlayAlpha:1=rand --mem gGlobeCamDist=floats:0:5000 --mem gRouteRevealFlags:1=0 --mem gGlobePlanet=choice:3,2 \
+    --stub-ret lvl_planet=3 --stub-ret fe_globe_level_locked=0 \
+    --follow hd_sinf,math_asin_c,sqrtf,hud_project_point --sig lvl_planet=a0:1 --sig fe_globe_level_locked=a0 \
+    --sig math_angle_2d_deg=a0,a1,a2,a3
+# route-open fade: gRouteRevealFlags set, progress (gSchedFrameCount - gGlobeZoomDoneTime) / 90 against gRouteRevealMin, sound start / stop
+fe_globe_draw_route: -n 400 --seed 2 --ret ptr --arg a0=int --arg a1=ptr:0x400 --arg a2=int:0:59 --arg a3=int:0:59 \
+    --arg stack0=ptr:4 --arg stack1=ptr:4 --arg stack2=choice:0,1 --arg stack3=int:0:255 --arg stack4=int:0:255 \
+    --arg stack5=int:0:255 --arg stack6=int:0:255 --arg stack7=int:0:255 --arg stack8=int:0:255 \
+    --heap 0x1000 --mem gRouteVtxBufs=rel:heap0 --mem gRouteVtxBufs+4=rel:heap0+0x100 --mem gBufferIndex:1=choice:0,1 \
+    --mem gRouteCount:1=int:0:8 --mem gGlobeLevels+0x24*0x30:60=floats:-250:250 \
+    --mem gGlobeLevels+0x28*0x30:60=floats:-250:250 --mem gGlobeLevels+0x2C*0x30:60=floats:-250:250 \
+    --mem gRouteDrawn:480=zero --mem gGlobeSelLevel:1=choice:0,1,2,3 --mem playerNumber:1=int:0:3 \
+    --mem players:0x400=bytes:0,1,5,6 --mem gGlobeCamX=floats:-1:1 --mem gGlobeCamY=floats:-1:1 \
+    --mem gGlobeCamZ=floats:-1:1 --mem angd=floats:-2:2 --mem dmm=floats:0:20 --mem mmm=floats:0:20 \
+    --mem gGlobeOverlayAlpha:1=rand --mem gGlobeCamDist=floats:0:5000 --mem gRouteRevealFlags:1=choice:1,2,3 --mem gGlobeState:2=choice:0,1*3 \
+    --mem gRouteRevealMin=choice:0,0x3F000000,0x3F800000,0x3E800000 --mem gSchedFrameCount=int:0:200 --mem gGlobeZoomDoneTime=int:0:110 \
+    --mem gRouteRevealSound=choice:0,0x80B00000 --mem gGlobePlanet=choice:3,2 --stub-ret lvl_planet=3 --stub-ret fe_globe_level_locked=0 \
+    --follow hd_sinf,math_asin_c,sqrtf,hud_project_point --sig lvl_planet=a0:1 --sig fe_globe_level_locked=a0 \
+    --sig snd_stop=a0 --sig snd_play=a0,a1,a2 --sig math_angle_2d_deg=a0,a1,a2,a3
+# boundaries: from == to (zero arc), antipodal / identical positions, levels at the origin
+fe_globe_draw_route: -n 200 --seed 3 --ret ptr --arg a0=int --arg a1=ptr:0x400 --arg a2=choice:0,1 --arg a3=choice:0,1 \
+    --arg stack0=ptr:4 --arg stack1=ptr:4 --arg stack2=choice:0,1 --arg stack3=int:0:255 --arg stack4=int:0:255 \
+    --arg stack5=int:0:255 --arg stack6=int:0:255 --arg stack7=int:0:255 --arg stack8=int:0:255 \
+    --heap 0x1000 --mem gRouteVtxBufs=rel:heap0 --mem gRouteVtxBufs+4=rel:heap0+0x100 --mem gBufferIndex:1=0 \
+    --mem gRouteCount:1=0 --mem gGlobeLevels+0x24=choice:0,0x437A0000,0xC37A0000 --mem gGlobeLevels+0x28=0 \
+    --mem gGlobeLevels+0x2C=0 --mem gGlobeLevels+0x54=choice:0,0x437A0000,0xC37A0000 --mem gGlobeLevels+0x58=0 \
+    --mem gGlobeLevels+0x5C=choice:0,0x437A0000 --mem gRouteDrawn:480=zero --mem gGlobeSelLevel:1=choice:0,1 \
+    --mem playerNumber:1=0 --mem players:0x100=bytes:1,5 --mem gGlobeCamX=floats:-1:1 --mem gGlobeCamY=floats:-1:1 \
+    --mem gGlobeCamZ=floats:-1:1 --mem angd=floats:-2:2 --mem dmm=floats:0:20 --mem mmm=floats:0:20 \
+    --mem gGlobeOverlayAlpha:1=rand --mem gGlobeCamDist=floats:0:5000 --mem gRouteRevealFlags:1=0 --mem gGlobePlanet=choice:3,2 \
+    --stub-ret lvl_planet=3 --stub-ret fe_globe_level_locked=0 \
+    --follow hd_sinf,math_asin_c,sqrtf,hud_project_point --sig math_angle_2d_deg=a0,a1,a2,a3
+# everything followed but the sound player
+fe_globe_draw_route: -n 200 --seed 4 --ret ptr --follow-all --no-follow snd_stop,snd_play \
+    --arg a0=int --arg a1=ptr:0x400 --arg a2=int:0:59 --arg a3=int:0:59 \
+    --arg stack0=ptr:4 --arg stack1=ptr:4 --arg stack2=choice:0,1 --arg stack3=int:0:255 --arg stack4=int:0:255 \
+    --arg stack5=int:0:255 --arg stack6=int:0:255 --arg stack7=int:0:255 --arg stack8=int:0:255 \
+    --heap 0x1000 --mem gRouteVtxBufs=rel:heap0 --mem gRouteVtxBufs+4=rel:heap0+0x100 --mem gBufferIndex:1=choice:0,1 \
+    --mem gRouteCount:1=int:0:8 --mem gGlobeLevels+0x24*0x30:60=floats:-250:250 \
+    --mem gGlobeLevels+0x28*0x30:60=floats:-250:250 --mem gGlobeLevels+0x2C*0x30:60=floats:-250:250 \
+    --mem gRouteDrawn:480=words:0,0,-1 --mem gGlobeSelLevel:1=int:0:59 --mem playerNumber:1=int:0:3 \
+    --mem players:0x400=bytes:0,1,2,5,6 --mem gGlobeCamX=floats:-1:1 --mem gGlobeCamY=floats:-1:1 \
+    --mem gGlobeCamZ=floats:-1:1 --mem angd=floats:-2:2 --mem dmm=floats:0:20 --mem mmm=floats:0:20 \
+    --mem gGlobeOverlayAlpha:1=rand --mem gGlobeCamDist=floats:0:5000 --mem gRouteRevealFlags:1=choice:0,1,3 --mem gGlobeState:2=choice:0,1 \
+    --mem gRouteRevealMin=floats:0:1 --mem gSchedFrameCount=int:0:200 --mem gGlobeZoomDoneTime=int:0:100 --mem gRouteRevealSound=choice:0,0x80B00000 \
+    --mem gGlobePlanet=choice:3,2 --mem gLevelInfo:0xFF0=rand --mem gGameMode:8=rand \
+    --sig snd_stop=a0 --sig snd_play=a0,a1,a2

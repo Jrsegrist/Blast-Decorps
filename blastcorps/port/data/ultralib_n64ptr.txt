@@ -1,0 +1,192 @@
+# ultralib header fields that keep the N64 layout in the 64-bit build (tools/ulhdr64.py):
+# PATH LINE FIELD [fn TYPEDEF], or PATH LINE NAME line TEXT.  The port compiles the game C
+# and the ul_* files against these copies.  From tools/ptrcheck64.py over the ul_* files;
+# printf's _Pft and the voice/pi-manager helpers are host-only and left alone.
+#
+# The records and macros the game's own code needs marked (scheduler, sprites, images,
+# regions, logs, the profiler, the K0/K1 conversions), and the GBI/rdb packets MSVC would
+# lay out its own way (the PORT_BF_* macros: port_n64ptr.h; checked by layout_check.c)
+include/PR/sched.h 51 next
+include/PR/sched.h 54 framebuffer
+include/PR/sched.h 57 msgQ
+include/PR/sched.h 85 next
+include/PR/sched.h 86 msgQ
+include/PR/sched.h 97 clientList
+include/PR/sched.h 98 audioListHead
+include/PR/sched.h 99 gfxListHead
+include/PR/sched.h 100 audioListTail
+include/PR/sched.h 101 gfxListTail
+include/PR/sched.h 102 curRSPTask
+include/PR/sched.h 103 curRDPTask
+include/PR/sp.h 45 buf
+include/PR/sp.h 77 LUT
+include/PR/sp.h 91 bitmap
+include/PR/sp.h 93 rsp_dl
+include/PR/sp.h 95 rsp_dl_next
+include/PR/gu.h 52 base
+include/PR/gbi.h 1099 SourceImagePointer
+include/PR/gbi.h 1100 TlutPointer
+include/PR/region.h 88 r_startBufferAddress
+include/PR/region.h 89 r_endAddress
+include/PR/ultralog.h 46 base
+include/PR/os_debug.h 51 histo_base
+include/PR/os_debug.h 53 text_start
+include/PR/os_debug.h 54 text_end
+include/PR/os_convert.h 75 OS_K0_TO_PHYSICAL line #define\tOS_K0_TO_PHYSICAL(x)\t(u32)(((char *)N64_IPTR(x)-0x80000000))
+include/PR/os_convert.h 76 OS_K1_TO_PHYSICAL line #define\tOS_K1_TO_PHYSICAL(x)\t(u32)(((char *)N64_IPTR(x)-0xa0000000))
+include/PR/gbi.h 1504 param line \t\tPORT_BF_UINT\tparam:8;
+include/PR/gbi.h 1584 pad line \t\tPORT_BF_BYTE(pad);
+include/PR/gbi.h 1585 prim_min_level line \t\tPORT_BF_BYTE(prim_min_level);
+include/PR/gbi.h 1586 prim_level line \t\tPORT_BF_BYTE(prim_level);
+include/PR/rdb.h 83 type line \tPORT_BF_RDB type : 6;\t/* 0: invalid, 1: print, 2: debug */
+include/PR/rdb.h 84 length line \tPORT_BF_RDB length : 2;\t/* 1, 2, or 3 */
+#
+# the ul_* files' records
+include/PR/libaudio.h 114 next
+include/PR/libaudio.h 115 prev
+include/PR/libaudio.h 127 base
+include/PR/libaudio.h 128 cur
+include/PR/libaudio.h 208 loop
+include/PR/libaudio.h 209 book
+include/PR/libaudio.h 213 loop
+include/PR/libaudio.h 217 base
+include/PR/libaudio.h 228 envelope
+include/PR/libaudio.h 229 keyMap
+include/PR/libaudio.h 230 wavetable
+include/PR/libaudio.h 251 soundArray
+include/PR/libaudio.h 259 percussion
+include/PR/libaudio.h 260 instArray
+include/PR/libaudio.h 266 bankArray
+include/PR/libaudio.h 277 offset
+include/PR/libaudio.h 299 dmaproc
+include/PR/libaudio.h 300 heap
+include/PR/libaudio.h 303 params
+include/PR/libaudio.h 307 next
+include/PR/libaudio.h 308 clientData
+include/PR/libaudio.h 316 pvoice
+include/PR/libaudio.h 317 table
+include/PR/libaudio.h 318 clientPrivate
+include/PR/libaudio.h 332 head
+include/PR/libaudio.h 339 heap
+include/PR/libaudio.h 341 paramList
+include/PR/libaudio.h 343 mainBus
+include/PR/libaudio.h 344 auxBus
+include/PR/libaudio.h 345 outputFilter
+include/PR/libaudio.h 388 alGlobals
+include/PR/libaudio.h 521 curPtr
+include/PR/libaudio.h 553 voice
+include/PR/libaudio.h 557 voice
+include/PR/libaudio.h 567 start
+include/PR/libaudio.h 568 end
+include/PR/libaudio.h 578 seq
+include/PR/libaudio.h 582 bank
+include/PR/libaudio.h 586 vs
+include/PR/libaudio.h 587 oscState
+include/PR/libaudio.h 637 next
+include/PR/libaudio.h 639 sound
+include/PR/libaudio.h 655 instrument
+include/PR/libaudio.h 667 base
+include/PR/libaudio.h 668 trackStart
+include/PR/libaudio.h 669 curPtr
+include/PR/libaudio.h 683 base
+include/PR/libaudio.h 689 curLoc
+include/PR/libaudio.h 692 curBUPtr
+include/PR/libaudio.h 702 curLoc
+include/PR/libaudio.h 703 curBUPtr
+include/PR/libaudio.h 718 heap
+include/PR/libaudio.h 719 initOsc
+include/PR/libaudio.h 720 updateOsc
+include/PR/libaudio.h 721 stopOsc
+include/PR/libaudio.h 731 drvr
+include/PR/libaudio.h 732 target
+include/PR/libaudio.h 734 bank
+include/PR/libaudio.h 745 chanState
+include/PR/libaudio.h 746 vAllocHead
+include/PR/libaudio.h 747 vAllocTail
+include/PR/libaudio.h 748 vFreeList
+include/PR/libaudio.h 752 loopStart
+include/PR/libaudio.h 753 loopEnd
+include/PR/libaudio.h 759 drvr
+include/PR/libaudio.h 760 target
+include/PR/libaudio.h 762 bank
+include/PR/libaudio.h 773 chanState
+include/PR/libaudio.h 774 vAllocHead
+include/PR/libaudio.h 775 vAllocTail
+include/PR/libaudio.h 776 vFreeList
+include/PR/libaudio.h 898 heap
+include/PR/libaudio.h 905 drvr
+include/PR/libaudio.h 907 sndState
+include/PR/os_cont.h 67 address
+include/PR/os_message.h 59 mtqueue
+include/PR/os_message.h 60 fullqueue
+include/PR/os_message.h 64 msg
+include/PR/os_pfs.h 54 queue
+include/PR/os_pi.h 61 dramAddr
+include/PR/os_pi.h 62 C2Addr
+include/PR/os_pi.h 81 next
+include/PR/os_pi.h 106 retQueue
+include/PR/os_pi.h 111 dramAddr
+include/PR/os_pi.h 114 piHandle
+include/PR/os_pi.h 122 thread
+include/PR/os_pi.h 123 cmdQueue
+include/PR/os_pi.h 124 evtQueue
+include/PR/os_pi.h 125 acsQueue
+include/PR/os_system.h 85 osRomBase
+include/PR/os_thread.h 78 next
+include/PR/os_thread.h 80 queue
+include/PR/os_thread.h 81 tlnext
+include/PR/os_thread.h 86 thprof
+include/PR/os_time.h 58 next
+include/PR/os_time.h 59 prev
+include/PR/os_time.h 63 mq
+include/PR/sptask.h 78 ucode_boot
+include/PR/sptask.h 81 ucode
+include/PR/sptask.h 84 ucode_data
+include/PR/sptask.h 87 dram_stack
+include/PR/sptask.h 90 output_buff
+include/PR/sptask.h 91 output_buff_size
+include/PR/sptask.h 93 data_ptr
+include/PR/sptask.h 96 yield_data_ptr
+src/audio/synthInternals.h 87 next
+src/audio/synthInternals.h 109 next
+src/audio/synthInternals.h 118 wave
+src/audio/synthInternals.h 122 next
+src/audio/synthInternals.h 126 wave
+src/audio/synthInternals.h 130 next
+src/audio/synthInternals.h 133 pvoice
+src/audio/synthInternals.h 140 source
+src/audio/synthInternals.h 155 state
+src/audio/synthInternals.h 156 lstate
+src/audio/synthInternals.h 158 table
+src/audio/synthInternals.h 161 dmaState
+src/audio/synthInternals.h 175 state
+src/audio/synthInternals.h 180 ctrlList
+src/audio/synthInternals.h 181 ctrlTail
+src/audio/synthInternals.h 192 fstate
+src/audio/synthInternals.h 206 lp
+src/audio/synthInternals.h 207 rs
+src/audio/synthInternals.h 213 base
+src/audio/synthInternals.h 214 input
+src/audio/synthInternals.h 216 delay
+src/audio/synthInternals.h 231 sources
+src/audio/synthInternals.h 244 sources
+src/audio/synthInternals.h 268 state
+src/audio/synthInternals.h 284 ctrlList
+src/audio/synthInternals.h 285 ctrlTail
+src/audio/synthInternals.h 286 sources
+src/audio/synthInternals.h 301 file
+src/audio/synthInternals.h 317 vvoice
+src/audio/synthInternals.h 318 channelKnob
+include/PR/libaudio.h 309 handler fn ALVoiceHandler
+include/PR/libaudio.h 338 dma fn ALDMANew
+include/PR/libaudio.h 749 initOsc fn ALOscInit
+include/PR/libaudio.h 750 updateOsc fn ALOscUpdate
+include/PR/libaudio.h 751 stopOsc fn ALOscStop
+include/PR/libaudio.h 777 initOsc fn ALOscInit
+include/PR/libaudio.h 778 updateOsc fn ALOscUpdate
+include/PR/libaudio.h 779 stopOsc fn ALOscStop
+src/audio/synthInternals.h 141 handler fn ALCmdHandler
+src/audio/synthInternals.h 142 setParam fn ALSetParam
+src/audio/synthInternals.h 160 dma fn ALDMAproc
+src/audio/synthInternals.h 218 paramHdl fn ALSetFXParam
+include/PR/os_message.h 53 OSMesg

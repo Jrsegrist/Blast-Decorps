@@ -1,0 +1,132 @@
+# 5BF40: texture/palette table DMA loads (libultra calls stubbed; their arguments, including
+# osPiStartDma's stack arguments, are compared)
+# The table holds ROM offsets (from 0x4CE0); the asm computes 0x4CE0 + start and next - start
+# with trapping add/sub (and counts with a trapping addi), so the pools keep those in range.
+
+# tex_load_table: one-time table load, flag clear / set
+tex_load_table: -n 200 --ret void --mem gTexTableLoaded:1=choice:0,0,1,2,0xFF --mem gHeapPtr=int --mem gTexTable=int \
+    --mem gTexCacheEnd=int --sig osInvalDCache=a0,a1 --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2 \
+    --sig osRecvMesg=a0,a1,a2
+
+# tex_load_palette_impl (t6 = id, s1 = dest): entry id of a random offset table
+tex_load_palette_impl: -n 300 --arg t6=int:0:30 --arg s1=int --heap 0x200=words:0,0x10,0x100,0x1000,0x7FF0,0xFFFF00 \
+    --mem gTexTable=rel:heap0 \
+    --sig osInvalDCache=a0,a1 --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2 --sig osRecvMesg=a0,a1,a2
+# largest start without overflow, negative sizes
+tex_load_palette_impl: -n 50 --seed 1 --arg t6=choice:0,1 --arg s1=choice:0,0x80400000 --heap 0x20=words:0,0x100,0xFFFFFF00,0x7FFFB31F \
+    --mem gTexTable=rel:heap0 --sig osInvalDCache=a0,a1 --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2 \
+    --sig osRecvMesg=a0,a1,a2
+
+# tex_queue_palette (t6 = id, s1 = dest): queued DMA, OSIoMesg slot from nextdma
+tex_queue_palette: -n 300 --arg t6=int:0:30 --arg s1=int --heap 0x200=words:0,0x10,0x100,0x1000,0x7FF0,0xFFFF00 \
+    --mem gTexTable=rel:heap0 --mem nextdma=int:0:10 --mem no_palette_dmas=int:0:1000 --sig osInvalDCache=a0,a1 \
+    --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2
+tex_queue_palette: -n 50 --seed 1 --arg t6=0 --arg s1=int --heap 0x20=words:0,0x100,0xFFFFFF00 --mem gTexTable=rel:heap0 \
+    --mem nextdma=choice:0,-1,0x7FFFFFFE,0x80000000 --mem no_palette_dmas=choice:0,-1,0x7FFFFFFE --sig osInvalDCache=a0,a1 \
+    --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2
+
+# tex_load_palette(id, dest): wrapper of tex_load_palette_impl (stubbed under its convention, then followed)
+tex_load_palette: -n 200 --ret void --arg a0=int --arg a1=int
+tex_load_palette: -n 200 --seed 1 --ret void --follow tex_load_palette_impl --arg a0=int:0:30 --arg a1=int \
+    --heap 0x200=words:0,0x10,0x100,0x1000,0x7FF0,0xFFFF00 --mem gTexTable=rel:heap0 --sig osInvalDCache=a0,a1 \
+    --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2 --sig osRecvMesg=a0,a1,a2
+
+# tex_resolve_dl_impl (s0 = dl, s1 = end; s4 in/out): G_SETTIMG ids -> physical addresses through the cache pairs at
+# gTexCache (cursor gTexCacheEnd), loading missing ones at the heap. Commands from a small pool, ids 0..5, 0-6 pairs
+# cached already; heap0 = the offset table (word 1 = size << 16 | type)
+tex_resolve_dl_impl: -n 300 --heap 0x100=words:0,0x10,0x100,0x1000,0x7FF0 --heap 0x100 --mem gTexTable=rel:heap0 \
+    --arg s0=rel:heap1 --arg s1=rel:heap1+8*int:0:16 --mem @heap1*8:16=choice:0xFD100000,0xFD000000,0x06000000,0xFC000000,0xFE000000 \
+    --mem @heap1+4*8:16=int:0:5 --mem gTexCache:0x40=rand --mem gTexCache*8:8=int:0:5 \
+    --mem gTexCacheEnd=rel:gTexCache+8*int:0:6 --mem gHeapPtr=choice:0x80400000,0x80123450,0x80000000 \
+    --mem gTexDecodeReq:0x10=rand --sig osInvalDCache=a0,a1 --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2 \
+    --sig osRecvMesg=a0,a1,a2 --sig tex_decode=a0
+# empty cache / every command a G_SETTIMG of one id (first misses, the rest hit the new pair)
+tex_resolve_dl_impl: -n 100 --seed 1 --heap 0x100=words:0,0x10,0x100 --heap 0x100 --mem gTexTable=rel:heap0 \
+    --arg s0=rel:heap1 --arg s1=rel:heap1+8*int:1:16 --mem @heap1*8:16=0xFD100000 --mem @heap1+4*8:16=choice:3 \
+    --mem gTexCacheEnd=sym:gTexCache --mem gHeapPtr=0x80400000 --mem gTexDecodeReq:0x10=rand --sig osInvalDCache=a0,a1 \
+    --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2 --sig osRecvMesg=a0,a1,a2 --sig tex_decode=a0
+# decoder followed (type 7 = copy only, returns 0; even sizes), real heap buffer.  Entries 0..3 (ids 0..2 are
+# drawn) are a valid table: increasing ROM offsets, so every entry's size (next offset - its offset) is positive.
+# (Before the tex_decode rename this line compared the asm decoder with itself: the NM front end's absolute
+# alias under the decoder's address name sent the C side into the original text.  Comparing the real C decoder, random offsets gave
+# negative sizes, where the asm copy loop runs off memory and the C one copies nothing; no ROM table has them.)
+tex_resolve_dl_impl: -n 200 --seed 2 --heap 0x100=words:0,0x100007,0x10,0x80007,0x40,0x7 --heap 0x100 --heap 0x200 \
+    --mem @heap0:0x20=hex:0000000000100007_0000001000080007_0000002000000007_0000004000100007 \
+    --mem gTexTable=rel:heap0 --arg s0=rel:heap1 --arg s1=rel:heap1+8*int:0:16 \
+    --mem @heap1*8:16=choice:0xFD100000,0x06000000 --mem @heap1+4*8:16=int:0:2 --mem gTexCache:0x40=rand \
+    --mem gTexCache*8:8=int:0:5 --mem gTexCacheEnd=rel:gTexCache+8*int:0:4 --mem gHeapPtr=rel:heap2 \
+    --follow tex_decode --sig osInvalDCache=a0,a1 --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2 \
+    --sig osRecvMesg=a0,a1,a2
+
+# tex_load_to_heap_impl (t6 = id, fp = param): load entry id at the heap, decode with param
+tex_load_to_heap_impl: -n 300 --arg t6=int:0:30 --heap 0x200=words:0,0x10,0x100,0x1000,0x7FF0,0xFFFF00 --mem gTexTable=rel:heap0 \
+    --mem gHeapPtr=int --mem gTexDecodeReq:0x10=rand --sig osInvalDCache=a0,a1 \
+    --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2 --sig osRecvMesg=a0,a1,a2 --sig tex_decode=a0
+tex_load_to_heap_impl: -n 200 --seed 1 --arg t6=int:0:2 --heap 0x40=words:0,0x100007,0x10,0x80007,0x40,0x7 --heap 0x200 \
+    --mem gTexTable=rel:heap0 --mem gHeapPtr=rel:heap1 --follow tex_decode --sig osInvalDCache=a0,a1 \
+    --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2 --sig osRecvMesg=a0,a1,a2
+
+# tex_get_impl (t6 = id, fp = param): cached physical address, or append + load -> s0
+tex_get_impl: -n 300 --arg t6=int:0:5 --heap 0x200=words:0,0x10,0x100,0x1000,0x7FF0 --mem gTexTable=rel:heap0 \
+    --mem gTexCache:0x40=rand --mem gTexCache*8:8=int:0:5 --mem gTexCacheEnd=rel:gTexCache+8*int:0:6 \
+    --mem gHeapPtr=choice:0x80400000,0x80123450,0x80000000 --mem gTexDecodeReq:0x10=rand --sig osInvalDCache=a0,a1 \
+    --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2 --sig osRecvMesg=a0,a1,a2 --sig tex_decode=a0
+# id only in the last pair / empty cache
+tex_get_impl: -n 100 --seed 1 --arg t6=9 --heap 0x200=words:0,0x10,0x100 --mem gTexTable=rel:heap0 \
+    --mem gTexCache:0x30=onehot:8:9:words:1,2,3 --mem gTexCacheEnd=rel:gTexCache+0x30 --mem gHeapPtr=0x80400000 \
+    --sig osInvalDCache=a0,a1 --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2 --sig osRecvMesg=a0,a1,a2 --sig tex_decode=a0
+tex_get_impl: -n 50 --seed 2 --arg t6=int:0:3 --heap 0x200=words:0,0x10,0x100 --mem gTexTable=rel:heap0 \
+    --mem gTexCacheEnd=sym:gTexCache --mem gHeapPtr=0x80400000 --mem gTexCache:0x10=rand --sig osInvalDCache=a0,a1 \
+    --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2 --sig osRecvMesg=a0,a1,a2 --sig tex_decode=a0
+tex_get_impl: -n 200 --seed 3 --arg t6=int:0:2 --heap 0x40=words:0,0x100007,0x10,0x80007,0x40,0x7 --heap 0x200 \
+    --mem gTexTable=rel:heap0 --mem gHeapPtr=rel:heap1 --mem gTexCache:0x40=rand --mem gTexCache*8:8=int:0:5 \
+    --mem gTexCacheEnd=rel:gTexCache+8*int:0:4 --follow tex_decode --sig osInvalDCache=a0,a1 \
+    --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2 --sig osRecvMesg=a0,a1,a2
+
+# tex_queue_load_impl (t6 = id, s1 = dest, fp = param): queued DMA (OSIoMesg slot nextdma++) + decode request
+tex_queue_load_impl: -n 300 --arg t6=int:0:30 --heap 0x200=words:0,0x10,0x100,0x1000,0x7FF0,0xFFFF00 --mem gTexTable=rel:heap0 \
+    --mem nextdma=choice:0,1,5,-1,0x7FFFFFFE --sig osInvalDCache=a0,a1 --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2
+tex_queue_load_impl: -n 200 --seed 1 --follow tex_queue_decode --arg t6=int:0:30 --heap 0x200=words:0,0x10,0x100,0x1000,0x7FF0,0xFFFF00 \
+    --heap 0x40 --mem gTexTable=rel:heap0 --mem gTexDecodeQueueTail=rel:heap1 --mem nextdma=int:0:10 --sig osInvalDCache=a0,a1 \
+    --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2
+# [e1] 5BF40 C-callable wrappers: tex_resolve_dl / tex_load_to_heap / tex_get / tex_queue_load (callee stubbed
+# under its convention, then followed with the callee's own check inputs)
+tex_resolve_dl: -n 200 --arg a0=int --arg a1=int --sig tex_resolve_dl_impl=a0,a1
+tex_resolve_dl: -n 300 --seed 1 --follow tex_resolve_dl_impl --heap 0x100=words:0,0x10,0x100,0x1000,0x7FF0 --heap 0x100 \
+    --mem gTexTable=rel:heap0 --arg a0=rel:heap1 --arg a1=rel:heap1+8*int:0:16 \
+    --mem @heap1*8:16=choice:0xFD100000,0xFD000000,0x06000000,0xFC000000,0xFE000000 \
+    --mem @heap1+4*8:16=int:0:5 --mem gTexCache:0x40=rand --mem gTexCache*8:8=int:0:5 \
+    --mem gTexCacheEnd=rel:gTexCache+8*int:0:6 --mem gHeapPtr=choice:0x80400000,0x80123450,0x80000000 \
+    --mem gTexDecodeReq:0x10=rand --sig osInvalDCache=a0,a1 --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2 \
+    --sig osRecvMesg=a0,a1,a2 --sig tex_decode=a0
+tex_resolve_dl: -n 100 --seed 2 --follow tex_resolve_dl_impl --heap 0x100=words:0,0x10,0x100 --heap 0x100 --mem gTexTable=rel:heap0 \
+    --arg a0=rel:heap1 --arg a1=rel:heap1+8*choice:0,1,16 --mem @heap1*8:16=0xFD100000 --mem @heap1+4*8:16=choice:3 \
+    --mem gTexCacheEnd=sym:gTexCache --mem gHeapPtr=0x80400000 --mem gTexDecodeReq:0x10=rand --sig osInvalDCache=a0,a1 \
+    --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2 --sig osRecvMesg=a0,a1,a2 --sig tex_decode=a0
+tex_load_to_heap: -n 200 --ret void --arg a0=choice:0,1,0xFFFF,0x10000,-1,0x12345678,0x8000 --arg a1=int
+tex_load_to_heap: -n 300 --seed 1 --ret void --follow tex_load_to_heap_impl --arg a0=int:0:30 --arg a1=int \
+    --heap 0x200=words:0,0x10,0x100,0x1000,0x7FF0,0xFFFF00 --mem gTexTable=rel:heap0 \
+    --mem gHeapPtr=int --mem gTexDecodeReq:0x10=rand --sig osInvalDCache=a0,a1 \
+    --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2 --sig osRecvMesg=a0,a1,a2 --sig tex_decode=a0
+tex_load_to_heap: -n 200 --seed 2 --ret void --follow tex_load_to_heap_impl,tex_decode --arg a0=int:0:2 --arg a1=int \
+    --heap 0x40=words:0,0x100007,0x10,0x80007,0x40,0x7 --heap 0x200 \
+    --mem gTexTable=rel:heap0 --mem gHeapPtr=rel:heap1 --sig osInvalDCache=a0,a1 \
+    --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2 --sig osRecvMesg=a0,a1,a2
+tex_get: -n 200 --arg a0=choice:0,1,0xFFFF,0x10000,-1,0x12345678,0x8000 --arg a1=int
+tex_get: -n 300 --seed 1 --follow tex_get_impl --arg a0=int:0:5 --arg a1=int \
+    --heap 0x200=words:0,0x10,0x100,0x1000,0x7FF0 --mem gTexTable=rel:heap0 \
+    --mem gTexCache:0x40=rand --mem gTexCache*8:8=int:0:5 --mem gTexCacheEnd=rel:gTexCache+8*int:0:6 \
+    --mem gHeapPtr=choice:0x80400000,0x80123450,0x80000000 --mem gTexDecodeReq:0x10=rand --sig osInvalDCache=a0,a1 \
+    --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2 --sig osRecvMesg=a0,a1,a2 --sig tex_decode=a0
+tex_get: -n 100 --seed 2 --follow tex_get_impl --arg a0=9 --arg a1=int --heap 0x200=words:0,0x10,0x100 \
+    --mem gTexTable=rel:heap0 --mem gTexCache:0x30=onehot:8:9:words:1,2,3 --mem gTexCacheEnd=rel:gTexCache+0x30 \
+    --mem gHeapPtr=0x80400000 --sig osInvalDCache=a0,a1 --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2 \
+    --sig osRecvMesg=a0,a1,a2 --sig tex_decode=a0
+tex_queue_load: -n 200 --ret void --arg a0=choice:0,1,0xFFFF,0x10000,-1,0x12345678,0x8000 --arg a1=int --arg a2=int
+tex_queue_load: -n 300 --seed 1 --ret void --follow tex_queue_load_impl --arg a0=int:0:30 --arg a1=int --arg a2=int \
+    --heap 0x200=words:0,0x10,0x100,0x1000,0x7FF0,0xFFFF00 --mem gTexTable=rel:heap0 \
+    --mem nextdma=choice:0,1,5,-1,0x7FFFFFFE --sig osInvalDCache=a0,a1 --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2
+tex_queue_load: -n 200 --seed 2 --ret void --follow tex_queue_load_impl,tex_queue_decode --arg a0=int:0:30 --arg a1=int --arg a2=int \
+    --heap 0x200=words:0,0x10,0x100,0x1000,0x7FF0,0xFFFF00 --heap 0x40 --mem gTexTable=rel:heap0 --mem gTexDecodeQueueTail=rel:heap1 \
+    --mem nextdma=int:0:10 --sig osInvalDCache=a0,a1 --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2
+# end-block

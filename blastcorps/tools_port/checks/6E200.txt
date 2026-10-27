@@ -1,0 +1,302 @@
+# 6E200 (vehicle module) port checks
+# skyfall_exit_check: exit check, 1 iff bytes +0x96/+0x97/+0x98 of gSkyfallState are all != 1
+skyfall_exit_check: -n 300 --seed 0 --ret int --mem gSkyfallState+0x96:3=bytes:0,1*2,2,0xFF
+skyfall_exit_check: -n 100 --seed 1 --ret int --mem gSkyfallState+0x96:3=onehot:1/1:1:bytes:0,2,0xFF
+# ramdozer_exit_check: same as skyfall_exit_check on gRamdozerState
+ramdozer_exit_check: -n 300 --seed 0 --ret int --mem gRamdozerState+0x96:3=bytes:0,1*2,2,0xFF
+ramdozer_exit_check: -n 100 --seed 1 --ret int --mem gRamdozerState+0x96:3=onehot:1/1:1:bytes:0,2,0xFF
+# ramdozer_set_physics: gGravity = gLevelGravity * 2.0f; gBounceThreshold/Damping = 110, 4; gRamdozerGrip = B/Z ? 2000 : 9000
+ramdozer_set_physics: -n 300 --seed 0 --ret void --mem gLevelGravity:4=floats:-100000:100000 \
+    --mem gHeldBOrZ:1=bytes:0,1,2,0x80,0xFF --mem gRamdozerGrip:2=rand
+ramdozer_set_physics: -n 200 --seed 1 --ret void \
+    --mem gLevelGravity:4=words:0,0x80000000,0x3F800000,0x7F800000,0xFF800000,0x7FC00000,0x00000001,0x7F7FFFFF,0xC2C80000 \
+    --mem gHeldBOrZ:1=bytes:0,1
+
+# skyfall_save_state: return veh_serialize_state(a0, gSkyfallState, gSkyfallPos) (serialize vehicle state; v0 passed through)
+skyfall_save_state: -n 300 --seed 0 --ret int --sig veh_serialize_state=a0,a1,a2 --stub-ret veh_serialize_state=rand \
+    --arg a0=choice:0,1,-1,0x80000000,0x7FFFFFFF,0x80B00000,0x80B00003,0x803FFFFF
+skyfall_save_state: -n 50 --seed 1 --ret int --sig veh_serialize_state=a0,a1,a2 --stub-ret veh_serialize_state=0xB2 --arg a0=choice:0,0x80B00000
+# end to end with the callee run for real (asm vs its C rewrite): unaligned dst, random state
+skyfall_save_state: -n 100 --seed 2 --ret int --follow veh_serialize_state --arg a0=choice:0x80B00000,0x80B00001,0x80B00002,0x80B00003,0x80B00005 --mem 0x80B00000:0x100=rand \
+    --mem gSkyfallState:0xA6=rand --mem gSkyfallPos:12=rand
+# skyfall_load_state: veh_deserialize_state(a0, gSkyfallState, gSkyfallPos) (restore vehicle state)
+skyfall_load_state: -n 300 --seed 0 --ret void --sig veh_deserialize_state=a0,a1,a2 \
+    --arg a0=choice:0,1,-1,0x80000000,0x7FFFFFFF,0x80B00000,0x80B00003,0x803FFFFF
+skyfall_load_state: -n 100 --seed 1 --ret void --follow veh_deserialize_state --arg a0=choice:0x80B00000,0x80B00001,0x80B00002,0x80B00003,0x80B00005 --mem 0x80B00000:0x100=rand \
+    --mem gSkyfallState:0xA6=rand --mem gSkyfallPos:12=rand
+
+# ramdozer_save_state: return veh_serialize_state(a0, gRamdozerState, gRamdozerPos) (serialize vehicle state; v0 passed through)
+ramdozer_save_state: -n 300 --seed 0 --ret int --sig veh_serialize_state=a0,a1,a2 --stub-ret veh_serialize_state=rand \
+    --arg a0=choice:0,1,-1,0x80000000,0x7FFFFFFF,0x80B00000,0x80B00003,0x803FFFFF
+ramdozer_save_state: -n 50 --seed 1 --ret int --sig veh_serialize_state=a0,a1,a2 --stub-ret veh_serialize_state=0xB2 --arg a0=choice:0,0x80B00000
+# end to end with the callee run for real (asm vs its C rewrite): unaligned dst, random state
+ramdozer_save_state: -n 100 --seed 2 --ret int --follow veh_serialize_state --arg a0=choice:0x80B00000,0x80B00001,0x80B00002,0x80B00003,0x80B00005 --mem 0x80B00000:0x100=rand \
+    --mem gRamdozerState:0xA6=rand --mem gRamdozerPos:12=rand
+# ramdozer_load_state: veh_deserialize_state(a0, gRamdozerState, gRamdozerPos) (restore vehicle state)
+ramdozer_load_state: -n 300 --seed 0 --ret void --sig veh_deserialize_state=a0,a1,a2 \
+    --arg a0=choice:0,1,-1,0x80000000,0x7FFFFFFF,0x80B00000,0x80B00003,0x803FFFFF
+ramdozer_load_state: -n 100 --seed 1 --ret void --follow veh_deserialize_state --arg a0=choice:0x80B00000,0x80B00001,0x80B00002,0x80B00003,0x80B00005 --mem 0x80B00000:0x100=rand \
+    --mem gRamdozerState:0xA6=rand --mem gRamdozerPos:12=rand
+
+# Trail functions call trail_add (C, 37530) whose prototype narrows args to s16/u8; the asm passes full
+# words, so these runs compare its arguments at their declared widths (--conv) and include stack args.
+# skyfall_add_tyre_trail: tyre trail, $gp = gSkyfallState; gSkyfallBoostTrail counts down by 8 when +0x99 is clear and gSkyfallBoosting set
+skyfall_add_tyre_trail: -n 400 --seed 0 --ret void --arg gp=sym:gSkyfallState \
+    --conv 'trail_add: in a0=a0:1,a1=a1,a2=a2:2,a3=a3:2,stack0=stack0:2,stack1=stack1:2,stack2=stack2,stack3=stack3,stack4=stack4:2,stack5=stack5:1,stack6=stack6:1,stack7=stack7:1,stack8=stack8:1' \
+    --mem gSkyfallState+0x99:1=bytes:0*2,1,0x80 --mem gSkyfallBoosting:1=bytes:0,1,0xFF*2 \
+    --mem gSkyfallBoostTrail:2=halves:0,7,8,9,0x10,0x3A,0x7FFF,0x8000,0xFFF8,0xFFFF,0x1234 \
+    --mem gSkyfallState+0x98:1=bytes:0*3,1,2 --mem gSkyfallState+0x50:1=bytes:0,1,2*2,3,4,0x80,0xFF --mem gSkyfallState+0x9B:1=bytes:0*4,1,0x80 \
+    --mem gSkyfallState+0x1C=int --mem gSkyfallState+0x4E:2=int:0:0xFFFF --mem gSkyfallPos=int --mem D_803EE394=int
+# every condition passes: the call's arguments (yaw 0x7FFF/0x8000/0xFFFF, extreme positions, a/b from the countdown)
+skyfall_add_tyre_trail: -n 200 --seed 1 --ret void --arg gp=sym:gSkyfallState \
+    --conv 'trail_add: in a0=a0:1,a1=a1,a2=a2:2,a3=a3:2,stack0=stack0:2,stack1=stack1:2,stack2=stack2,stack3=stack3,stack4=stack4:2,stack5=stack5:1,stack6=stack6:1,stack7=stack7:1,stack8=stack8:1' \
+    --mem gSkyfallState+0x99:1=bytes:0,1 --mem gSkyfallBoosting:1=1 --mem gSkyfallBoostTrail:2=halves:0,7,8,9,0x107,0x108,0x7FFF,0x8000,0xFFF8 \
+    --mem gSkyfallState+0x98:1=0 --mem gSkyfallState+0x50:1=bytes:0,2 --mem gSkyfallState+0x9B:1=0 \
+    --mem gSkyfallState+0x1C=choice:0,-1,0x7FFFFFFF,0x80000000 --mem gSkyfallState+0x4E:2=halves:0,0x7FFF,0x8000,0xFFFF \
+    --mem gSkyfallPos=choice:0,-1,0x80000000,0x123456 --mem D_803EE394=choice:0,-1,0x7FFFFFFF,0x123456
+# skyfall_steer_rate: s3 (-> v0) = round_nearest(speed(+0x76) / (bytes +0x96/7/8 any == 1 ? 11.0 : 2.5)); $gp = gSkyfallState
+skyfall_steer_rate: -n 300 --seed 0 --arg gp=sym:gSkyfallState --mem gSkyfallState+0x96:3=bytes:0,1,2,0xFF*3 \
+    --mem gSkyfallState+0x76:2=int:0:0xFFFF
+# (no exact .5 ties are possible with 11 or 2.5) small, negative and extreme speeds
+skyfall_steer_rate: -n 300 --seed 1 --arg gp=sym:gSkyfallState --mem gSkyfallState+0x96:3=bytes:0*3,1,2*3 \
+    --mem gSkyfallState+0x76:2=halves:0,1,2,3,4,5,6,11,16,17,0x7FFF,0x8000,0xFFFD,0xFFF5,0xFFFF,0xFFFE
+# skyfall_set_physics: gGravity = gLevelGravity * 4; gBounceThreshold/Damping = 60, 3; gSkyfallGrip = (speed <= 0 ? gHeldA : gHeldBOrZ) ? 2000 : 15000
+skyfall_set_physics: -n 300 --seed 0 --ret void --arg gp=sym:gSkyfallState --mem gLevelGravity:4=floats:-100000:100000 \
+    --mem gGravity:4=rand --mem gBounceThreshold:1=rand --mem gBounceDamping:1=rand --mem gSkyfallGrip:2=rand \
+    --mem gHeldA:1=bytes:0,1,0x80 --mem gHeldBOrZ:1=bytes:0,1,0xFF \
+    --mem gSkyfallState+0x76:2=halves:0,1,2,0x7FFF,0x8000,0xFFFF,0x100,0xFF00
+skyfall_set_physics: -n 200 --seed 1 --ret void --arg gp=sym:gSkyfallState \
+    --mem gLevelGravity:4=words:0,0x80000000,0x3F800000,0x7F800000,0xFF800000,0x7FC00000,0x00000001,0x7F7FFFFF,0xC2C80000 \
+    --mem gSkyfallGrip:2=rand --mem gHeldA:1=bytes:0,1 --mem gHeldBOrZ:1=bytes:0,1 --mem gSkyfallState+0x76:2=halves:0,1,0xFFFF
+# ramdozer_add_tyre_trail: tyre trail, $gp = gRamdozerState
+ramdozer_add_tyre_trail: -n 400 --seed 0 --ret void --arg gp=sym:gRamdozerState \
+    --conv 'trail_add: in a0=a0:1,a1=a1,a2=a2:2,a3=a3:2,stack0=stack0:2,stack1=stack1:2,stack2=stack2,stack3=stack3,stack4=stack4:2,stack5=stack5:1,stack6=stack6:1,stack7=stack7:1,stack8=stack8:1' \
+    --mem gRamdozerState+0x99:1=bytes:0,1,0x80 \
+    --mem gRamdozerState+0x98:1=bytes:0*3,1,2 --mem gRamdozerState+0x50:1=bytes:0,1,2*2,3,4,0x80,0xFF --mem gRamdozerState+0x9B:1=bytes:0*4,1,0x80 \
+    --mem gRamdozerState+0x1C=int --mem gRamdozerState+0x4E:2=int:0:0xFFFF --mem gRamdozerPos=int --mem D_803EE770=int
+ramdozer_add_tyre_trail: -n 100 --seed 1 --ret void --arg gp=sym:gRamdozerState \
+    --conv 'trail_add: in a0=a0:1,a1=a1,a2=a2:2,a3=a3:2,stack0=stack0:2,stack1=stack1:2,stack2=stack2,stack3=stack3,stack4=stack4:2,stack5=stack5:1,stack6=stack6:1,stack7=stack7:1,stack8=stack8:1' \
+    --mem gRamdozerState+0x99:1=1 --mem gRamdozerState+0x98:1=0 --mem gRamdozerState+0x50:1=bytes:0,2 --mem gRamdozerState+0x9B:1=0 \
+    --mem gRamdozerState+0x1C=choice:0,-1,0x7FFFFFFF,0x80000000 --mem gRamdozerState+0x4E:2=halves:0,0x7FFF,0x8000,0xFFFF \
+    --mem gRamdozerPos=choice:0,-1,0x80000000,0x123456 --mem D_803EE770=choice:0,-1,0x7FFFFFFF,0x123456
+# ramdozer_steer_rate: s3 (-> v0) = any of bytes +0x96/7/8 of gRamdozerState == 1 ? 22 : 75
+ramdozer_steer_rate: -n 300 --seed 0 --arg gp=sym:gRamdozerState --mem gRamdozerState+0x96:3=bytes:0,1,2,0xFF*3
+ramdozer_steer_rate: -n 100 --seed 1 --arg gp=sym:gRamdozerState --mem gRamdozerState+0x96:3=onehot:1/1:1:bytes:0,2,0xFF
+
+# zone lookup wrapper (id 3 at gSkyfallPos): veh_zone_alpha stubbed (scan registers mapped through r)
+skyfall_zone_alpha: -n 200 --mem gSkyfallPos:12=rand
+skyfall_zone_alpha: -n 300 --seed 1 --follow veh_zone_alpha,math_dist3 --mem gSkyfallPos=int:-100:100 --mem gSkyfallPos+4=int:-100:100 \
+    --mem gSkyfallPos+8=int:-100:100 --mem gAlphaZonesEnd=rel:gAlphaZones+0x24*int:0:4 --mem gAlphaZones:0x90=rand \
+    --mem gAlphaZones*0x24:4=int:-100:100 --mem gAlphaZones+4*0x24:4=int:-100:100 --mem gAlphaZones+8*0x24:4=int:-100:100 \
+    --mem gAlphaZones+0xC*0x24:4=choice:1,10,50,100,200,1000 --mem gAlphaZones+0x10*0x24:4/1=choice:0,1,1,2 \
+    --mem gAlphaZones+0x12*0x24:4/1=choice:0,1,1,1 --mem gAlphaZones+0x13*0x24:4/1=choice:0,1,2,3 \
+    --mem gAlphaZones+0x14*0x24:4/1=choice:0,0,5,0xFF --mem gAlphaZones+0x15*0x24:4/1=choice:3,3,0x30 \
+    --mem gAlphaZones+0x16*0x24:4/1=choice:3,0x31 --mem gAlphaZones+0x17*0x24:4/1=choice:3,0x32 \
+    --mem gDefaultVehAlpha:1=choice:0,1,0x80,0xFF,0x40 --mem gVehicles+0x5C*0x74:3=choice:0x100,0x200 \
+    --mem gVehicles+0x1B8=3 --mem gVehicles+0x60*0x74:4=int
+
+# zone lookup wrapper (id 4 at gRamdozerPos): veh_zone_alpha stubbed (scan registers mapped through r)
+ramdozer_zone_alpha: -n 200 --mem gRamdozerPos:12=rand
+ramdozer_zone_alpha: -n 300 --seed 1 --follow veh_zone_alpha,math_dist3 --mem gRamdozerPos=int:-100:100 --mem gRamdozerPos+4=int:-100:100 \
+    --mem gRamdozerPos+8=int:-100:100 --mem gAlphaZonesEnd=rel:gAlphaZones+0x24*int:0:4 --mem gAlphaZones:0x90=rand \
+    --mem gAlphaZones*0x24:4=int:-100:100 --mem gAlphaZones+4*0x24:4=int:-100:100 --mem gAlphaZones+8*0x24:4=int:-100:100 \
+    --mem gAlphaZones+0xC*0x24:4=choice:1,10,50,100,200,1000 --mem gAlphaZones+0x10*0x24:4/1=choice:0,1,1,2 \
+    --mem gAlphaZones+0x12*0x24:4/1=choice:0,1,1,1 --mem gAlphaZones+0x13*0x24:4/1=choice:0,1,2,3 \
+    --mem gAlphaZones+0x14*0x24:4/1=choice:0,0,5,0xFF --mem gAlphaZones+0x15*0x24:4/1=choice:4,4,0x30 \
+    --mem gAlphaZones+0x16*0x24:4/1=choice:4,0x31 --mem gAlphaZones+0x17*0x24:4/1=choice:4,0x32 \
+    --mem gDefaultVehAlpha:1=choice:0,1,0x80,0xFF,0x40 --mem gVehicles+0x5C*0x74:3=choice:0x100,0x200 \
+    --mem gVehicles+0x1B8=4 --mem gVehicles+0x60*0x74:4=int
+
+# skyfall_leave (vehicle-type 3 shutdown): speed = 0, veh_sync_buffers(gSkyfallMtxA, gSkyfallMtxB, 0x800), veh_stop_engine_sounds
+skyfall_leave: -n 200 --seed 1 --mem gSkyfallMtxA=int --mem gSkyfallMtxB=int --mem gSkyfallState+0x76:2=rand --sig veh_sync_buffers=a0,a1,a2 --sig veh_stop_engine_sounds=
+skyfall_leave: -n 50 --seed 2 --heap 0x800 --heap 0x800 --mem gSkyfallMtxA=rel:heap0 --mem gSkyfallMtxB=rel:heap1 --mem gBufferIndex:1=choice:0,1 \
+    --mem gSkyfallState+0x76:2=0x8000 --follow veh_sync_buffers,veh_stop_engine_sounds
+# ramdozer_leave (vehicle-type 4 shutdown): as skyfall_leave on gRamdozerState, then sound entries gRamdozerTrackTexAnimA/B unk14 = 0
+ramdozer_leave: -n 200 --seed 1 --mem gRamdozerMtxA=int --mem gRamdozerMtxB=int --mem gRamdozerState+0x76:2=rand --sig veh_sync_buffers=a0,a1,a2 --sig veh_stop_engine_sounds=
+ramdozer_leave: -n 100 --seed 3 --heap 0x800 --heap 0x800 --mem gRamdozerMtxA=rel:heap0 --mem gRamdozerMtxB=rel:heap1 --mem gBufferIndex:1=choice:0,1 \
+    --mem gRamdozerState+0x76:2=0x7FFF --mem gTexAnims:0x180=rand --mem gTexAnims+0x30=sym:gRamdozerTrackTexAnimA --mem gTexAnims+0x120=sym:gRamdozerTrackTexAnimB --follow-all
+# skyfall_enter (vehicle-type 3 setup): channel 1-3 resets, gSkyfallBoostTexAnim sound entry reset, gCamDistance / gCamHeightBase, veh_start_engine_sound(&gSkyfallAnim, 0x8C)
+skyfall_enter: -n 200 --seed 1 --mem gSkyfallState+0x99:1=rand --mem gCamDistance:2=rand --mem gCamHeightBase:2=rand --sig veh_start_engine_sound=a0,a1
+skyfall_enter: -n 100 --seed 3 --mem gSkyfallState+0x99:1=rand --mem gCamDistance:2=rand --mem gCamHeightBase:2=rand --mem gSkyfallAnim:0x300=rand \
+    --mem gTexAnims:0x180=onehot:0x18:0x802C2314:rand \
+    --follow anim_set_speed,anim_set_reverse,anim_set_loop_mode,anim_play,anim_tex_set_speed,anim_tex_set_reverse,anim_tex_set_loop_mode,anim_tex_play,anim_tex_find --sig veh_start_engine_sound=a0,a1
+# ramdozer_enter (vehicle-type 4 setup): same shape, three sound entries, veh_start_engine_sound(&gRamdozerAnim, 0x0B)
+ramdozer_enter: -n 200 --seed 1 --mem gRamdozerState+0x99:1=rand --mem gCamDistance:2=rand --mem gCamHeightBase:2=rand --sig veh_start_engine_sound=a0,a1
+ramdozer_enter: -n 100 --seed 3 --mem gRamdozerState+0x99:1=rand --mem gCamDistance:2=rand --mem gCamHeightBase:2=rand --mem gRamdozerAnim:0x300=rand \
+    --mem gTexAnims:0x180=rand --mem gTexAnims=sym:gRamdozerTrackTexAnimB --mem gTexAnims+0x48=sym:gRamdozerTrackTexAnimA --mem gTexAnims+0x168=sym:gRamdozerHeadingTexAnim \
+    --follow anim_set_speed,anim_set_reverse,anim_set_loop_mode,anim_play,anim_tex_set_speed,anim_tex_set_reverse,anim_tex_set_loop_mode,anim_tex_play,anim_tex_find --sig veh_start_engine_sound=a0,a1
+# skyfall_update_anims (vehicle 3 update; t6, t7, s0-s4 through to fx_spawn; gp = gSkyfallState): every branch, callees stubbed
+skyfall_update_anims: -n 400 --seed 0 --arg gp=sym:gSkyfallState --arg t6=int --arg t7=int --arg s0=int --arg s1=int --arg s2=int --arg s3=int --arg s4=int \
+    --mem gSkyfallSmokeCooldown:1=choice:0,0,1,5,0xFF --mem gSkyfallState+0x99:1=choice:0,1,0x80 --stub-ret fx_count_active=choice:0,14,15,16 \
+    --stub-ret veh_near_top_speed=choice:0,0,1 --mem gHeldBOrZ:1=choice:0,1 --mem gHeldA:1=choice:0,1 --mem gHeldLeft:1=choice:0,0,1 \
+    --mem gHeldRight:1=choice:0,0,1 --mem gHeldL:1=choice:0,1 --mem gHeldR:1=choice:0,1 --mem gSkyfallThrottleAnim=floats:-0.2:1.2 \
+    --mem gSkyfallSteerAnim:1=choice:0,4,5,6,45,49,50,51,55,59,60,61,95,96,100,0xFF \
+    --mem gSkyfallState+0x76:2=halves:0,1,0xFFFF,29,30,0xFFE2,0x8000,0x7FFF,249,250,251,274,275,276,399,400,401,0x1234 \
+    --mem gSkyfallBumpTimer:1=choice:0,0,1,0xFF --mem gSkyfallBoostMeter:1=choice:0,3,4,5,99,100,0x7F,0x80,0xFF --mem gSkyfallBoosting:1=choice:0,1 \
+    --mem gSkyfallBoostSound=words:0,0x80B00000 --mem gSkyfallBoostTrail:2=rand --sig skyfall_add_tyre_trail= --sig fx_count_active= --sig snd_play=a0,a1:2,a2 --sig snd_stop=a0
+# level clamps at 0 / 0.5 / 1 (exact, one ulp off, NaN), step constants 0 and large
+skyfall_update_anims: -n 300 --seed 1 --arg gp=sym:gSkyfallState --arg t6=int --arg t7=int --arg s0=int --arg s1=int --arg s2=int --arg s3=int --arg s4=int \
+    --mem gSkyfallSmokeCooldown:1=choice:0,1 --mem gSkyfallState+0x99:1=choice:0,1 --stub-ret fx_count_active=choice:14,15 --stub-ret veh_near_top_speed=choice:0,1 \
+    --mem gHeldBOrZ:1=choice:0,1 --mem gHeldA:1=choice:0,1 \
+    --mem gSkyfallThrottleAnim=words:0,0x80000000,0x3F000000,0x3F000001,0x3EFFFFFF,0x3F800000,0x3F7FFFFF,0x3F800001,0xBF800000,0x7FC00000,0x3E800000 \
+    --mem gSkyfallThrottleDownStep=words:0,0x3D000000,0x3F800000 --mem gSkyfallThrottleUpStep=words:0,0x3D000000,0x3F800000 --mem gSkyfallThrottleReturnStep=words:0,0x3C000000,0x3F000000 \
+    --mem gSkyfallState+0x76:2=int:0:0xFFFF --mem gSkyfallBumpTimer:1=choice:0,1 --mem gSkyfallBoostMeter:1=int:0:0xFF --mem gSkyfallBoosting:1=choice:0,1 \
+    --mem gSkyfallBoostSound=words:0,0x80B00000 --sig skyfall_add_tyre_trail= --sig fx_count_active= --sig snd_play=a0,a1:2,a2 --sig snd_stop=a0
+# callees followed (fx_spawn with free/used records and map slots, veh_find_point record id 3, sound entry gSkyfallBoostTexAnim)
+skyfall_update_anims: -n 300 --seed 2 --arg gp=sym:gSkyfallState --arg t6=int --arg t7=int --arg s0=int --arg s1=int --arg s2=int --arg s3=int --arg s4=int \
+    --mem gSkyfallState:0xA6=rand --mem gSkyfallSmokeCooldown:1=choice:0,1 --mem gSkyfallState+0x99:1=choice:0,1 --mem gHeldBOrZ:1=choice:0,1 \
+    --mem gHeldA:1=choice:0,1 --mem gHeldLeft:1=choice:0,0,1 --mem gHeldRight:1=choice:0,0,1 --mem gHeldL:1=choice:0,1 \
+    --mem gHeldR:1=choice:0,1 --mem gSkyfallThrottleAnim=floats:-0.2:1.2 --mem gSkyfallSteerAnim:1=int:0:100 \
+    --mem gSkyfallState+0x76:2=halves:0,30,0xFFE2,250,275,400,0x1234,0x9000,0x123 --mem gSkyfallState+0x50:1=choice:0,1,2,3 \
+    --mem gSkyfallBumpTimer:1=choice:0,0,1 --mem gSkyfallBoostMeter:1=int:0:100 --mem gSkyfallBoosting:1=choice:0,1 --mem gSkyfallBoostSound=words:0,0x80B00000 \
+    --mem gSkyfallBoostTrail:2=rand --mem gSkyfallAnim:0x300=rand --mem gTexAnims:0x180=onehot:0x18:0x802C2314:rand \
+    --mem gVehPoints:0x100=onehot:0x10@0xC/1:3:bytes:1,2,4 --mem gEffects:0x3C0=rand --mem gEffects+0x33*0x3C:16/1=bytes:0,1,1 \
+    --mem gFxTileSlots:16=bytes:0,1 --mem gFxSpawnTag:1=rand \
+    --follow veh_find_point,fx_spawn,fx_count_active,veh_near_top_speed,anim_set_frame,anim_set_reverse,anim_set_speed,anim_tex_set_frame,anim_tex_find,skyfall_add_tyre_trail \
+    --sig snd_play=a0,a1:2,a2 --sig snd_stop=a0 --sig tex_queue_palette=a0,a1
+# channel 2 level steps at every clamp edge (±5 within 0..100, ±10 toward 50)
+skyfall_update_anims: -n 300 --seed 3 --arg gp=sym:gSkyfallState --arg t6=int --arg t7=int --arg s0=int --arg s1=int --arg s2=int --arg s3=int --arg s4=int \
+    --mem gHeldLeft:1=choice:0*2,1 --mem gHeldRight:1=choice:0*2,1 \
+    --mem gSkyfallSteerAnim:1=choice:0,1,4,5,6,39,40,41,45,49,50,51,59,60,61,94,95,96,99,100 --mem gSkyfallThrottleAnim=floats:0:1 \
+    --mem gSkyfallBumpTimer:1=choice:0,1 --mem gSkyfallBoostMeter:1=int:0:100 --mem gSkyfallBoostSound=words:0,0x80B00000 \
+    --sig skyfall_add_tyre_trail= --sig fx_count_active= --sig snd_play=a0,a1:2,a2 --sig snd_stop=a0
+# ramdozer_update_anims (vehicle 4 update; t6, t7, s0-s4 through to fx_spawn; gp = gRamdozerState): every branch, callees stubbed;
+# speed 0 / +-1 / +-8 / 0x8000, stick x signs, +0x4C around 0x355 and 0x8AB, channel 1 field 0x10 == 1 or not
+ramdozer_update_anims: -n 400 --seed 0 --arg gp=sym:gRamdozerState --arg t6=int --arg t7=int --arg s0=int --arg s1=int --arg s2=int --arg s3=int --arg s4=int \
+    --mem gRamdozerSmokeCooldown:1=choice:0,0,1,5,0xFF --mem gRamdozerState+0x99:1=choice:0,1,0x80 --stub-ret fx_count_active=choice:0,13,14,15 \
+    --stub-ret veh_near_top_speed=choice:0,0,1 --mem gEngineSoundLevel:2=halves:0,0,1,0x8000 --mem gHeldBOrZ:1=choice:0,1 --mem gHeldA:1=choice:0,1 \
+    --mem gRamdozerThrottleAnim=floats:-0.2:1.2 --mem gRamdozerState+0x76:2=halves:0,0,1,2,3,7,8,9,0xFFFF,0xFFFE,0xFFF8,0x8000,0x7FFF,0x1234,0xF234 \
+    --mem gPadStickX:1=choice:0,1,0x7F,0x80,0xFF,0x40,0xC0 --mem gRamdozerState+0x4C:2=halves:0,0x354,0x355,0x356,0x3A0,0x3A1,0x8AA,0x8AB,0xFFFF,0x500 \
+    --mem gRamdozerDeflecting:1=choice:0,1 --stub-ret anim_get_state.v1=choice:0,1,2,0xFFFFFFFF --sig ramdozer_add_tyre_trail= --sig fx_count_active= --sig snd_play=a0,a1:2,a2
+# level clamps at 0 / 0.5 / 1 (exact, one ulp off, NaN), step constants 0 and large
+ramdozer_update_anims: -n 300 --seed 2 --arg gp=sym:gRamdozerState --arg t6=int --arg t7=int --arg s0=int --arg s1=int --arg s2=int --arg s3=int --arg s4=int \
+    --mem gRamdozerSmokeCooldown:1=choice:0,1 --mem gEngineSoundLevel:2=halves:0,1 --stub-ret veh_near_top_speed=choice:0,1 --mem gHeldBOrZ:1=choice:0,1 --mem gHeldA:1=choice:0,1 \
+    --mem gRamdozerThrottleAnim=words:0,0x80000000,0x3F000000,0x3F000001,0x3EFFFFFF,0x3F800000,0x3F7FFFFF,0x3F800001,0xBF800000,0x7FC00000,0x3E800000 \
+    --mem gRamdozerThrottleDownStep=words:0,0x3D000000,0x3F800000 --mem gRamdozerThrottleUpStep=words:0,0x3D000000,0x3F800000 --mem gRamdozerThrottleReturnStep=words:0,0x3C000000,0x3F000000 \
+    --mem gRamdozerState+0x76:2=int:0:0xFFFF --mem gPadStickX:1=int:0:0xFF --mem gRamdozerState+0x4C:2=int:0:0xFFFF --mem gRamdozerDeflecting:1=choice:0,1 \
+    --sig ramdozer_add_tyre_trail= --sig fx_count_active= --sig snd_play=a0,a1:2,a2
+# callees followed (fx_spawn records/map, veh_find_point record id 4, sound entries in gTexAnims, channel table gRamdozerAnim)
+ramdozer_update_anims: -n 300 --seed 1 --arg gp=sym:gRamdozerState --arg t6=int --arg t7=int --arg s0=int --arg s1=int --arg s2=int --arg s3=int --arg s4=int \
+    --mem gRamdozerState:0xA6=rand --mem gRamdozerSmokeCooldown:1=choice:0,1 --mem gRamdozerState+0x99:1=choice:0,1 --mem gEngineSoundLevel:2=halves:0,1 \
+    --mem gHeldBOrZ:1=choice:0,1 --mem gHeldA:1=choice:0,1 --mem gRamdozerThrottleAnim=floats:-0.2:1.2 \
+    --mem gRamdozerState+0x76:2=halves:0,0,1,9,0xFFF8,0x8000,0x7FFF,0x1234,0xF234 --mem gRamdozerState+0x50:1=choice:0,1,2,3 \
+    --mem gRamdozerState+0x98:1=choice:0,1 --mem gRamdozerState+0x9B:1=choice:0,0,1 --mem gPadStickX:1=int:0:0xFF --mem gRamdozerDeflecting:1=choice:0,1 \
+    --mem gRamdozerAnim:0x300=rand --mem gRamdozerAnim+0x28:1=choice:1,1,0,2 --mem gTexAnims:0x180=rand --mem gTexAnims+0x18=sym:gRamdozerTrackTexAnimB \
+    --mem gTexAnims+0x60=sym:gRamdozerTrackTexAnimA --mem gTexAnims+0x150=sym:gRamdozerHeadingTexAnim --mem gVehPoints:0x100=onehot:0x10@0xC/1:4:bytes:1,2,3 \
+    --mem gEffects:0x3C0=rand --mem gEffects+0x33*0x3C:16/1=bytes:0,1,1 --mem gFxTileSlots:16=bytes:0,1 --mem gFxSpawnTag:1=rand \
+    --follow ramdozer_add_tyre_trail,fx_count_active,fx_spawn,veh_find_point,veh_near_top_speed,anim_set_frame,anim_tex_set_reverse,anim_tex_set_speed,anim_tex_set_frame,anim_tex_find,anim_get_state,anim_set_speed,anim_set_loop_mode,anim_play \
+    --sig snd_play=a0,a1:2,a2 --sig tex_queue_palette=a0,a1
+# --- (wt-v1) vehicle 3 / 4 drivers ---
+# model parts: stubbed (mtx_build_model's leftover a3/s2 not compared) and with the whole tree run
+# (one zero-count part, so mtx_chain_transform's s0/s1/s2 pass-through reaches memory)
+skyfall_build_model: -n 200 --arg gp=sym:gSkyfallState --heap 0x400 --heap 0x800 --heap 0x800 --mem D_803EE398=rel:heap0 --mem gSkyfallMtxA=rel:heap1 --mem gSkyfallMtxB=rel:heap2 \
+    --mem @heap0=0x100 --mem @heap0+4=0x140 --mem @heap0+8=0x180 --mem @heap0+0x18=0x200 --mem @heap0+0x204=choice:0,0x40,0x7C0 --mem gBufferIndex:1=choice:0,1 \
+    --mem gSkyfallPos:12=rand --mem gSkyfallState:0xA6=rand --sig 'veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2,*stack3+0xC,*stack3+0x14'
+skyfall_build_model: -n 100 --seed 1 --arg gp=sym:gSkyfallState --heap 0x400 --heap 0x800 --heap 0x800 --mem D_803EE398=rel:heap0 --mem gSkyfallMtxA=rel:heap1 --mem gSkyfallMtxB=rel:heap2 \
+    --mem @heap0=0x140 --mem @heap0+4=0x140 --mem @heap0+8=0x150 --mem @heap0+0x14E:2=0 --mem @heap0+0x18=0x200 --mem @heap0+0x204=choice:0,0x40,0x7C0 \
+    --mem gBufferIndex:1=choice:0,1 --mem gSkyfallPos:12=words:0,1,-1,0x1234,-0x4321,0xFFFF --mem gSkyfallState:0xA6=rand \
+    --mem gVehBoundSpheres+0x10:1=3 --mem gVehPartSpheres+0x12:1=3 --mem gVehPoints=0xFFFFFFFF --follow-all
+ramdozer_build_model: -n 200 --arg gp=sym:gRamdozerState --heap 0x400 --heap 0x800 --heap 0x800 --mem D_803EE774=rel:heap0 --mem gRamdozerMtxA=rel:heap1 --mem gRamdozerMtxB=rel:heap2 \
+    --mem @heap0=0x100 --mem @heap0+4=0x140 --mem @heap0+8=0x180 --mem @heap0+0x18=0x200 --mem @heap0+0x204=choice:0,0x40,0x7C0 --mem gBufferIndex:1=choice:0,1 \
+    --mem gRamdozerPos:12=rand --mem gRamdozerState:0xA6=rand --sig 'veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2,*stack3+0xC,*stack3+0x14'
+ramdozer_build_model: -n 100 --seed 1 --arg gp=sym:gRamdozerState --heap 0x400 --heap 0x800 --heap 0x800 --mem D_803EE774=rel:heap0 --mem gRamdozerMtxA=rel:heap1 --mem gRamdozerMtxB=rel:heap2 \
+    --mem @heap0=0x140 --mem @heap0+4=0x140 --mem @heap0+8=0x150 --mem @heap0+0x14E:2=0 --mem @heap0+0x18=0x200 --mem @heap0+0x204=choice:0,0x40,0x7C0 \
+    --mem gBufferIndex:1=choice:0,1 --mem gRamdozerPos:12=words:0,1,-1,0x1234,-0x4321,0xFFFF --mem gRamdozerState:0xA6=rand \
+    --mem gVehBoundSpheres+0x10:1=4 --mem gVehPartSpheres+0x12:1=4 --mem gVehPoints=0xFFFFFFFF --follow-all
+# track points (positions kept small: the asm's add traps on overflow)
+skyfall_ride_attach: -n 300 --mem gSkyfallPos:12=words:0,1,-1,0x12345,-0x54321,0x7FFFF --mem gSkyfallState:0xA6=rand \
+    --stub-ret veh_wheel_offset=int:-2000:2000 --stub-ret veh_wheel_offset.t6=int:-2000:2000
+skyfall_ride_attach: -n 200 --seed 1 --arg a3=choice:0,1,0xFF,-1 --arg f24=float --mem gSkyfallPos:12=words:0x7FFFF000,-0x7FFFF000,0 --mem gSkyfallState:0xA6=rand \
+    --stub-ret veh_wheel_offset=choice:0,-1,1,0x7FF --stub-ret veh_wheel_offset.t6=choice:0,-1,1,0x7FF
+ramdozer_ride_attach: -n 300 --mem gRamdozerPos:12=words:0,1,-1,0x12345,-0x54321,0x7FFFF --mem gRamdozerState:0xA6=rand \
+    --stub-ret veh_wheel_offset=int:-2000:2000 --stub-ret veh_wheel_offset.t6=int:-2000:2000
+# put on the ground (FP inputs of veh_reground are the caller's leftovers: not compared)
+skyfall_reground: -n 300 --arg fp=int --mem gSkyfallPos:24=rand --sig 'veh_reground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5'
+skyfall_reground: -n 200 --seed 1 --arg fp=int --heap 0x400 --heap 0x800 --heap 0x800 --mem gSkyfallPos:12=rand --mem D_803EE398=rel:heap0 --mem gSkyfallMtxA=rel:heap1 \
+    --mem gSkyfallMtxB=rel:heap2 --mem @heap0=0x100 --mem @heap0+4=0x140 --mem @heap0+8=0x180 --mem @heap0+0x18=0x200 --mem @heap0+0x204=choice:0,0x40,0x7C0 \
+    --mem gBufferIndex:1=choice:0,1 --follow skyfall_build_model --sig 'veh_reground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5' \
+    --sig 'veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2,*stack3+0xC,*stack3+0x14'
+ramdozer_reground: -n 300 --arg fp=int --mem gRamdozerPos:24=rand --sig 'veh_reground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5'
+ramdozer_reground: -n 200 --seed 1 --arg fp=int --heap 0x400 --heap 0x800 --heap 0x800 --mem gRamdozerPos:12=rand --mem D_803EE774=rel:heap0 --mem gRamdozerMtxA=rel:heap1 \
+    --mem gRamdozerMtxB=rel:heap2 --mem @heap0=0x100 --mem @heap0+4=0x140 --mem @heap0+8=0x180 --mem @heap0+0x18=0x200 --mem @heap0+0x204=choice:0,0x40,0x7C0 \
+    --mem gBufferIndex:1=choice:0,1 --follow ramdozer_build_model --sig 'veh_reground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5' \
+    --sig 'veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2,*stack3+0xC,*stack3+0x14'
+# drive along a triangle
+skyfall_ride_follow: -n 300 --mem gSkyfallPos:12=rand --mem gSkyfallState:0xA6=rand --mem gBounceSound:1=rand --sig skyfall_set_physics=
+skyfall_ride_follow: -n 200 --seed 1 --heap 0x400 --heap 0x800 --heap 0x800 --mem gSkyfallPos:12=rand --mem gSkyfallState:0xA6=rand --mem gBounceSound:1=rand \
+    --mem D_803EE398=rel:heap0 --mem gSkyfallMtxA=rel:heap1 --mem gSkyfallMtxB=rel:heap2 --mem @heap0=0x100 --mem @heap0+4=0x140 --mem @heap0+8=0x180 \
+    --mem @heap0+0x18=0x200 --mem @heap0+0x204=choice:0,0x40,0x7C0 --mem gBufferIndex:1=choice:0,1 --mem gLevelGravity=rand --mem gBounceThreshold:2=rand \
+    --mem gSkyfallGrip:2=rand --mem gHeldA:1=choice:0,1 --mem gHeldBOrZ:1=choice:0,1 --follow skyfall_build_model,skyfall_set_physics \
+    --sig 'veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2,*stack3+0xC,*stack3+0x14'
+ramdozer_ride_follow: -n 300 --mem gRamdozerPos:12=rand --mem gRamdozerState:0xA6=rand --mem gBounceSound:1=rand --sig ramdozer_set_physics=
+ramdozer_ride_follow: -n 200 --seed 1 --heap 0x400 --heap 0x800 --heap 0x800 --mem gRamdozerPos:12=rand --mem gRamdozerState:0xA6=rand --mem gBounceSound:1=rand \
+    --mem D_803EE774=rel:heap0 --mem gRamdozerMtxA=rel:heap1 --mem gRamdozerMtxB=rel:heap2 --mem @heap0=0x100 --mem @heap0+4=0x140 --mem @heap0+8=0x180 \
+    --mem @heap0+0x18=0x200 --mem @heap0+0x204=choice:0,0x40,0x7C0 --mem gBufferIndex:1=choice:0,1 --mem gLevelGravity=rand --mem gBounceThreshold:2=rand \
+    --mem gRamdozerGrip:2=rand --mem gHeldBOrZ:1=choice:0,1 --follow ramdozer_build_model,ramdozer_set_physics \
+    --sig 'veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2,*stack3+0xC,*stack3+0x14'
+# per-frame updates: random, the collision "hit" path (model sets gCollHit) with speed boundaries, the report/turn path,
+# and with the in-file callees run (s0/s1 at the parts call are anim_update_model leftovers in the asm: not compared)
+skyfall_update: -n 300 --mem gSkyfallPos:24=rand --mem gSkyfallState:0xA6=rand --mem gSkyfallState+0x9A:1=choice:0,1,0x80 --mem gSkyfallBumpTimer:1=choice:0,0,1,5 \
+    --mem gTurboPending:1=choice:0,1 --mem gSkyfallDeflecting:1=choice:0,1,0xFF --mem gBufferIndex:1=choice:0,1 --mem gCollBlocked:1=choice:0,1 --mem gSkyfallGrip:2=int:0:0xFFFF \
+    --mem gSkyfallDeflectHeading:2=rand --mem gCollHit:1=rand --mem gCollVehicleAnim=rand --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand --mem gBounceSound:1=rand \
+    --sig skyfall_build_model= --sig skyfall_set_physics= --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= \
+    --sig 'veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12'
+skyfall_update: -n 200 --seed 1 --model obj_collide_vehicle=set_D_803A7424.py --mem gSkyfallPos:24=rand --mem gSkyfallState:0xA6=rand \
+    --mem gSkyfallState+0x76:2=halves:0,1,0x4F,0x50,0x51,0x7FFF,0x8000,0xFFFF,0xFFB1,0xFFB0,0xFFAF,0xFF00 --mem gSkyfallBumpTimer:1=choice:0,1,5 --mem gTurboPending:1=choice:0,1 \
+    --mem gSkyfallDeflecting:1=choice:0,1 --mem gBufferIndex:1=choice:0,1 --mem gCollBlocked:1=0 --mem gCollHit:1=rand --mem gCollVehicleAnim=rand --mem gPlayerX:12=rand \
+    --mem gPlayerSpeed:6=rand --mem gBounceSound:1=rand --sig skyfall_build_model= --sig skyfall_set_physics= --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= \
+    --sig 'veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12'
+skyfall_update: -n 200 --seed 2 --mem gSkyfallPos:24=rand --mem gSkyfallState:0xA6=rand --mem gSkyfallState+0x4E:2=halves:0,0x7FF,0x800,0x801,0xFFF,0x1000,0xFFFF \
+    --mem gCollBlocked:1=1 --mem gSkyfallDeflecting:1=choice:0,1 --mem gBufferIndex:1=choice:0,1 --stub-ret veh_free_arc_mid=choice:0,0x7FF,0x800,0xFFF,0x1000 \
+    --mem gSkyfallDeflectHeading:2=rand --mem gCollVehicleAnim=rand --sig skyfall_build_model= --sig skyfall_set_physics= --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= \
+    --sig 'veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12'
+skyfall_update: -n 200 --seed 3 --heap 0x400 --heap 0x800 --heap 0x800 --mem gSkyfallPos:12=rand --mem gSkyfallState:0xA6=rand --mem gSkyfallState+0x9A:1=choice:0,1 \
+    --mem D_803EE398=rel:heap0 --mem gSkyfallMtxA=rel:heap1 --mem gSkyfallMtxB=rel:heap2 --mem @heap0=0x100 --mem @heap0+4=0x140 --mem @heap0+8=0x180 \
+    --mem @heap0+0x18=0x200 --mem @heap0+0x204=choice:0,0x40,0x7C0 --mem gBufferIndex:1=choice:0,1 --mem gSkyfallBumpTimer:1=choice:0,1 --mem gCollBlocked:1=choice:0,1 \
+    --mem gSkyfallDeflecting:1=choice:0,1 --mem gLevelGravity=rand --mem gBounceThreshold:2=rand --mem gSkyfallGrip:2=rand --mem gHeldA:1=choice:0,1 --mem gHeldBOrZ:1=choice:0,1 \
+    --mem gCollVehicleAnim=rand --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand --follow skyfall_build_model,skyfall_set_physics,skyfall_steer_rate,skyfall_zone_alpha \
+    --sig 'veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2' --sig 'veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12' \
+    --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= --sig veh_zone_alpha=a0,a1,a2,a3 --sig 'veh_points_transform=a0,a1,a2,a3,*stack0,*stack0+0x4,*stack0+0x8,*stack0+0xC,*stack0+0x10'
+ramdozer_update: -n 300 --mem gRamdozerPos:24=rand --mem gRamdozerState:0xA6=rand --mem gRamdozerState+0x9A:1=choice:0,1,0x80 --mem gRamdozerBumpTimer:1=choice:0,0,1,5 \
+    --mem gTurboPending:1=choice:0,1 --mem gRamdozerDeflecting:1=choice:0,1,0xFF --mem gBufferIndex:1=choice:0,1 --mem gCollBlocked:1=choice:0,1 --mem gRamdozerGrip:2=int:0:0xFFFF \
+    --mem gRamdozerDeflectHeading:2=rand --mem gCollHit:1=rand --mem gCollVehicleAnim=rand --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand --mem gBounceSound:1=rand --mem gEngineSoundLevel:2=rand \
+    --sig ramdozer_build_model= --sig ramdozer_set_physics= --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= --sig veh_prev_contacts_clear= \
+    --sig 'veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12'
+ramdozer_update: -n 300 --seed 1 --model obj_collide_vehicle=set_D_803A7424.py --mem gRamdozerPos:24=rand --mem gRamdozerState:0xA6=rand \
+    --mem gRamdozerState+0x76:2=halves:0,1,0x3D,0x3E,0x3F,0x7D,0x7E,0x7F,0x7FFF,0x8000,0xFFFF,0xFFD4,0xFFD3,0xFFD5,0xFFA6,0xFFA5,0xFFA7,0xFF00 \
+    --mem gRamdozerBumpTimer:1=choice:0,1,5 --mem gTurboPending:1=choice:0,1 --mem gRamdozerDeflecting:1=choice:0,1 --mem gBufferIndex:1=choice:0,1 --mem gCollBlocked:1=0 \
+    --mem gCollHit:1=rand --mem gCollVehicleAnim=rand --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand --mem gBounceSound:1=rand \
+    --sig ramdozer_build_model= --sig ramdozer_set_physics= --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= --sig veh_prev_contacts_clear= \
+    --sig 'veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12'
+ramdozer_update: -n 200 --seed 2 --mem gRamdozerPos:24=rand --mem gRamdozerState:0xA6=rand --mem gRamdozerState+0x4E:2=halves:0,0x7FF,0x800,0x801,0xFFF,0x1000,0xFFFF \
+    --mem gCollBlocked:1=1 --mem gRamdozerDeflecting:1=choice:0,1 --mem gBufferIndex:1=choice:0,1 --stub-ret veh_free_arc_mid=choice:0,0x7FF,0x800,0xFFF,0x1000 \
+    --mem gRamdozerDeflectHeading:2=rand --mem gCollVehicleAnim=rand --sig ramdozer_build_model= --sig ramdozer_set_physics= --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= --sig veh_prev_contacts_clear= \
+    --sig 'veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12'
+ramdozer_update: -n 200 --seed 3 --heap 0x400 --heap 0x800 --heap 0x800 --mem gRamdozerPos:12=rand --mem gRamdozerState:0xA6=rand --mem gRamdozerState+0x9A:1=choice:0,1 \
+    --mem D_803EE774=rel:heap0 --mem gRamdozerMtxA=rel:heap1 --mem gRamdozerMtxB=rel:heap2 --mem @heap0=0x100 --mem @heap0+4=0x140 --mem @heap0+8=0x180 \
+    --mem @heap0+0x18=0x200 --mem @heap0+0x204=choice:0,0x40,0x7C0 --mem gBufferIndex:1=choice:0,1 --mem gRamdozerBumpTimer:1=choice:0,1 --mem gCollBlocked:1=choice:0,1 \
+    --mem gRamdozerDeflecting:1=choice:0,1 --mem gLevelGravity=rand --mem gBounceThreshold:2=rand --mem gRamdozerGrip:2=rand --mem gHeldBOrZ:1=choice:0,1 --mem gCollVehicleAnim=rand \
+    --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand --mem gEngineSoundLevel:2=rand --follow ramdozer_build_model,ramdozer_set_physics,ramdozer_steer_rate,ramdozer_zone_alpha \
+    --sig 'veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2' --sig 'veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12' \
+    --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= --sig veh_prev_contacts_clear= --sig veh_zone_alpha=a0,a1,a2,a3 --sig 'veh_points_transform=a0,a1,a2,a3,*stack0,*stack0+0x4,*stack0+0x8,*stack0+0xC,*stack0+0x10'
+# setups (the update's zone registers and veh_init_ground's FP inputs are register leaks: not compared)
+skyfall_spawn: -n 200 --heap 0x400 --heap 0x1000 --arg s2=rel:heap0 --mem @heap0+4=choice:0x100,0x140 --mem @heap0+8=0x180 --mem @heap0+0x18=0x200 \
+    --mem @heap0+0x204=choice:0,0x40,0x7C0 --mem gHeapPtr=rel:heap1 --mem gSkyfallState:0xA6=rand --mem gSkyfallBoostSound:0x2C=rand --mem gEngineSoundLevel:2=rand \
+    --mem gHaveSkyfall:1=rand --sig skyfall_update= --sig 'veh_init_ground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5'
+skyfall_spawn: -n 200 --seed 1 --heap 0x400 --heap 0x1000 --arg s2=rel:heap0 --mem @heap0=0x100 --mem @heap0+4=choice:0x100,0x140 --mem @heap0+8=0x180 \
+    --mem @heap0+0x18=0x200 --mem @heap0+0x204=choice:0,0x40,0x7C0 --mem gHeapPtr=rel:heap1 --mem gSkyfallState:0xA6=rand --mem gSkyfallBoostSound:0x2C=rand \
+    --mem gEngineSoundLevel:2=rand --mem gHaveSkyfall:1=rand --mem gBufferIndex:1=choice:0,1 --mem gLevelGravity=rand --mem gBounceThreshold:2=rand --mem gHeldA:1=choice:0,1 \
+    --mem gHeldBOrZ:1=choice:0,1 --mem gCollBlocked:1=choice:0,1 --mem gCollVehicleAnim=rand --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand \
+    --follow skyfall_update,skyfall_build_model,skyfall_set_physics,skyfall_steer_rate,skyfall_zone_alpha --sig 'veh_init_ground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5' \
+    --sig 'veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2' --sig 'veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12' \
+    --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= --sig veh_zone_alpha=a0,a1,a2,a3 --sig 'veh_points_transform=a0,a1,a2,a3,*stack0,*stack0+0x4,*stack0+0x8,*stack0+0xC,*stack0+0x10'
+ramdozer_spawn: -n 200 --heap 0x400 --heap 0x1000 --arg s2=rel:heap0 --mem @heap0+4=choice:0x100,0x140 --mem @heap0+8=0x180 --mem @heap0+0x18=0x200 \
+    --mem @heap0+0x204=choice:0,0x40,0x7C0 --mem gHeapPtr=rel:heap1 --mem gRamdozerState:0xA6=rand --mem gRamdozerPos:0x24=rand --mem gEngineSoundLevel:2=rand \
+    --sig ramdozer_update= --sig 'veh_init_ground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5'
+ramdozer_spawn: -n 200 --seed 1 --heap 0x400 --heap 0x1000 --arg s2=rel:heap0 --mem @heap0=0x100 --mem @heap0+4=choice:0x100,0x140 --mem @heap0+8=0x180 \
+    --mem @heap0+0x18=0x200 --mem @heap0+0x204=choice:0,0x40,0x7C0 --mem gHeapPtr=rel:heap1 --mem gRamdozerState:0xA6=rand --mem gRamdozerPos:0x24=rand \
+    --mem gEngineSoundLevel:2=rand --mem gBufferIndex:1=choice:0,1 --mem gLevelGravity=rand --mem gBounceThreshold:2=rand --mem gHeldBOrZ:1=choice:0,1 --mem gCollBlocked:1=choice:0,1 \
+    --mem gCollVehicleAnim=rand --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand --follow ramdozer_update,ramdozer_build_model,ramdozer_set_physics,ramdozer_steer_rate,ramdozer_zone_alpha \
+    --sig 'veh_init_ground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5' --sig 'veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2' \
+    --sig 'veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12' \
+    --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= --sig veh_prev_contacts_clear= --sig veh_zone_alpha=a0,a1,a2,a3 --sig 'veh_points_transform=a0,a1,a2,a3,*stack0,*stack0+0x4,*stack0+0x8,*stack0+0xC,*stack0+0x10'

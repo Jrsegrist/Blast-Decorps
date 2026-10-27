@@ -1,0 +1,75 @@
+# fe_1B100: hd_front_end 1B100.c, the front end's o32 wrappers of hd_code functions with register
+# conventions (C versions call the hd_code C rewrites; stubbed callees are compared through conventions.txt).
+# Format: func_XXXXXXXX: <eqcheck.py args>   (see tools_port/README.md, "Regression suite")
+# --follow-all lines stub (--no-follow) only what can't run here or what the callee's own checks stub:
+# OS calls that block or DMA, the ROM decompressor kiunzip_entry, mb_copy_dl, anim_update_channel.
+
+# load model a0: heap0 = model data (lvl_load_model's s2), heap1 = the heap gHeapPtr points at.
+# Header offsets stay small: the asm's `sub` traps on overflow (game data never gets near that)
+fe_load_model: -n 300 --heap 0x100 --heap 0x100 --stub-ret lvl_load_model.s2=0x80B00000 \
+    --mem @heap0+0x1C=int:0:0x8000 --mem @heap0+0x2C=int:0:0x8000 --mem gHeapPtr=rel:heap1 \
+    --arg a0=choice:0,1,9,0x96,0xFF,-1 --arg a1=ptr:0x10 --arg a2=ptr:0x10 --arg a3=ptr:0x20
+# aliasing: dl overlapping the model header (+0x2C is read after dl[0..1] are stored), heap[] over *model
+fe_load_model: -n 200 --seed 1 --heap 0x100 --heap 0x100 --stub-ret lvl_load_model.s2=0x80B00000 \
+    --mem @heap0+0x1C=int:0:0x40 --mem @heap0+0x2C=int:0:0x40 --mem gHeapPtr=rel:heap1 \
+    --arg a0=int --arg a1=ptr:0x20 --arg a2=rel:a1+choice:0,4,8 --arg a3=rel:heap0+choice:0x24,0x28,0x2C,0x80
+# *model / heap[] / dl[] pointing at gHeapPtr itself
+fe_load_model: -n 100 --seed 2 --heap 0x100 --heap 0x100 --stub-ret lvl_load_model.s2=0x80B00000 \
+    --mem @heap0+0x1C=int:0:0x8000 --mem @heap0+0x2C=int:0:0x8000 --mem gHeapPtr=rel:heap1 \
+    --arg a0=int --arg a1=sym:gHeapPtr --arg a2=ptr:0x10 --arg a3=ptr:0x20
+fe_load_model: -n 100 --seed 3 --heap 0x100 --heap 0x100 --stub-ret lvl_load_model.s2=0x80B00000 \
+    --mem @heap0+0x1C=int:0:0x8000 --mem @heap0+0x2C=int:0:0x8000 --mem gHeapPtr=rel:heap1 \
+    --arg a0=int --arg a1=ptr:0x10 --arg a2=rel:gHeapPtr+-4 --arg a3=rel:gHeapPtr+choice:-4,-0xC
+# the whole tree (model loader with the decompressor stubbed, veh_add_record and its callees)
+fe_load_model: -n 200 --seed 4 --follow-all --no-follow osInvalDCache,osPiStartDma,osRecvMesg,kiunzip_entry,mb_copy_dl \
+    --arg a0=choice:0,1,3,0xB,0x11,0x96,0x98,0xFD,0xFE,0xFF --heap 0x100 --mem gHeapPtr=rel:heap0 \
+    --mem @heap0+0x1C=0x40 --mem @heap0+0x20=rel:0x40+8*int:0:8 --mem @heap0+0x2C=0x60 \
+    --mem @heap0+0x40:0x40=words:0x06000000,0xE7000000,0x12345678 \
+    --stub-ret kiunzip_entry.a1=choice:0x80400000,0x80400003 --stub-ret kiunzip_entry.a0=int \
+    --mem gTexTable=int --mem gTexCacheEnd=sym:gTexCache --mem gTexAnimPatchesEnd=sym:gTexAnimPatches \
+    --mem gVehicles:0x200=rand --mem gVehiclesEnd=rel:gVehicles+0x74*int:0:3 --mem gLevelKind=choice:0,1,2 \
+    --arg a1=ptr:0x10 --arg a2=ptr:0x10 --arg a3=ptr:0x20 \
+    --sig osInvalDCache=a0,a1 --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2 --sig osRecvMesg=a0,a1,a2 \
+    --sig mb_copy_dl=a0,a1,a2
+
+# anim_update_model(a1, a2, a0)
+fe_anim_update_model: -n 200 --arg a0=ptr --arg a1=int --arg a2=int
+fe_anim_update_model: -n 300 --seed 1 --follow-all --no-follow anim_update_channel --arg a1=int --arg a2=int --arg a0=ptr:0x300 \
+    --mem @a0+0x10*0x18:32/1=choice:0,1,0x80 --mem gAnimOtherBuf=rand
+
+# anim_init_model(a1[1], a1[0], a2, a0): heap0 = header, heap1 = channels, heap4 = {heap3, heap2}
+fe_anim_init_model: -n 200 --arg a0=ptr --arg a1=ptr:8 --arg a2=ptr
+fe_anim_init_model: -n 100 --seed 1 --follow-all --heap 0x200 --heap 0x300 --heap 0x200 --heap 0x200 --heap 0x10 \
+    --arg a0=rel:heap0 --arg a2=rel:heap1 --arg a1=rel:heap4 --mem @heap4=rel:heap3 --mem @heap4+4=rel:heap2 \
+    --mem @heap0+0x10=0x40 --mem @heap0+0x18=0x100 --mem @heap0+0x100=0xA0 --mem @heap0+0x104=0x20
+fe_anim_init_model: -n 50 --seed 2 --follow-all --heap 0x200 --heap 0x300 --heap 0x200 --heap 0x200 --heap 0x10 \
+    --arg a0=rel:heap0 --arg a2=rel:heap1 --arg a1=rel:heap4 --mem @heap4=rel:heap3 --mem @heap4+4=rel:heap2 \
+    --mem @heap0+0x10=0x40 --mem @heap0+0x18=0x100 --mem @heap0+0x100=0x40 --mem @heap0+0x104=0
+fe_anim_init_model: -n 50 --seed 3 --follow-all --heap 0x200 --heap 0x300 --heap 0x200 --heap 0x200 --heap 0x10 \
+    --arg a0=rel:heap0 --arg a2=rel:heap1 --arg a1=rel:heap4 --mem @heap4=rel:heap3 --mem @heap4+4=rel:heap2 \
+    --mem @heap0+0x10=0x80 --mem @heap0+0x18=0x100 --mem @heap0+0x100=0x40 --mem @heap0+0x104=0x40
+
+# five channel setters: (base, idx, a2 -> 040C, a3 -> 0480, f (stack0), stack1 -> 039C, stack2 -> 03D4)
+fe_anim_start_channel: -n 300 --arg a0=ptr --arg a1=int --arg a2=int --arg a3=int --arg stack0=fbits --arg stack1=int --arg stack2=int
+fe_anim_start_channel: -n 300 --seed 1 --follow-all --heap 0x400 --arg a0=rel:heap0+0x200 --arg a1=int:-20:20 \
+    --arg a2=choice:0,1,-1,0x7F,0x80,0xFF,0x100 --arg a3=choice:0,1,-1,0x7F,0x80,0xFF,0x100 --arg stack0=fbits \
+    --arg stack1=choice:0,1,-1,0x7F,0x80,0xFF,0x100 --arg stack2=choice:0,1,-1,0x7F,0x80,0xFF,0x100
+
+# reset the channels of kind 5 / 4 (the whole register is compared: 0x105 is not 5).  Followed: the
+# channel search anim_tex_find has no bound, so every key is in the table (slots 3/5/7/9/11), and
+# random slots before them may hold a key too (the first match wins)
+fe_veh_reset_tex_anims: -n 100 --arg a0=choice:0,3,4,5,6,-1,0x104,0x105
+fe_veh_reset_tex_anims: -n 200 --seed 1 --follow-all --arg a0=choice:4,5,0 --mem gTexAnims:0x180=rand \
+    --mem gTexAnims*0x18:16=choice:0x802C2208,0x802C226C,0x802C2190,0x802C21A4,0x802C21B8,1,-1,1*4 \
+    --mem gTexAnims+0x48=0x802C2208 --mem gTexAnims+0x78=0x802C226C --mem gTexAnims+0xA8=0x802C2190 \
+    --mem gTexAnims+0xD8=0x802C21A4 --mem gTexAnims+0x108=0x802C21B8
+
+# pitch: kind 5: (v >= 0x800 ? v - 0x800 : v) / 0x55 (unsigned); kind 4: v in [0x355, 0x8AB) ? (v - 0x355) / 0x4C : 0
+fe_veh_set_heading_tex_anims: -n 300 --arg a0=choice:0,4,5,0x104,0x105,-1 --arg a1=int
+fe_veh_set_heading_tex_anims: -n 300 --seed 1 --arg a0=choice:4,5 \
+    --arg a1=choice:0,1,0x354,0x355,0x356,0x7FF,0x800,0x801,0x8AA,0x8AB,0x8AC,0xFFFF,0x7FFFFFFF,0x80000000,-1
+fe_veh_set_heading_tex_anims: -n 300 --seed 2 --follow-all --arg a0=choice:4,5 \
+    --arg a1=choice:0,0x354,0x355,0x400,0x7FF,0x800,0x8AA,0x8AB,0xFFFF,-1 --mem gTexAnims:0x180=rand \
+    --mem gTexAnims*0x18:16=choice:0x802C2208,0x802C226C,0x802C2190,0x802C21A4,0x802C21B8,1,-1,1*4 \
+    --mem gTexAnims+0x48=0x802C2208 --mem gTexAnims+0x78=0x802C226C --mem gTexAnims+0xA8=0x802C2190 \
+    --mem gTexAnims+0xD8=0x802C21A4 --mem gTexAnims+0x108=0x802C21B8

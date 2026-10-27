@@ -1,0 +1,75 @@
+# Host-only findings of tools/ptrcheck64.py / tools/layout64.py (make -C port ptrcheck64).
+# A line is a finding key (fnmatch pattern) and, after '#', why it is not N64 memory.
+
+# register-result records (include/game/regs.h): returned through a pointer to
+# the caller's local, never stored in N64 memory (PortVehPos, the one N64
+# view there, is marked)
+FIELD anon@regs.h:1[0-2]?.*  # Unk8029C6E4Out, Unk802A08E4Regs, Out802A396C
+FIELD anon@regs.h:[4-9]?.*   # the others
+LAYOUT Unk8029C6E4Out       # (host)
+LAYOUT Unk802A08E4Regs      # (host)
+LAYOUT Out802A396C          # (host)
+LAYOUT Out802A9A60          # (host)
+LAYOUT Regs802A8768         # (host)
+LAYOUT TriSideOut           # (host)
+LAYOUT MtxChainRegs         # (host)
+LAYOUT InterpRegs           # (host)
+LAYOUT ZoneScanRegs         # (host)
+LAYOUT TriScanRegs          # (host)
+LAYOUT Io802A6274           # (host)
+LAYOUT Out802A860C          # (host)
+LAYOUT Out802A32CC          # (host: 5CB60.c's register results)
+LAYOUT Io802A484C           # (host: 5FD50.c's local quad/cell cursors)
+LAYOUT LzBits               # (host: 7F8B0.c's bit reader state, a local)
+# 83910.c's per-copy vehicle descriptor table: a static const native table
+FIELD anon@83910.c:*        # host table of host pointers (its N64 slots are N64P)
+FNPTR anon@83910.c:*        # (the same table's model update hook)
+LAYOUT VehDesc83910         # (the same table)
+# libultra's PI device manager: its dma/edma hooks are SDK code the platform
+# layer replaces (OSDevMgr has no instance in the native build)
+FNPTR anon@os.h:171.*       # OSDevMgr hooks, unused natively
+LAYOUT OSDevMgr             # (the same record)
+# the platform layer's own bookkeeping (host memory: options, the live
+# renderer's hooks, host threads, event and clock tables)
+FIELD HostOpts.*            # host options
+FIELD PortTicker.*          # PORT_TICKER's snapshot: a local of 01C40.c handed to the host, never in RDRAM
+LAYOUT struct PortTicker    # (the same record)
+FNPTR HostOpts.*            # (pokes: an array of u32[4], not a function pointer)
+FNPTR HostLive.*            # bc.exe's renderer hooks
+FIELD anon@os_thread.c:*    # host thread table, events, virtual-time events, --sync tables
+FNPTR anon@os_thread.c:*    # (host thread entry points)
+FIELD anon@os_time.c:*      # --clock / --gettime tables
+LAYOUT HostOpts             # (host)
+LAYOUT HostLive             # (host)
+LAYOUT *(unnamed at os_thread.c:*)  # (host)
+LAYOUT HostThread           # (host: os_thread.c)
+LAYOUT PEvent               # (host: os_thread.c virtual-time events)
+LAYOUT SyncEv               # (host: os_thread.c --sync)
+LAYOUT *(unnamed at os_time.c:*)    # (host)
+LAYOUT KeyQ                 # (host: os_time.c --clock queues)
+LAYOUT Sym                  # (host: os_time.c symbol table)
+LAYOUT Table                # (host: os_time.c)
+LAYOUT struct HostOpts      # (host)
+# ultralib records the game doesn't use (no instance in the native build) or
+# that live on the host stack
+FIELD anon@gbi.h:1098.*     # uSprite_t (the sprite microcode's; unused)
+LAYOUT uSprite_t            # (unused)
+FIELD anon@gu.h:51.*        # guDLPrintStr's (unused)
+FIELD anon@os_debug.h:*     # profiler (unused)
+FIELD anon@os_voice.h:*     # voice recognition (unused)
+FNPTR anon@os_pi.h:120.*    # OSDevMgr hooks (replaced by the platform)
+FIELD anon@xstdio.h:*       # printf's _Pft: a local of _Printf
+# float parameter bits handed through a void * to the filters' setParam,
+# converted back to s32 there (sign-extended and truncated: the same bits)
+SEXT ul_env.c:167           # (void *) data.i (an f32's bits)
+SEXT ul_env.c:291           # (void *) e->ctrlList->data.i
+# a host local's address cast through void ** to the s32 * of align_up
+# (align a pointer); it reads and writes the low 32 bits, the pointer is < 4 GB
+CAST 17210.c:59             # &p (host local u8 *), aligned in place
+# veh_find_point(id, n, u8 **recOut) fills the caller's own local pointer
+CAST 853D0.c:6??            # &rec (host local)
+# an N64P through varargs read by a 4-byte conversion: rsp_wait_task's
+# debug_printf("Task %d received message %d\n", id, msg), msg an OSMesg
+# (void * N64P) printed with %d: va_arg(ap, int) reads exactly the 4 bytes
+# passed (and only with bc_headless --print)
+VARG 405F0.c:107            # %d of an OSMesg (an int conversion, not a pointer one)

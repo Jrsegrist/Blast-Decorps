@@ -1,0 +1,235 @@
+# 69BB0 (vehicle module) port checks
+# driver_set_physics: gGravity = gLevelGravity * 4.0f; gBounceThreshold/Damping = 40, 3
+driver_set_physics: -n 300 --seed 0 --ret void --mem gLevelGravity:4=floats:-100000:100000
+# special float bit patterns: +-0, 1, inf, NaN, denormal, FLT_MAX (overflow to inf), -100
+driver_set_physics: -n 200 --seed 1 --ret void \
+    --mem gLevelGravity:4=words:0,0x80000000,0x3F800000,0x7F800000,0xFF800000,0x7FC00000,0x00000001,0x7F7FFFFF,0xC2C80000
+
+# driver_save_state: return veh_serialize_state(a0, gDriverState, gDriverPos) (serialize vehicle state; v0 passed through)
+driver_save_state: -n 300 --seed 0 --ret int --sig veh_serialize_state=a0,a1,a2 --stub-ret veh_serialize_state=rand \
+    --arg a0=choice:0,1,-1,0x80000000,0x7FFFFFFF,0x80B00000,0x80B00003,0x803FFFFF
+driver_save_state: -n 50 --seed 1 --ret int --sig veh_serialize_state=a0,a1,a2 --stub-ret veh_serialize_state=0xB2 --arg a0=choice:0,0x80B00000
+# end to end with the callee run for real (asm vs its C rewrite): unaligned dst, random state
+driver_save_state: -n 100 --seed 2 --ret int --follow veh_serialize_state --arg a0=choice:0x80B00000,0x80B00001,0x80B00002,0x80B00003,0x80B00005 --mem 0x80B00000:0x100=rand \
+    --mem gDriverState:0xA6=rand --mem gDriverPos:12=rand
+# driver_load_state: veh_deserialize_state(a0, gDriverState, gDriverPos) (restore vehicle state)
+driver_load_state: -n 300 --seed 0 --ret void --sig veh_deserialize_state=a0,a1,a2 \
+    --arg a0=choice:0,1,-1,0x80000000,0x7FFFFFFF,0x80B00000,0x80B00003,0x803FFFFF
+driver_load_state: -n 100 --seed 1 --ret void --follow veh_deserialize_state --arg a0=choice:0x80B00000,0x80B00001,0x80B00002,0x80B00003,0x80B00005 --mem 0x80B00000:0x100=rand \
+    --mem gDriverState:0xA6=rand --mem gDriverPos:12=rand
+
+# driver_in_exit_zone: zone test (mode a3 -> *a0, result a1 -> v0; conventions.txt). Mode 1: z/32 in [0xCCD,0xDB5);
+# mode 2: x/32 in [0x834,0x961) and z/32 in [0x4B0,0x5DD); a3 keeps the last value compared
+driver_in_exit_zone: -n 400 --seed 0 --arg a3=choice:1*3,2*4,0,3,-1,0x101 \
+    --mem gPlayerX=int:0x9000:0x1C000 --mem gPlayerZ=int:0x9000:0x1C000
+# boundaries (x 0x10680/0x12C20, z 0x199A0/0x1B6A0 and 0x9600/0xBBA0, each +-1), negatives, extremes
+driver_in_exit_zone: -n 400 --seed 1 --arg a3=choice:1,2 \
+    --mem gPlayerX=choice:0x1067F,0x10680,0x10681,0x12C1F,0x12C20,0x11000*2,-1,-0x10680,0x80000000,0x7FFFFFFF \
+    --mem gPlayerZ=choice:0x1999F,0x199A0,0x1B69F,0x1B6A0,0x95FF,0x9600,0xBB9F,0xBBA0,0xA000,0x1A000,-1,-0x9600,0x80000000,0x7FFFFFFF
+# driver_steer_rate: returns 0x8C (s3 -> v0)
+driver_steer_rate: -n 50 --seed 0
+
+# ---- phase D (wave 1, wt-d4) ----
+# driver_stop_blend_anim: anim_stop(31, gDriverAnim) (stop channel 31); stubbed and run for real
+driver_stop_blend_anim: -n 50 --seed 0 --ret void
+driver_stop_blend_anim: -n 50 --seed 1 --ret void --follow anim_stop --mem gDriverAnim+0x2E8:0x18=rand
+
+# zone lookup wrapper (id 0 at gDriverPos): veh_zone_alpha stubbed (scan registers mapped through r)
+driver_zone_alpha: -n 200 --mem gDriverPos:12=rand
+driver_zone_alpha: -n 300 --seed 1 --follow veh_zone_alpha,math_dist3 --mem gDriverPos=int:-100:100 --mem gDriverPos+4=int:-100:100 \
+    --mem gDriverPos+8=int:-100:100 --mem gAlphaZonesEnd=rel:gAlphaZones+0x24*int:0:4 --mem gAlphaZones:0x90=rand \
+    --mem gAlphaZones*0x24:4=int:-100:100 --mem gAlphaZones+4*0x24:4=int:-100:100 --mem gAlphaZones+8*0x24:4=int:-100:100 \
+    --mem gAlphaZones+0xC*0x24:4=choice:1,10,50,100,200,1000 --mem gAlphaZones+0x10*0x24:4/1=choice:0,1,1,2 \
+    --mem gAlphaZones+0x12*0x24:4/1=choice:0,1,1,1 --mem gAlphaZones+0x13*0x24:4/1=choice:0,1,2,3 \
+    --mem gAlphaZones+0x14*0x24:4/1=choice:0,0,5,0xFF --mem gAlphaZones+0x15*0x24:4/1=choice:0,0,0x30 \
+    --mem gAlphaZones+0x16*0x24:4/1=choice:0,0x31 --mem gAlphaZones+0x17*0x24:4/1=choice:0,0x32 \
+    --mem gDefaultVehAlpha:1=choice:0,1,0x80,0xFF,0x40 --mem gVehicles+0x5C*0x74:3=choice:0x100,0x200 \
+    --mem gVehicles+0x1B8=0 --mem gVehicles+0x60*0x74:4=int
+
+# ---- phase D (wave 3, wt-f6) ----
+# driver_update_anims: vehicle 0 per-frame animation update ($gp = gDriverState; +0x76 speed, +0xA1 moving last frame).
+# Channel states (field 0x10) and channel 1's mode (t1 output) from --stub-ret; util_rand2_range results 0/1/2/other.
+driver_update_anims: -n 400 --seed 0 --ret void --arg gp=sym:gDriverState \
+    --stub-ret anim_get_state=choice:0*3,1,2 --stub-ret anim_get_state.t1=choice:0,2,6,1 --stub-ret util_rand2_range=choice:0*3,1,2,5 \
+    --sig util_rand2_range=a0,a1 --sig snd_play=a0,a1:2,a2 --mem gSfxBank=int \
+    --mem gDriverState+0x76:2=halves:0*4,1,10,11,12,21,22,0xFFFF,0xFFF5,0xFFF4,0x8000,0x7FFF \
+    --mem gDriverState+0xA1:1=bytes:0,1,2,0xFF --mem levelno:1=bytes:0,5,0x31,0x26,0xFF \
+    --mem gDriverWalkPose:2=halves:0,2,6,0xFFFF,1
+# stopped with every channel idle: the random start (both util_rand2_range results); moving with channel 31 idle
+driver_update_anims: -n 200 --seed 1 --ret void --arg gp=sym:gDriverState \
+    --stub-ret anim_get_state=choice:0,2 --stub-ret anim_get_state.t1=choice:2,6 --stub-ret util_rand2_range=choice:0,1,2,3 \
+    --sig util_rand2_range=a0,a1 --sig snd_play=a0,a1:2,a2 --mem gSfxBank=int \
+    --mem gDriverState+0x76:2=halves:0*3,1,0xFFFF,0x2C --mem gDriverState+0xA1:1=bytes:0,1 --mem levelno:1=bytes:0,0x31 \
+    --mem gDriverWalkPose:2=halves:0,2,6
+# setters, getter and util_rand2_range run for real (random channel table, RNG seed); anim_blend_channels stays stubbed
+driver_update_anims: -n 300 --seed 2 --ret void --arg gp=sym:gDriverState \
+    --follow anim_get_state,anim_stop,anim_play,anim_set_frame,anim_set_speed,anim_set_reverse,anim_set_loop_mode,util_rand2_range \
+    --sig snd_play=a0,a1:2,a2 --mem gSfxBank=int --mem gDriverAnim:0x300=rand \
+    --mem gDriverAnim+0x10*0x18:32/1=bytes:0*3,1,2 --mem gDriverAnim+0x2F8:1=bytes:0*2,1 --mem gDriverAnim+0x2B:1=bytes:0,2,6 \
+    --mem gRandSeed2=int --mem gDriverState+0x76:2=halves:0*3,1,11,0xFFFF,0xFFF5,0x8000,0x7FFF \
+    --mem gDriverState+0xA1:1=bytes:0,1,2 --mem levelno:1=bytes:0,0x31,0x26 --mem gDriverWalkPose:2=halves:0,2,6
+
+# ---- phase D (wave 4, wt-v4) ----
+# driver_build_model: vehicle 0 model placement (mtx_build_model then veh_place_parts tag 0); returns the part-list end (t2).
+# The asm passes its callers' a3/s1/s0 to veh_place_parts's register block; the C passes 0 (set equal here). With
+# mtx_build_model stubbed the asm's s2 isn't the matrix, so that slot is only compared with it followed.
+driver_build_model: -n 300 --seed 0 --arg gp=sym:gDriverState --arg a3=0 --arg s0=0 --arg s1=0 --heap 0x100 \
+    --mem gDriverModel=rel:heap0 --mem @heap0+4=int:0:0x10000 --mem @heap0+8=int:0:0x10000 \
+    --mem @heap0+0x18=choice:0x40,0x48,0x80 --mem gBufferIndex:1=bytes:0,1,0xFF --mem gDriverMtxA=int --mem gDriverMtxB=int \
+    --mem gDriverPos:12=rand --mem gDriverState+0x4C:2=rand --mem gModelRot:6=rand --sig mtx_build_model=a0,a1,a2,a3,stack0 \
+    --sig veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2,*stack3+0x8,*stack3+0xC,*stack3+0x14
+driver_build_model: -n 100 --seed 1 --follow mtx_build_model --arg gp=sym:gDriverState --arg a3=0 --arg s0=0 --arg s1=0 \
+    --heap 0x100 --heap 0x100 --mem gDriverModel=rel:heap0 --mem @heap0+4=int:0:0x10000 --mem @heap0+8=int:0:0x10000 \
+    --mem @heap0+0x18=0x40 --mem @heap0+0x44=0 --mem gBufferIndex:1=bytes:0,1 --mem gDriverMtxA=rel:heap1 \
+    --mem gDriverMtxB=rel:heap1+0x40 --mem gDriverPos:12=rand --mem gDriverState+0x4C:2=rand --mem gModelRot:6=rand
+
+# driver_exit_walk_step: drive-in step (key t8, fp, f12-f26 in for veh_reground). Stop tests: x/z = 1000 +- 100 against
+# 899..1101 (both sides of each compare). veh_update_shadow's arg5-7 (stale stack / saved $ra halves) not compared.
+driver_exit_walk_step: -n 300 --seed 0 --arg gp=sym:gDriverState --mem gDriverExitDir:1=bytes:0,1,2,3,0xFF \
+    --mem gDriverPos=int:-0x10000000:0x10000000 --mem gDriverY=int --mem gDriverZ=int:-0x10000000:0x10000000 \
+    --mem gDriverExitStop=int:-0x10000000:0x10000000 --mem gSlotGroundY:12=rand --mem gDriverExitWalk:1=bytes:1 \
+    --mem gDriverState+0x76:2=rand --sig veh_update_shadow=a0:1,a1,a2,a3,stack0
+driver_exit_walk_step: -n 300 --seed 1 --arg gp=sym:gDriverState --mem gDriverExitDir:1=bytes:0,1,2,3 --mem gDriverPos=1000 \
+    --mem gDriverY=int --mem gDriverZ=1000 --mem gDriverExitStop=choice:899,900,901,1099,1100,1101 \
+    --mem gSlotGroundY:12=rand --mem gDriverExitWalk:1=bytes:1 --mem gDriverState+0x76:2=rand --sig veh_update_shadow=a0:1,a1,a2,a3,stack0
+driver_exit_walk_step: -n 100 --seed 2 --follow veh_reground --stub-ret veh_wheel_offset=int:-1000:1000 \
+    --stub-ret veh_wheel_offset.t6=int:-1000:1000 --stub-ret ground_slot_height=int:-5000:5000 --arg gp=sym:gDriverState \
+    --mem gDriverExitDir:1=bytes:0,1,2,3 --mem gDriverPos=int:-5000:5000 --mem gDriverY=int:-5000:5000 \
+    --mem gDriverZ=int:-5000:5000 --mem gDriverExitStop=int:-5000:5000 --mem gSlotGroundY:12=rand --mem gDriverExitWalk:1=bytes:1 \
+    --mem gDriverState:0xA6=rand --mem gSlotSurface:3=rand --sig veh_update_shadow=a0:1,a1,a2,a3,stack0
+
+# driver_check_exit_point: one drive-in path check (dist a2 -> a3 = spot free). veh_collision_setup's b0 (t0 = 0 left by
+# driver_build_model) is only compared with driver_build_model followed. veh_collide_world runs for real (the C calls
+# veh_collide_world_fp): fp in (random) and out (its part count on a world hit, else unchanged; vehicle-0 sphere
+# entries tagged 0 among others, the last one forced; parts of kinds 0-2, end marker in entry 7).
+driver_check_exit_point: -n 300 --seed 0 --arg gp=sym:gDriverState --arg a2=int:-5000:5000 --mem gDriverExitDir:1=bytes:0,1,2,3,0xFF \
+    --mem gPlayerX=int:-0x1000000:0x1000000 --mem gPlayerZ=int:-0x1000000:0x1000000 --mem gPlayerY=int \
+    --mem gDriverExitGroundY=int --mem gDriverState:0xA6=rand --mem gDriverState+0x10=int:-0x10000000:0x10000000 \
+    --mem gDriverState+0x1C=int:-0x10000000:0x10000000 --mem gDriverPos:12=rand --mem gCurVehicle:1=bytes:0,0xB,3 \
+    --mem gCollHit:1=bytes:0,1,2 --mem gCollVehicleAnim=int \
+    --sig veh_collision_setup=a0,a1,a2,a3,stack0,stack1,stack3,stack4,stack5,stack6,stack7 --sig tnt_test_point=a0,a1,a2 \
+    --sig driver_build_model= \
+    --arg fp=int --follow veh_collide_world --stub-ret veh_sphere_hits_world=choice:0,1,1 --mem gTrainContact:1=rand \
+    --mem gVehBoundSpheres:0xA0=rand --mem gVehBoundSpheres+0x10*0x14:8/1=choice:0,2,3 --mem gVehBoundSpheres+0x11*0x14:8/1=choice:1,0,2,0xFF \
+    --mem gVehBoundSpheres+0x9C:1=0 \
+    --mem gVehPartSpheres:0xA0=rand --mem gVehPartSpheres+0x12*0x14:8/1=choice:0,1,2 --mem gVehPartSpheres+0x13*0x14:8/1=choice:0,1,0x80 \
+    --mem gVehPartSpheres+0x9F:1=0xFF --mem gFreeArcStart:2=choice:0,1,0xFFF --mem gFreeArcEnd:2=choice:0xFFF,0,0xFFE \
+    --mem gCollBlocked:1=rand --mem gBlockedFrame=rand --mem gUnpausedFrames=int
+
+# driver_update: vehicle 0 per-frame update. Leftover inputs set to the C's choices: driver_zone_alpha's scan registers
+# t6/t7/s0-s4 = 0, driver_exit_walk_step's key t8 = 0, fp = 0, f12-f26 = 0. veh_ground_contact's f12/f14 (veh_move_along_heading's sine
+# leftovers in the asm) aren't compared. 64-bit game-mode compares: the high words are tested in seed 1.
+driver_update: -n 400 --seed 0 --arg t6=0 --arg t7=0 --arg s0=0 --arg s1=0 --arg s2=0 --arg s3=0 --arg s4=0 --arg t8=0 \
+    --arg fp=0 --arg f12=0 --arg f14=0 --arg f20=0 --arg f22=0 --arg f24=0 --arg f26=0 --mem gDriverState:0xA6=rand \
+    --mem gDriverState+0x9A:1=bytes:0*3,1,0x80 --mem gDriverState+0xA1:1=bytes:0,1,2 --mem gDriverExitWalk:1=bytes:0*3,1 \
+    --mem gNextGameMode=0 --mem gNextGameMode+4=choice:0*4,0x800,1,0x1000,0x20,0x1801 --mem gGameMode=0 \
+    --mem gGameMode+4=choice:0x800,1,0x1000,0x20,0x40,0x801,0x1000 --mem gDriverDeflecting:1=bytes:0,1,0x80 \
+    --mem gDriverDeflectHeading:2=rand --mem gBufferIndex:1=bytes:0,1 --mem gDriverMtxA=int --mem gDriverMtxB=int \
+    --mem gCollBlocked:1=bytes:0,1 --mem gCollVehicleAnim=int --mem gDriverPos:12=rand --mem gPlayerX:12=rand \
+    --mem gPlayerSpeed:6=rand --mem gBounceSound:1=bytes:5 --sig driver_update_anims= --sig driver_set_physics= --sig driver_steer_rate= \
+    --sig driver_build_model= --sig veh_free_arc_mid= --sig veh_prepare_escape=a0 \
+    --sig veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12,*stack13+0x8,*stack13+0xC,*stack13+0x10,*stack13+0x14
+driver_update: -n 200 --seed 1 --arg t6=0 --arg t7=0 --arg s0=0 --arg s1=0 --arg s2=0 --arg s3=0 --arg s4=0 --arg t8=0 \
+    --arg fp=0 --arg f12=0 --arg f14=0 --arg f20=0 --arg f22=0 --arg f24=0 --arg f26=0 --mem gDriverState:0xA6=rand \
+    --mem gDriverState+0x9A:1=bytes:0 --mem gDriverExitWalk:1=bytes:0 --mem gNextGameMode=choice:0,1 \
+    --mem gNextGameMode+4=choice:0,0x800 --mem gGameMode=choice:0,1,0x80000000 --mem gGameMode+4=choice:0x800,1,0x1000,0 \
+    --mem gDriverDeflecting:1=bytes:0,1 --mem gBufferIndex:1=bytes:0,1 --mem gCollBlocked:1=bytes:0,1 --mem gDriverPos:12=rand \
+    --sig driver_update_anims= --sig driver_set_physics= --sig driver_steer_rate= --sig driver_build_model= --sig veh_free_arc_mid= \
+    --sig veh_prepare_escape=a0 \
+    --sig veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12,*stack13+0x8,*stack13+0xC,*stack13+0x10,*stack13+0x14
+# driver_spawn: vehicle 0 setup (header s2, x t7, y s3, z s0, heading s1, dispatcher fp / f12-f26 for veh_init_ground)
+driver_spawn: -n 300 --seed 0 --arg s2=ptr:0x100 --mem @s2+4=int:0:0x1000 --mem @s2+8=int:0:0x1000 \
+    --mem @s2+0x18=choice:0x40,0x80 --mem @s2+0x44=int --mem @s2+0x84=int --arg t7=int --arg s3=int --arg s0=int \
+    --arg s1=int --arg fp=int --arg f12=float --arg f14=float --arg f20=float --arg f22=float --arg f24=float \
+    --arg f26=float --mem gHeapPtr=int:0:0x70000000 --mem gDriverModel:24=rand --mem gDriverState:0xA6=rand \
+    --mem gDriverPos:12=rand --mem gDriverDeflecting:4=rand --mem gCamDistance:2=rand --mem gCamHeightBase:2=rand \
+    --sig driver_update= --sig veh_add_shadow=a0:1,a1,a2:2,a3:2
+# channel setters, the record reset and the marker record run for real; extreme positions and headings
+driver_spawn: -n 100 --seed 1 \
+    --follow veh_reset_state,anim_set_speed,anim_set_reverse,anim_set_loop_mode,anim_set_interp,anim_play,anim_rewind,veh_add_shadow \
+    --heap 0x40 --arg s2=ptr:0x100 --mem @s2+4=int:0:0x1000 --mem @s2+8=int:0:0x1000 --mem @s2+0x18=0x40 \
+    --mem @s2+0x44=int --arg t7=choice:0,-1,0x7FFFFFFF,0x80000000,1000 --arg s3=int \
+    --arg s0=choice:0,-1,0x7FFFFFFF,0x80000000 --arg s1=choice:0,0xFFF,0x7FFF,0x8000,0xFFFF,0x12345 --arg fp=int \
+    --arg f12=float --arg f14=float --arg f20=float --arg f22=float --arg f24=float --arg f26=float \
+    --mem gHeapPtr=int:0:0x70000000 --mem gDriverModel:24=rand --mem gDriverState:0xA6=rand --mem gDriverAnim:0x300=rand \
+    --mem gVehicleShadowsEnd=rel:heap0+-0x1000 --mem gDriverPos:12=rand --mem gDriverDeflecting:4=rand --sig driver_update=
+# own helpers and the steering helpers run for real (veh_prepare_escape stubbed; followed in the gpfix run below); this also
+# checks veh_collision_setup's b0/h2 (driver_build_model's t0/t2 leftovers in the asm)
+driver_update: -n 200 --seed 2 \
+    --follow driver_build_model,driver_steer_rate,driver_set_physics,veh_free_arc_mid,veh_reverse_if_behind,veh_turn_into_free_arc,veh_step_heading,veh_hit_slowdown,veh_set_target_heading,driver_exit_walk_step \
+    --arg t6=0 --arg t7=0 --arg s0=0 --arg s1=0 --arg s2=0 --arg s3=0 --arg s4=0 --arg t8=0 --arg fp=0 --arg f12=0 \
+    --arg f14=0 --arg f20=0 --arg f22=0 --arg f24=0 --arg f26=0 --arg a3=0 --heap 0x100 --mem gDriverModel=rel:heap0 \
+    --mem @heap0+4=int:0:0x1000 --mem @heap0+8=int:0:0x1000 --mem @heap0+0x18=0x40 --mem gDriverState:0xA6=rand \
+    --mem gDriverState+0x9A:1=bytes:0,1 --mem gDriverState+0x4C:2=int:0:0xFFF --mem gDriverState+0x4E:2=int:0:0xFFF \
+    --mem gDriverState+0x76:2=int:-200:200 --mem gDriverExitWalk:1=bytes:0,1 --mem gDriverExitDir:1=bytes:0,1,2,3 \
+    --mem gDriverExitStop=int:-5000:5000 --mem gNextGameMode=0 --mem gNextGameMode+4=choice:0*4,0x800,0x20 --mem gGameMode=0 \
+    --mem gGameMode+4=choice:0x20,0x40,0x801 --mem gDriverDeflecting:1=bytes:0,1 --mem gDriverDeflectHeading:2=int:0:0xFFF \
+    --mem gBufferIndex:1=bytes:0,1 --mem gDriverMtxA=int --mem gDriverMtxB=int --mem gCollBlocked:1=bytes:0,1 \
+    --mem gFreeArcStart:2=int:0:0xFFF --mem gFreeArcEnd:2=int:0:0xFFF --mem gPlayFrames=choice:0,1 --mem gCollVehicleAnim=int \
+    --mem gDriverPos=int:-5000:5000 --mem gDriverY=int:-5000:5000 --mem gDriverZ=int:-5000:5000 \
+    --mem gSlotGroundY:12=rand --mem gLevelGravity=int --sig driver_update_anims= --sig veh_prepare_escape=a0 \
+    --sig veh_update_shadow=a0:1,a1,a2,a3,stack0 --sig mtx_build_model=a0,a1,a2,a3,stack0 \
+    --sig veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2 \
+    --sig veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12,*stack13+0x8,*stack13+0xC,*stack13+0x10,*stack13+0x14
+# (gpfix) vehicle 0's block (gDriverState) through veh_prepare_escape and the whole veh_collide_spheres collision chain
+# (gBacklashState+0xA0 is a decoy)
+driver_update: -n 200 --seed 5 --follow driver_build_model,driver_steer_rate,driver_set_physics,veh_free_arc_mid,veh_reverse_if_behind,veh_turn_into_free_arc,veh_step_heading,veh_hit_slowdown,veh_set_target_heading,driver_exit_walk_step,veh_prepare_escape,veh_collide_spheres,veh_collide_vehicles,veh_collide_markers,veh_collide_commpts,veh_scale_other_radius,veh_collide_vehicle_parts,veh_scale_part_radius,math_spheres_overlap,veh_rides_on --arg t6=0 --arg t7=0 --arg s0=0 --arg s1=0 --arg s2=0 --arg s3=0 --arg s4=0 --arg t8=0 --arg fp=0 --arg f12=0 --arg f14=0 --arg f20=0 --arg f22=0 --arg f24=0 --arg f26=0 --arg a3=0 --heap 0x100 --mem gDriverModel=rel:heap0 --mem @heap0+4=int:0:0x1000 --mem @heap0+8=int:0:0x1000 --mem @heap0+0x18=0x40 --mem gDriverState:0xA6=rand --mem gDriverState+0x9A:1=bytes:0,1 --mem gDriverState+0x4C:2=int:0:0xFFF --mem gDriverState+0x4E:2=int:0:0xFFF --mem gDriverState+0x76:2=int:-200:200 --mem gDriverExitWalk:1=bytes:0,1 --mem gDriverExitDir:1=bytes:0,1,2,3 --mem gDriverExitStop=int:-5000:5000 --mem gNextGameMode=0 --mem gNextGameMode+4=choice:0*4,0x800,0x20 --mem gGameMode=0 --mem gGameMode+4=choice:0x20,0x40,0x801 --mem gDriverDeflecting:1=bytes:0,1 --mem gDriverDeflectHeading:2=int:0:0xFFF --mem gBufferIndex:1=bytes:0,1 --mem gDriverMtxA=int --mem gDriverMtxB=int --mem gCollBlocked:1=bytes:0,1 --mem gFreeArcStart:2=int:0:0xFFF --mem gFreeArcEnd:2=int:0:0xFFF --mem gPlayFrames=choice:0,1 --mem gCollVehicleAnim=int --mem gDriverPos=int:-5000:5000 --mem gDriverY=int:-5000:5000 --mem gDriverZ=int:-5000:5000 --mem gSlotGroundY:12=rand --mem gLevelGravity=int --sig driver_update_anims= --sig veh_update_shadow=a0:1,a1,a2,a3,stack0 --sig mtx_build_model=a0,a1,a2,a3,stack0 --sig veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2 --sig veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12,*stack13+0x8,*stack13+0xC,*stack13+0x10,*stack13+0x14 --mem gVehBoundSpheres:0xA0=words:0,10,-10,50,100,300 --mem gVehBoundSpheres+0xC*0x14:8=choice:0,10,50,300 --mem gVehBoundSpheres+0x10*0x14:8/1=choice:0,1,2,6,7 --mem gVehBoundSpheres+0x11*0x14:8/1=choice:1,1,0 --mem gVehBoundSpheres+0x10:1=0 --mem gVehBoundSpheres+0x11:1=choice:1,1,0 --mem gVehBoundSpheres+0x9D:1=0xFF --mem gDriverHidden=choice:0,1 --mem gVehPartSpheres:0xA0=words:0,10,-10,50,100,300 --mem gVehPartSpheres+0xC*0x14:8=choice:0,10,50,300 --mem gVehPartSpheres+0x12*0x14:8/1=choice:0,7,0,2 --mem gVehPartSpheres+0x13*0x14:8/1=choice:0,1 --mem gVehPartSpheres+0x9F:1=0xFF --mem gCommPtCount:1=0 --mem gRadarMarkers*0x14:25=-1 --mem gStandOn:0x40=words:0x000A0700,0x0A070000,0x07060000,0 --mem gStandOn+0x40=0xFFFFFFFF --mem gBacklashState+0xA0:1=choice:1,3 --mem gDriverState+0xA0:1=choice:1,2,4
+driver_check_exit_point: -n 200 --seed 1 --follow driver_build_model --arg gp=sym:gDriverState --arg a2=int:-5000:5000 --heap 0x100 \
+    --mem gDriverModel=rel:heap0 --mem @heap0+4=int:0:0x10000 --mem @heap0+8=int:0:0x10000 --mem @heap0+0x18=0x40 \
+    --mem gBufferIndex:1=bytes:0,1 --mem gDriverMtxA=int --mem gDriverMtxB=int --mem gDriverExitDir:1=bytes:0,1,2,3 \
+    --mem gPlayerX=int:-0x1000000:0x1000000 --mem gPlayerZ=int:-0x1000000:0x1000000 --mem gDriverExitGroundY=int \
+    --mem gDriverState:0xA6=rand --mem gDriverState+0x10=int:-0x10000000:0x10000000 \
+    --mem gDriverState+0x1C=int:-0x10000000:0x10000000 --mem gDriverPos:12=rand --mem gCurVehicle:1=bytes:0,0xB \
+    --mem gCollHit:1=bytes:0,1 --mem gCollVehicleAnim=int --sig tnt_test_point=a0,a1,a2 \
+    --sig mtx_build_model=a0,a1,a2,a3,stack0 --sig veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2 \
+    --arg fp=choice:0,2,-1 --follow veh_collide_world --stub-ret veh_sphere_hits_world=choice:0,1 --mem gTrainContact:1=rand \
+    --mem gVehBoundSpheres:0xA0=rand --mem gVehBoundSpheres+0x10*0x14:8/1=choice:0,1 --mem gVehBoundSpheres+0x11*0x14:8/1=choice:1,0 \
+    --mem gVehBoundSpheres+0x9C:1=0 \
+    --mem gVehPartSpheres:0xA0=rand --mem gVehPartSpheres+0x12*0x14:8/1=choice:0,0,1 --mem gVehPartSpheres+0x13*0x14:8/1=choice:0,1 \
+    --mem gVehPartSpheres+0x13:1=choice:0xFF,1,1 --mem gVehPartSpheres+0x9F:1=0xFF --mem gFreeArcStart:2=0 --mem gFreeArcEnd:2=0xFFF \
+    --mem gCollBlocked:1=rand --mem gBlockedFrame=rand --mem gUnpausedFrames=int
+
+# driver_try_exit: drive-in setup (dist a0 -> v0 0/1). Table: two records per level 5/6 (zone modes 0 and 2), level 7.
+# The asm's key t8 is its caller's (gCurVehicle << 2 in the real game): compared only where t8 is set to match.
+driver_try_exit: -n 300 --seed 0 --ret int --arg a0=int:0:1000 --mem gDriverCanExit:1=bytes:0,1*4 \
+    --mem gDriverExitWalks:26=hex:0503020200_0504010300_0603030202_0604000101_0703020200_FF \
+    --mem levelno=choice:5,6,7,8,0x105 --mem gCurVehicle:1=bytes:3,4,0xB,0x11,0x12,0 \
+    --stub-ret driver_in_exit_zone=choice:0,1 --stub-ret driver_check_exit_point=choice:1*8,0 --mem gDriverState:0xA6=rand \
+    --mem gDriverPos:12=rand --mem gDriverExitStop=int --mem gDriverExitGroundY=int --mem gDriverExitWalk:1=bytes:0 \
+    --mem gDriverExitChecking:1=bytes:5 --mem gDriverExitDir:1=bytes:9 --mem gCollExitProbe:1=bytes:7 --mem gCamDistance:2=rand \
+    --mem gCamHeightBase:2=rand --sig driver_check_exit_point=a0
+driver_try_exit: -n 200 --seed 1 --ret int --arg a0=int:0:600 --arg t8=12 --arg fp=0 --arg f12=0 --arg f14=0 --arg f20=0 \
+    --arg f22=0 --arg f24=0 --arg f26=0 --mem gDriverCanExit:1=bytes:1 \
+    --mem gDriverExitWalks:26=hex:0503020200_0503010300_0603030202_0603000101_0703020200_FF --mem levelno=choice:5,6,7,8 \
+    --mem gCurVehicle:1=3 --stub-ret driver_in_exit_zone=choice:0,1 --stub-ret driver_check_exit_point=choice:1*15,0 \
+    --mem gDriverState:0xA6=rand --mem gDriverPos:12=rand --mem gDriverExitStop=int --mem gDriverExitGroundY=int \
+    --mem gDriverExitWalk:1=bytes:0 --mem gDriverExitChecking:1=bytes:5 --mem gDriverExitDir:1=bytes:9 --mem gCollExitProbe:1=bytes:7
+# boundaries: dist 0 / multiples of 100 (the last loop step lands exactly on dist), every check passing
+driver_try_exit: -n 100 --seed 2 --ret int --arg a0=choice:0,1,99,100,101,200,300 --arg t8=12 --arg fp=0 --arg f12=0 \
+    --arg f14=0 --arg f20=0 --arg f22=0 --arg f24=0 --arg f26=0 --mem gDriverCanExit:1=bytes:1 \
+    --mem gDriverExitWalks:6=hex:0503020100_FF --mem levelno=choice:5,6 --mem gCurVehicle:1=3 --stub-ret driver_check_exit_point=1 \
+    --mem gDriverState:0xA6=rand --mem gDriverPos:12=rand --mem gDriverExitStop=int --mem gDriverExitChecking:1=bytes:5
+# zone checks and the path checks run for real (driver_check_exit_point's own callees stubbed, except veh_collide_world:
+# its fp, the part count on a world hit, goes to the next check's veh_reground; 0 or 2 vehicle-0 parts)
+driver_try_exit: -n 100 --seed 3 --ret int --follow driver_in_exit_zone,driver_check_exit_point --arg a0=int:0:400 --arg t8=12 --arg fp=0 \
+    --arg f12=0 --arg f14=0 --arg f20=0 --arg f22=0 --arg f24=0 --arg f26=0 --mem gDriverCanExit:1=bytes:1 \
+    --mem gDriverExitWalks:16=hex:0503020202_0503010300_0703020200_FF --mem levelno=choice:5,7 --mem gCurVehicle:1=3 \
+    --mem gPlayerX=int:-0x100000:0x100000 --mem gPlayerY=int --mem gPlayerZ=int:-0x100000:0x100000 \
+    --mem gCollHit:1=bytes:0*6,1 --mem gDriverState:0xA6=rand --mem gDriverState+0x10=int:-0x10000000:0x10000000 \
+    --mem gDriverState+0x1C=int:-0x10000000:0x10000000 --mem gDriverPos:12=rand --mem gDriverExitStop=int \
+    --sig veh_collision_setup=a0,a1,a2,a3,stack0,stack1,stack3,stack4,stack5,stack6,stack7 --sig tnt_test_point=a0,a1,a2 \
+    --sig driver_build_model= \
+    --follow veh_collide_world --stub-ret veh_sphere_hits_world=choice:0,1,1 --mem gTrainContact:1=rand \
+    --mem gVehBoundSpheres:0xA0=rand --mem gVehBoundSpheres+0x10:1=0 --mem gVehBoundSpheres+0x11:1=choice:1,1,0 \
+    --mem gVehPartSpheres:0xA0=rand --mem gVehPartSpheres+0x12*0x14:8/1=choice:0,3 --mem gVehPartSpheres+0x13*0x14:8/1=choice:0,1,1 \
+    --mem gVehPartSpheres+0x9F:1=0xFF --mem gFreeArcStart:2=0 --mem gFreeArcEnd:2=0xFFF --mem gCollBlocked:1=rand \
+    --mem gBlockedFrame=rand --mem gUnpausedFrames=int
+
+# [data] the level levelno as a whole word: the asm (lbu) and the C (word >> 24) test its most
+# significant byte against 0x31 / 0x26, never the level number itself
+driver_update_anims: -n 200 --seed 3 --ret void --arg gp=sym:gDriverState \
+    --stub-ret anim_get_state=choice:0*3,1,2 --stub-ret anim_get_state.t1=choice:0,2,6,1 --stub-ret util_rand2_range=choice:0*3,1,2,5 \
+    --sig util_rand2_range=a0,a1 --sig snd_play=a0,a1:2,a2 --mem gSfxBank=int \
+    --mem gDriverState+0x76:2=halves:0*4,1,10,11,12,21,22,0xFFFF,0xFFF5,0xFFF4,0x8000,0x7FFF \
+    --mem gDriverState+0xA1:1=bytes:0,1,2,0xFF --mem levelno=choice:0,0x31,0x26,0x31000000,0x26000000,0x31313131,0x26262626 \
+    --mem gDriverWalkPose:2=halves:0,2,6,0xFFFF,1

@@ -1,0 +1,8 @@
+# a Windows clone keeps these byte for byte (RT64's patches are applied with
+# git apply; the shell scripts run in WSL)
+*.patch -text
+*.sh text eol=lf
+*.mk text eol=lf
+Makefile text eol=lf
+# the committed inputs (make -C port inputs): check-inputs compares them byte for byte
+inputs/* -text

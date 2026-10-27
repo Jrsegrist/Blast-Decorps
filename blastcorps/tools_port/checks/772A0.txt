@@ -1,0 +1,135 @@
+# train_exit_check: return 1
+train_exit_check: -n 50
+
+# train_set_physics: gGravity = gLevelGravity * 2.0f; gBounceThreshold = 60; gBounceDamping = 4
+train_set_physics: -n 200 --ret void --mem gLevelGravity:4=floats --mem gGravity=int --mem gBounceThreshold:2=rand
+train_set_physics: -n 60 --seed 1 --ret void --mem gLevelGravity=choice:0,0x80000000,0x3F800000,0xBF800000,0x7F7FFFFF,0xFF7FFFFF,0x7F800000,0xFF800000,0x7FC00000,0x00000001 \
+    --mem gGravity=choice:0,-1 --mem gBounceThreshold:2=bytes:0,0xFF
+
+# train_enter: enter vehicle 7: gCamDistance / gCamHeightBase = 3000, 0; veh_start_engine_sound(a0, 0x20)
+# (the asm's $gp change is declared `clobbers gp` in conventions.txt)
+train_enter: -n 200 --seed 0 --ret void --sig veh_start_engine_sound=a0,a1 --arg a0=int \
+    --mem gCamDistance:2=rand --mem gCamHeightBase:2=halves:1,0xFFFF
+
+# zone lookup wrapper (id 7 at gTrainX): veh_zone_alpha stubbed (scan registers mapped through r)
+train_zone_alpha: -n 200 --mem gTrainX:12=rand
+train_zone_alpha: -n 300 --seed 1 --follow veh_zone_alpha,math_dist3 --mem gTrainX=int:-100:100 --mem gTrainX+4=int:-100:100 \
+    --mem gTrainX+8=int:-100:100 --mem gAlphaZonesEnd=rel:gAlphaZones+0x24*int:0:4 --mem gAlphaZones:0x90=rand \
+    --mem gAlphaZones*0x24:4=int:-100:100 --mem gAlphaZones+4*0x24:4=int:-100:100 --mem gAlphaZones+8*0x24:4=int:-100:100 \
+    --mem gAlphaZones+0xC*0x24:4=choice:1,10,50,100,200,1000 --mem gAlphaZones+0x10*0x24:4/1=choice:0,1,1,2 \
+    --mem gAlphaZones+0x12*0x24:4/1=choice:0,1,1,1 --mem gAlphaZones+0x13*0x24:4/1=choice:0,1,2,3 \
+    --mem gAlphaZones+0x14*0x24:4/1=choice:0,0,5,0xFF --mem gAlphaZones+0x15*0x24:4/1=choice:7,7,0x30 \
+    --mem gAlphaZones+0x16*0x24:4/1=choice:7,0x31 --mem gAlphaZones+0x17*0x24:4/1=choice:7,0x32 \
+    --mem gDefaultVehAlpha:1=choice:0,1,0x80,0xFF,0x40 --mem gVehicles+0x5C*0x74:3=choice:0x100,0x200 \
+    --mem gVehicles+0x1B8=7 --mem gVehicles+0x60*0x74:4=int
+
+# train_leave: leave vehicle 7: veh_sync_buffers(gTrainMtxA, gTrainMtxB, 0x800), veh_stop_engine_sounds()
+train_leave: -n 50 --seed 0 --ret void --sig veh_sync_buffers=a0,a1,a2 --sig veh_stop_engine_sounds= --mem gTrainMtxA:8=rand
+# copy and sound stop run for real (both directions of the copy, handles NULL / set)
+train_leave: -n 40 --seed 1 --ret void --follow veh_sync_buffers,veh_stop_engine_sounds --sig snd_stop=a0 --heap 0x800 --heap 0x800 \
+    --mem gTrainMtxA=rel:heap0 --mem gTrainMtxB=rel:heap1 --mem gBufferIndex:1=bytes:0,1 --mem gEngineSound:8=words:0,0x80123450
+
+# train_update_effects (t6, t7, s0-s4 through to fx_spawn; gp = gTrainState): countdown / flag per speed sign /
+# spawn + sound, then veh_set_engine_level(|speed >> 4|), veh_update_horn(0x21)
+train_update_effects: -n 400 --seed 0 --arg gp=sym:gTrainState --arg t6=int --arg t7=int --arg s0=int --arg s1=int --arg s2=int \
+    --arg s3=int --arg s4=int --mem gTrainSparkTimer:1=bytes:0*3,1,2,0xFF --mem gHeldA:1=bytes:0,1,0x80 \
+    --mem gHeldBOrZ:1=bytes:0,1,0x80 --mem gTrainState+0x76:2=halves:0,1,0xF,0x10,0x11,0x7FFF,0x8000,0xFFFF,0xFFF0,0xFFEF,0xFFF1,0x1234 \
+    --mem gSfxBank=int --sig snd_play=a0,a1,a2
+# countdown 0, only one flag set: the sign selects which flag (speed 0 -> gHeldA)
+train_update_effects: -n 100 --seed 1 --arg gp=sym:gTrainState --arg t6=int --arg t7=int --arg s0=int --arg s1=int --arg s2=int \
+    --arg s3=int --arg s4=int --mem gTrainSparkTimer:1=0 --mem gHeldA:1=bytes:0,1 --mem gHeldBOrZ:1=bytes:0,1 \
+    --mem gTrainState+0x76:2=halves:0,1,0xFFFF,0x7FFF,0x8000 --mem gSfxBank=int --sig snd_play=a0,a1,a2
+# callees run for real (record setup through veh_find_point for id 7; sound level / loop wrappers)
+train_update_effects: -n 200 --seed 2 --arg gp=sym:gTrainState --arg t6=int --arg t7=int --arg s0=int --arg s1=int --arg s2=int \
+    --arg s3=int --arg s4=int --mem gTrainSparkTimer:1=bytes:0*3,1 --mem gHeldA:1=bytes:0,1 --mem gHeldBOrZ:1=bytes:0,1 \
+    --mem gTrainState+0x76:2=int:0:0xFFFF --mem gSfxBank=int --sig snd_play=a0,a1,a2 \
+    --follow fx_spawn,veh_find_point,veh_set_engine_level,veh_update_horn \
+    --mem gVehPoints:0x100=onehot:0x10@0xC/1:7:bytes:1,2,3 --mem gEffects:0x3C0=rand --mem gEffects+0x33*0x3C:16/1=bytes:0,1 \
+    --mem gFxTileSlots:16=bytes:0,1 --mem gFxSpawnTag:1=rand --sig tex_queue_palette=a0,a1 --sig snd_modify=a0,a1,a2 \
+    --sig snd_stop=a0 --mem gEngineSoundLevel:2=rand --mem gEngineLevelForce:1=bytes:0,1 --mem gEngineSound:8=words:0,0x80123450 \
+    --mem gHornHeld:2=rand --mem gHeldL:2=bytes:0,1
+
+# --- vehicle type 7: spawn / per-frame / model update ---
+# Model update ($gp = gTrainState): as 83910's barge_build_model_0b (scale 0x3A98, tag 7) plus gTrainClosed = veh_tris_all_solid_impl(7).
+# mtx_chain_transform's pass-through registers start at 0 in C (fidelity note): those pointer slots aren't compared.
+train_build_model: -n 300 --arg gp=sym:gTrainState --heap 0x400=words:0x20,0x40,0x60,0x100,0x1F0,-0x10 \
+    --mem gTrainModel=rel:heap0+0x20 --mem gTrainMtxA=rel:heap0+0x200 --mem gTrainMtxB=rel:heap0+0x300 \
+    --mem gBufferIndex:1=choice:0,1,0x80 --mem gTrainX:12=rand --mem gTrainState+0x4C:2=rand --mem gModelRot:6=rand \
+    --mem gTrainClosed:1=rand --stub-ret veh_tris_all_solid_impl=choice:0,1,0x100,-1 \
+    --sig veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2 \
+    --sig veh_points_transform=a0,a1,a2,a3,*stack0,*stack0+0x4,*stack0+0x8,*stack0+0xC,*stack0+0x10
+train_build_model: -n 100 --seed 1 --follow mtx_build_model,veh_deck_transform,veh_tris_all_solid_impl --arg gp=sym:gTrainState \
+    --heap 0x400=words:0x20,0x40,0x60,0x100,0x1F0 --mem gTrainModel=rel:heap0+0x20 --mem gTrainMtxA=rel:heap0+0x200 \
+    --mem gTrainMtxB=rel:heap0+0x300 --mem gBufferIndex:1=choice:0,1 --mem gTrainX:12=int:-100000:100000 \
+    --mem gTrainState+0x4C:2=int:0:0xFFF --mem gModelRot:6=rand --mem gMtxWork:0x80=rand --mem gTrainClosed:1=rand \
+    --mem gCollTrisEnd=rel:gCollTris+0x60*int:0:4 --mem gCollTris:0x180=rand --mem gCollTris+0x4F*0x60:4/1=choice:7,7,3 \
+    --mem gCollTris+0x51*0x60:4/1=choice:0,1 \
+    --sig veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2 \
+    --sig veh_points_transform=a0,a1,a2,a3,*stack0,*stack0+0x4,*stack0+0x8,*stack0+0xC,*stack0+0x10
+
+# Per-frame update. The model update runs for real (its leftover t0 / t2 feed veh_collision_setup in the asm). The
+# zone scan registers start at 0 in C (fidelity note): train_zone_alpha's inputs aren't compared (its stubbed
+# outputs then reach train_update_effects identically). veh_ground_contact's FP inputs likewise (*stack13 not compared).
+# x-on-line interpolation (gTrainOnLine) with z1 != z0; bumper contacts via veh_contacts_has's stubbed results.
+train_update: -n 400 --follow train_build_model --heap 0x400=words:0x20,0x40,0x60,0x100 --mem gTrainModel=rel:heap0+0x20 \
+    --mem gTrainMtxA=rel:heap0+0x200 --mem gTrainMtxB=rel:heap0+0x300 --mem gBufferIndex:1=choice:0,1 \
+    --mem gTrainState:0xA8=rand --mem gTrainState+0x9A:1=choice:0,0,1,0x80 --mem gTrainX=int:-100000:100000 \
+    --mem gTrainY=int --mem gTrainZ=int:-2000:2000 --mem gTrainLineX0=int:-100000:100000 --mem gTrainLineZ0=int:-1000:-1 \
+    --mem gTrainLineX1=int:-100000:100000 --mem gTrainLineZ1=int:1:1000 --mem gTrainPart3Clear=choice:0,5,6,7,-1,999999 \
+    --mem gTrainPart2Clear=choice:0,5,6,7,-1,999999 --mem gTrainOnLine:1=choice:0,1,0x80 --mem gTrainClosed:1=rand \
+    --mem gCollBlocked:1=choice:0,1 --stub-ret veh_contacts_has=choice:0,1 --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand \
+    --mem gBounceSound:1=rand --mem gCollVehicleAnim=rand --mem gModelRot:6=rand --sig train_zone_alpha= --sig train_set_physics= \
+    --sig veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2 \
+    --sig veh_points_transform=a0,a1,a2,a3,*stack0,*stack0+0x4,*stack0+0x8,*stack0+0xC,*stack0+0x10 \
+    --sig veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12
+# rounding ties of the interpolation (ratio 0.5 / 0.25 with odd spans), counters at the 6 threshold, all contact pairs
+train_update: -n 200 --seed 1 --follow train_build_model --heap 0x400=words:0x20,0x40,0x60,0x100 \
+    --mem gTrainModel=rel:heap0+0x20 --mem gTrainMtxA=rel:heap0+0x200 --mem gTrainMtxB=rel:heap0+0x300 \
+    --mem gBufferIndex:1=choice:0,1 --mem gTrainState:0xA8=rand --mem gTrainState+0x9A:1=0 --mem gTrainX=int \
+    --mem gTrainY=int --mem gTrainZ=choice:1,3,-1,0,2 --mem gTrainLineX0=int:-50:50 --mem gTrainLineZ0=0 \
+    --mem gTrainLineX1=int:-50:50 --mem gTrainLineZ1=choice:2,4,-2 --mem gTrainPart3Clear=choice:5,6 --mem gTrainPart2Clear=choice:5,6 \
+    --mem gTrainOnLine:1=1 --mem gCollBlocked:1=1 --stub-ret veh_contacts_has=choice:0,1 --mem gPlayerX:12=rand \
+    --mem gPlayerSpeed:6=rand --mem gBounceSound:1=rand --mem gCollVehicleAnim=rand --mem gModelRot:6=rand --sig train_zone_alpha= \
+    --sig train_set_physics= --sig veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2 \
+    --sig veh_points_transform=a0,a1,a2,a3,*stack0,*stack0+0x4,*stack0+0x8,*stack0+0xC,*stack0+0x10 \
+    --sig veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12
+# driving callees, timers and the contact lookup run for real (vehicle fields in game range)
+train_update: -n 200 --seed 2 \
+    --follow train_build_model,veh_throttle,veh_turn_heading,veh_slope,veh_apply_slope,veh_move_along_heading,train_set_physics,veh_contacts_has \
+    --heap 0x400=words:0x20,0x40,0x60,0x100 --mem gTrainModel=rel:heap0+0x20 --mem gTrainMtxA=rel:heap0+0x200 \
+    --mem gTrainMtxB=rel:heap0+0x300 --mem gBufferIndex:1=choice:0,1 --mem gTrainState:0xA8=rand \
+    --mem gTrainState+4*4:18=int:-20000:20000 --mem gTrainState+0x76:2=int:-300:300 --mem gTrainState+0x96:3=bytes:0,1,2 \
+    --mem gTrainState+0x50:1=int:1:5 --mem gTrainState+0x9A:1=choice:0,0,1 --mem gTrainX=int:-100000:100000 \
+    --mem gTrainY=int:-100000:100000 --mem gTrainZ=int:-2000:2000 --mem gTrainLineX0=int:-100000:100000 \
+    --mem gTrainLineZ0=int:-1000:-1 --mem gTrainLineX1=int:-100000:100000 --mem gTrainLineZ1=int:1:1000 \
+    --mem gTrainPart3Clear=choice:0,5,6,7 --mem gTrainPart2Clear=choice:0,5,6,7 --mem gTrainOnLine:1=choice:0,1 \
+    --mem gCollBlocked:1=choice:0,1 --mem gContacts:0x40=words:2,3,9 --mem gContactsEnd=rel:gContacts+4*int:0:16 \
+    --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand --mem gBounceSound:1=rand --mem gCollVehicleAnim=rand --mem gModelRot:6=rand \
+    --sig snd_modify=a0,a1,a2 --sig snd_play=a0,a1,a2 --sig train_zone_alpha= \
+    --sig veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2 \
+    --sig veh_points_transform=a0,a1,a2,a3,*stack0,*stack0+0x4,*stack0+0x8,*stack0+0xC,*stack0+0x10 \
+    --sig veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12
+
+# Spawn (x t7, y s3, z s0, heading s1, data s2, ground byte fp; saves t0-t5). veh_init_ground's FP inputs start at 0
+# in C (fidelity note): its *stack6 slots aren't compared.
+train_spawn: -n 200 --heap 0x400=words:0x20,0x40,0x60,0x100 --heap 0x2000 --mem gHeapPtr=rel:heap1+0x10*int:0:16 \
+    --arg t7=int --arg s3=int --arg s0=int --arg s1=int --arg s2=rel:heap0 --arg fp=int --mem gTrainState:0xA8=rand \
+    --mem gTrainX:24=rand --mem gTrainPart3Clear:12=rand --sig train_update= \
+    --sig veh_init_ground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5
+train_spawn: -n 100 --seed 1 \
+    --follow veh_reset_state,anim_set_speed,anim_set_reverse,anim_set_loop_mode,anim_set_interp,anim_play,anim_rewind,mtx_copy_at \
+    --heap 0x400=words:0x20,0x40,0x60,0x100 --heap 0x2000 --mem gHeapPtr=rel:heap1 --arg t7=int --arg s3=int --arg s0=int \
+    --arg s1=choice:0,0x7FF,0xFFF,0x1000,-1 --arg s2=rel:heap0 --arg fp=int --mem gTrainState:0xA8=rand \
+    --mem gTrainX:24=rand --mem gTrainPart3Clear:12=rand --mem gTrainAnim:0x60=rand --sig train_update= \
+    --sig veh_init_ground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5
+# the spawn's first frame runs for real (byte +0x9A set: no dust, no collisions)
+train_spawn: -n 100 --seed 2 --follow train_update,train_build_model --heap 0x400=words:0x20,0x40,0x60,0x100 --heap 0x2000 \
+    --mem gHeapPtr=rel:heap1 --arg t7=int --arg s3=int --arg s0=int:-2000:2000 --arg s1=int --arg s2=rel:heap0+0x20 --arg fp=int \
+    --mem gTrainState:0xA8=rand --mem gTrainX:24=rand --mem gTrainPart3Clear:12=rand --mem gTrainOnLine:1=choice:0,1 \
+    --mem gTrainLineZ0=int:-1000:-1 --mem gTrainLineZ1=int:1:1000 --mem gTrainLineX0=int:-100000:100000 \
+    --mem gTrainLineX1=int:-100000:100000 --mem gBufferIndex:1=choice:0,1 --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand \
+    --mem gBounceSound:1=rand --mem gModelRot:6=rand --sig train_zone_alpha= --sig train_set_physics= \
+    --sig veh_init_ground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5 \
+    --sig veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2 \
+    --sig veh_points_transform=a0,a1,a2,a3,*stack0,*stack0+0x4,*stack0+0x8,*stack0+0xC,*stack0+0x10 \
+    --sig veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12

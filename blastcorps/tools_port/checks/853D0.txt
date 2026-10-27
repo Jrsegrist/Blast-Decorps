@@ -1,0 +1,150 @@
+# ballista_exit_check: return 0 if gBallistaState[0x96..0x98] has a 1 or gBallistaJumping != 0, else 1
+ballista_exit_check: -n 300 --mem gBallistaState+0x96:3=bytes:0,1*2,2,0xFF --mem gBallistaJumping:1=bytes:0*3,1,0x80,0xFF
+# exactly one of 0x96..0x98 equals 1 (first/last/middle)
+ballista_exit_check: -n 100 --seed 1 --mem gBallistaState+0x96:3=onehot:1/1:1:bytes:0,2,0x81,0xFF --mem gBallistaJumping:1=0
+# none equals 1 (values 0 / 0xFF / 0x101 low byte) -> depends on the extra flag only
+ballista_exit_check: -n 100 --seed 2 --mem gBallistaState+0x96:3=bytes:0,0xFF,2 --mem gBallistaJumping:1=bytes:0*3,1,0x80,0xFF
+# none equals 1 and the extra flag nonzero -> 0
+ballista_exit_check: -n 50 --seed 3 --mem gBallistaState+0x96:3=bytes:0,2 --mem gBallistaJumping:1=bytes:1,0x80,0xFF
+
+# ballista_set_physics: gGravity = gLevelGravity * 4.0f; gBounceThreshold = 60; gBounceDamping = 2
+ballista_set_physics: -n 200 --ret void --mem gLevelGravity:4=floats --mem gGravity=int --mem gBounceThreshold:2=rand
+ballista_set_physics: -n 60 --seed 1 --ret void --mem gLevelGravity=choice:0,0x80000000,0x3F800000,0xBF800000,0x7F7FFFFF,0xFF7FFFFF,0x7F800000,0xFF800000,0x7FC00000,0x00000001 \
+    --mem gGravity=choice:0,-1 --mem gBounceThreshold:2=bytes:0,0xFF
+
+# ballista_save_state: return veh_serialize_state(a0, gBallistaState, gBallistaPos) (serialize vehicle state; v0 passed through)
+ballista_save_state: -n 300 --seed 0 --ret int --sig veh_serialize_state=a0,a1,a2 --stub-ret veh_serialize_state=rand \
+    --arg a0=choice:0,1,-1,0x80000000,0x7FFFFFFF,0x80B00000,0x80B00003,0x803FFFFF
+ballista_save_state: -n 50 --seed 1 --ret int --sig veh_serialize_state=a0,a1,a2 --stub-ret veh_serialize_state=0xB2 --arg a0=choice:0,0x80B00000
+# end to end with the callee run for real (asm vs its C rewrite): unaligned dst, random state
+ballista_save_state: -n 100 --seed 2 --ret int --follow veh_serialize_state --arg a0=choice:0x80B00000,0x80B00001,0x80B00002,0x80B00003,0x80B00005 --mem 0x80B00000:0x100=rand \
+    --mem gBallistaState:0xA6=rand --mem gBallistaPos:12=rand
+# ballista_load_state: veh_deserialize_state(a0, gBallistaState, gBallistaPos) (restore vehicle state)
+ballista_load_state: -n 300 --seed 0 --ret void --sig veh_deserialize_state=a0,a1,a2 \
+    --arg a0=choice:0,1,-1,0x80000000,0x7FFFFFFF,0x80B00000,0x80B00003,0x803FFFFF
+ballista_load_state: -n 100 --seed 1 --ret void --follow veh_deserialize_state --arg a0=choice:0x80B00000,0x80B00001,0x80B00002,0x80B00003,0x80B00005 --mem 0x80B00000:0x100=rand \
+    --mem gBallistaState:0xA6=rand --mem gBallistaPos:12=rand
+
+# ballista_add_tyre_trail: centre trail ($gp = gBallistaState); trail_add's args at their declared widths (--conv)
+ballista_add_tyre_trail: -n 400 --seed 0 --ret void --arg gp=sym:gBallistaState \
+    --conv 'trail_add: in a0=a0:1,a1=a1,a2=a2:2,a3=a3:2,stack0=stack0:2,stack1=stack1:2,stack2=stack2,stack3=stack3,stack4=stack4:2,stack5=stack5:1,stack6=stack6:1,stack7=stack7:1,stack8=stack8:1' \
+    --mem gBallistaState+0x99:1=bytes:0,1,0x80 \
+    --mem gBallistaState+0x98:1=bytes:0*3,1,2 --mem gBallistaState+0x50:1=bytes:0,1,2*2,3,4,0x80,0xFF --mem gBallistaState+0x9B:1=bytes:0*4,1,0x80 \
+    --mem gBallistaState+0x1C=int --mem gBallistaState+0x4E:2=int:0:0xFFFF --mem gBallistaPos=int --mem D_803F8B50=int
+ballista_add_tyre_trail: -n 100 --seed 1 --ret void --arg gp=sym:gBallistaState \
+    --conv 'trail_add: in a0=a0:1,a1=a1,a2=a2:2,a3=a3:2,stack0=stack0:2,stack1=stack1:2,stack2=stack2,stack3=stack3,stack4=stack4:2,stack5=stack5:1,stack6=stack6:1,stack7=stack7:1,stack8=stack8:1' \
+    --mem gBallistaState+0x99:1=1 --mem gBallistaState+0x98:1=0 --mem gBallistaState+0x50:1=bytes:0,2 --mem gBallistaState+0x9B:1=0 \
+    --mem gBallistaState+0x1C=choice:0,-1,0x7FFFFFFF,0x80000000 --mem gBallistaState+0x4E:2=halves:0,0x7FFF,0x8000,0xFFFF \
+    --mem gBallistaPos=choice:0,-1,0x80000000,0x123456 --mem D_803F8B50=choice:0,-1,0x7FFFFFFF,0x123456
+# ballista_lean_limit: f2 (-> f0) = 0.5 +- |speed(+0x76)| / 280 * 0.5 (+ when s2 (-> a0) != 0); $gp = gBallistaState
+ballista_lean_limit: -n 300 --seed 0 --arg gp=sym:gBallistaState --arg s2=choice:0*2,1,-1,0x100,0x80000000 \
+    --mem gBallistaState+0x76:2=int:0:0xFFFF
+ballista_lean_limit: -n 200 --seed 1 --arg gp=sym:gBallistaState --arg s2=choice:0,1 \
+    --mem gBallistaState+0x76:2=halves:0,1,0xFFFF,280,0xFEE8,560,0x7FFF,0x8000,0x8001,140
+# ballista_steer_rate: s3 (-> v0) = round_nearest(speed(+0x76) / (bytes +0x96/7/8 any == 1 ? 6.0 : gBallistaSteerDivisor)); $gp = gBallistaState
+ballista_steer_rate: -n 300 --seed 0 --arg gp=sym:gBallistaState --mem gBallistaState+0x96:3=bytes:0,1,2,0xFF*3 \
+    --mem gBallistaState+0x76:2=int:0:0xFFFF
+ballista_steer_rate: -n 300 --seed 1 --arg gp=sym:gBallistaState --mem gBallistaState+0x96:3=bytes:0*3,1,2*3 \
+    --mem gBallistaSteerDivisor=words:0x40000000,0x40800000,0x3F000000,0x40C00000 \
+    --mem gBallistaState+0x76:2=halves:0,1,2,3,5,6,9,15,0x7FFF,0x8000,0xFFFD,0xFFF7,0xFFFF,0xFFFE
+ballista_steer_rate: -n 300 --seed 2 --arg gp=sym:gBallistaState --mem gBallistaState+0x96:3=bytes:0,1,2 \
+    --mem gBallistaSteerDivisor:4=floats:0.25:40 --mem gBallistaState+0x76:2=int:0:0xFFFF
+
+# zone lookup wrapper (id 0xA at gBallistaPos): veh_zone_alpha stubbed (scan registers mapped through r)
+ballista_zone_alpha: -n 200 --mem gBallistaPos:12=rand
+ballista_zone_alpha: -n 300 --seed 1 --follow veh_zone_alpha,math_dist3 --mem gBallistaPos=int:-100:100 --mem gBallistaPos+4=int:-100:100 \
+    --mem gBallistaPos+8=int:-100:100 --mem gAlphaZonesEnd=rel:gAlphaZones+0x24*int:0:4 --mem gAlphaZones:0x90=rand \
+    --mem gAlphaZones*0x24:4=int:-100:100 --mem gAlphaZones+4*0x24:4=int:-100:100 --mem gAlphaZones+8*0x24:4=int:-100:100 \
+    --mem gAlphaZones+0xC*0x24:4=choice:1,10,50,100,200,1000 --mem gAlphaZones+0x10*0x24:4/1=choice:0,1,1,2 \
+    --mem gAlphaZones+0x12*0x24:4/1=choice:0,1,1,1 --mem gAlphaZones+0x13*0x24:4/1=choice:0,1,2,3 \
+    --mem gAlphaZones+0x14*0x24:4/1=choice:0,0,5,0xFF --mem gAlphaZones+0x15*0x24:4/1=choice:0xA,0xA,0x30 \
+    --mem gAlphaZones+0x16*0x24:4/1=choice:0xA,0x31 --mem gAlphaZones+0x17*0x24:4/1=choice:0xA,0x32 \
+    --mem gDefaultVehAlpha:1=choice:0,1,0x80,0xFF,0x40 --mem gVehicles+0x5C*0x74:3=choice:0x100,0x200 \
+    --mem gVehicles+0x1B8=0xA --mem gVehicles+0x60*0x74:4=int
+
+# ballista_enter: enter vehicle 10: +0x99 = 0, gCamDistance / gCamHeightBase = (0xD48, 1000), sound 0x94, channels 1-5 (stubbed, then run)
+ballista_enter: -n 50 --seed 0 --sig veh_start_engine_sound=a1 --mem gBallistaState+0x99:1=bytes:1,0xFF \
+    --mem gCamDistance:2=rand --mem gCamHeightBase:2=rand
+ballista_enter: -n 30 --seed 1 --sig veh_start_engine_sound=a1 --follow anim_set_speed,anim_set_reverse,anim_set_loop_mode,anim_play,anim_set_interp \
+    --mem gBallistaAnim:0x90=rand --mem gBallistaState+0x99:1=bytes:1,0xFF --mem gCamDistance:2=rand --mem gCamHeightBase:2=rand
+# ballista_leave: teardown: +0x76 = 0, veh_sync_buffers(gBallistaMtxA, gBallistaMtxB, 0x700), veh_stop_engine_sounds (stubbed, then run)
+ballista_leave: -n 100 --seed 0 --sig veh_sync_buffers=a0,a1,a2 --sig veh_stop_engine_sounds= --mem gBallistaState+0x76:2=rand \
+    --mem gBallistaMtxA=int --mem gBallistaMtxB=int
+ballista_leave: -n 30 --seed 1 --follow veh_sync_buffers,veh_stop_engine_sounds --sig snd_stop=a0 --heap 0x700 --heap 0x700 \
+    --mem gBallistaMtxA=rel:heap0 --mem gBallistaMtxB=rel:heap1 --mem gEngineSound:8=words:0,0x80123450 --mem gBallistaState+0x76:2=rand
+
+# ballista_update_actions (t6, t7, s0-s4 through to fx_spawn; gp = gBallistaState): record cooldown, speed channel,
+# engine sound, steering value gBallistaLean, horn, jump parabola. Random run over every branch
+ballista_update_actions: -n 400 --seed 0 --arg gp=sym:gBallistaState --arg t6=int --arg t7=int --arg s0=int --arg s1=int --arg s2=int \
+    --arg s3=int --arg s4=int --sig ballista_add_tyre_trail= --sig snd_play=a0,a1,a2 \
+    --sig shell_fire=a0:2,a1,a2,a3,stack0,stack1,stack2,stack3:1,stack4:2 \
+    --stub-ret fx_count_active=choice:0,3,4,5 --stub-ret ballista_lean_limit=float:0:1 --stub-ret veh_find_point.a0=ptr:0x20 \
+    --stub-ret veh_near_top_speed=choice:0,0,1 \
+    --mem gBallistaLean:0x20=rand --mem gBallistaDustTimer:1=bytes:0,0,1,5 \
+    --mem gBallistaState+0x76:2=halves:0,1,5,6,7,8,0x7FFF,0x8000,0xFFFF,0xFFF9,0xFFFA,0x100 \
+    --mem gBallistaState+0x96:4=bytes:0,0,0,1,2 --mem gBallistaLean:4=floats:0:1 --mem gHeldLeft:2=bytes:0,0,1 \
+    --mem gBallistaLeanStepLeft:12=floats:0:0.3 --mem gBallistaFireCooldown:1=bytes:0,0,1 --mem gHeldL:2=bytes:0,1 \
+    --mem gBallistaMissiles:2=halves:0,1,5,0xFFFF --mem gBallistaFireSide:1=bytes:0,1,0xFF --mem gPadStickY:1=bytes:0x3B,0x3C,0x7F,0x80,0 \
+    --mem gBallistaJumping:1=bytes:0,1,1 --mem gBallistaJumpSpeed=int:-200:200 --mem gBallistaJumpFrame=int:-30:30 --mem gBallistaJumpBaseY=int:-5000:5000 \
+    --mem gBallistaJumpBoosts:2=halves:0,0x16,0x17,0xFFFF --mem gBallistaJumpFullHeight:4=floats:1:5000
+# steering ties: gBallistaLean exactly at 0.5 / at the limit after the step, NaN/inf limit from ballista_lean_limit
+ballista_update_actions: -n 200 --seed 1 --arg gp=sym:gBallistaState --sig ballista_add_tyre_trail= --sig snd_play=a0,a1,a2 \
+    --sig shell_fire=a0:2,a1,a2,a3,stack0,stack1,stack2,stack3:1,stack4:2 --stub-ret fx_count_active=4 \
+    --stub-ret ballista_lean_limit=choice:0x3F000000,0x3E800000,0x3F400000,0x7FC00000,0x7F800000 --stub-ret veh_near_top_speed=1 \
+    --mem gBallistaLean:0x20=rand --mem gBallistaDustTimer:1=1 --mem gHeldLeft:2=bytes:0,1 \
+    --mem gBallistaLean=choice:0x3F000000,0x3E800000,0x3F400000,0x3F100000,0x3EE00000 \
+    --mem gBallistaLeanStepLeft=choice:0x3E800000,0x3D800000 --mem gBallistaLeanStepRight=choice:0x3E800000,0x3D800000 \
+    --mem gBallistaLeanRecentreStep=choice:0x3E800000,0x3D800000,0x3E000000 --mem gBallistaFireCooldown:1=1 --mem gBallistaJumping:1=0
+# jump landing boundaries: n = 1, impact |a - 16| at 60/61, height exactly 0 / 1; bounce blocked by a flag
+ballista_update_actions: -n 300 --seed 2 --arg gp=sym:gBallistaState --sig ballista_add_tyre_trail= --sig snd_play=a0,a1,a2 \
+    --stub-ret fx_count_active=4 --stub-ret veh_near_top_speed=1 --mem gBallistaLean:0x20=rand --mem gBallistaDustTimer:1=1 \
+    --mem gBallistaFireCooldown:1=1 --mem gBallistaJumping:1=1 --mem gBallistaJumpFrame=1 --mem gBallistaJumpSpeed=choice:76,77,75,78,-44,-45,-43,-46 \
+    --mem gBallistaJumpBaseY=choice:-200,-62,-61,-60,-59,0,100 --mem gBallistaState+0x96:3=onehot:1/1:1,0:bytes:0,2 \
+    --mem gBallistaJumpFullHeight:4=floats:1:500
+# jump start/boost: take-off, boost below / at the 0x17 cap
+ballista_update_actions: -n 200 --seed 3 --arg gp=sym:gBallistaState --sig ballista_add_tyre_trail= --sig snd_play=a0,a1,a2 \
+    --stub-ret fx_count_active=4 --stub-ret veh_near_top_speed=choice:0,0,0,1 --mem gBallistaLean:0x20=rand --mem gBallistaDustTimer:1=1 \
+    --mem gBallistaFireCooldown:1=1 --mem gPadStickY:1=bytes:0x3B,0x3C,0x3D,0x7F --mem gBallistaJumping:1=bytes:0,1,0xFF \
+    --mem gBallistaJumpBoosts:2=halves:0,0x15,0x16,0x17,0x18 --mem gBallistaJumpSpeed=int:-100:100 --mem gBallistaJumpFrame=int:-20:20 \
+    --mem gBallistaJumpBaseY=int:-3000:3000 --mem gBallistaJumpFullHeight:4=floats:1:500
+# every asm callee run for real except veh_find_point / fx_spawn / the C sound and effect calls
+ballista_update_actions: -n 300 --seed 4 --arg gp=sym:gBallistaState --arg t6=int --arg t7=int --arg s0=int --arg s1=int --arg s2=int \
+    --arg s3=int --arg s4=int --sig snd_play=a0,a1,a2 --sig snd_stop=a0 --sig snd_modify=a0,a1,a2 \
+    --conv 'trail_add: in a0=a0:1,a1=a1,a2=a2:2,a3=a3:2,stack0=stack0:2,stack1=stack1:2,stack2=stack2,stack3=stack3,stack4=stack4:2,stack5=stack5:1,stack6=stack6:1,stack7=stack7:1,stack8=stack8:1' \
+    --sig shell_fire=a0:2,a1,a2,a3,stack0,stack1,stack2,stack3:1,stack4:2 --stub-ret veh_find_point.a0=ptr:0x20 \
+    --follow anim_set_reverse,anim_set_speed,anim_set_frame,anim_play,fx_count_active,veh_near_top_speed,ballista_lean_limit \
+    --follow ballista_add_tyre_trail,veh_set_engine_level \
+    --mem gBallistaAnim:0x90=rand --mem gEffects:0x3C0=rand --mem gEffects+0x33*0x3C:16/1=bytes:0,0,0,1 \
+    --mem gBallistaState:0xA6=rand --mem gBallistaState+0x50:1=bytes:0,1,2,3 --mem gBallistaLean:0x20=rand --mem gBallistaDustTimer:1=bytes:0,0,1,5 \
+    --mem gBallistaState+0x76:2=halves:0,1,5,6,7,8,0x7FFF,0x8000,0xFFFF,0xFFF9,0xFFFA,0x100 \
+    --mem gBallistaState+0x96:4=bytes:0,0,0,1,2 --mem gBallistaLean:4=floats:0:1 --mem gHeldLeft:2=bytes:0,0,1 \
+    --mem gBallistaFireCooldown:1=bytes:0,0,1 --mem gHeldL:2=bytes:0,1 \
+    --mem gBallistaMissiles:2=halves:0,1,5,0xFFFF --mem gBallistaFireSide:1=bytes:0,1,0xFF --mem gPadStickY:1=bytes:0x3B,0x3C,0x7F,0x80,0 \
+    --mem gBallistaJumping:1=bytes:0,1,1 --mem gBallistaJumpSpeed=int:-200:200 --mem gBallistaJumpFrame=int:-30:30 --mem gBallistaJumpBaseY=int:-5000:5000 \
+    --mem gBallistaJumpBoosts:2=halves:0,0x16,0x17,0xFFFF --mem gBallistaJumpFullHeight:4=floats:1:5000 \
+    --mem gEngineSoundLevel:2=rand --mem gEngineLevelForce:1=bytes:0,1
+
+# ballista_build_model: matrix code followed (it leaves a3 = 0 and s2 = m for veh_place_parts); then the whole tree (count-0 point records, so the s0/s1/s2 pass-through is used)
+ballista_build_model: -n 300 --arg gp=sym:gBallistaState --follow mtx_build_model,mtx_scale,mtx_rotate_x,mtx_mul,mtx_rotate_z,mtx_rotate_y,mtx_translate,mtx_to_n64 --heap 0x100 --heap 0x200 --mem gBallistaModel=rel:heap0 --mem @heap0=choice:0x40,0x44 --mem @heap0+4=choice:0x60,0x64 --mem @heap0+8=0x80 --mem @heap0+0x18=choice:0x20,0x30 --mem @heap0+0x24=choice:0,0x40 --mem @heap0+0x34=choice:0x80,0xC0 --mem gBufferIndex:1=choice:0,1,0x80 --mem gBallistaMtxA=rel:heap1 --mem gBallistaMtxB=rel:heap1+0x40 --mem gBallistaState+0x4C:2=int:0:0xFFFF --mem gBallistaPos:12=rand --mem gModelRot:6=rand --arg s1=int --arg s0=int
+ballista_build_model: -n 200 --seed 1 --arg gp=sym:gBallistaState --follow-all --heap 0x100=zero --heap 0x200 --mem gBallistaModel=rel:heap0 --mem @heap0=0x40 --mem @heap0+4=0x60 --mem @heap0+8=choice:0x64,0x70,0x7C --mem @heap0+0x18=0x20 --mem @heap0+0x24=choice:0,0x40 --mem @heap0+0x40:0x20=halves:0,5,-5,0x100 --mem @heap0+0x46:2=0 --mem @heap0+0x4E:2=0 --mem @heap0+0x56:2=0 --mem @heap0+0x5E:2=0 --mem @heap0+0x64:4=int --mem @heap0+0x70:4=int --mem gBufferIndex:1=choice:0,1 --mem gBallistaMtxA=rel:heap1 --mem gBallistaMtxB=rel:heap1+0x40 --mem gBallistaState+0x4C:2=int:0:0xFFFF --mem gBallistaPos:12=rand --mem gModelRot:6=rand --mem gVehBoundSpheres:0x28=rand --mem gVehBoundSpheres+0x24:1=10 --mem gVehPartSpheres:0x50=rand --mem gVehPartSpheres+0x26:1=10 --mem gVehPoints:0x40=rand --mem gVehPoints+0x1C:1=10 --arg s1=int --arg s0=int
+# ballista_ride_attach (id a3): veh_deck_to_local at x/z and at x/z + ground slot 0 (veh_wheel_offset); stubbed with dx/dz pools, boundary stub results, then the whole tree
+ballista_ride_attach: -n 300 --seed 2 --follow-all --arg a3=7 --mem gBallistaPos=int:-6:6 --mem D_803F8B50=int:-6:6 --mem gBallistaState+0x4C:2=int:0:0xFFFF --mem gBallistaState+0x52:12=halves:0,3,-3,6 --mem gBallistaState+0x6A:10=rand --mem gMoveableTris:0xE0=rand --mem gMoveableTris*0x38:3=int:-8:8 --mem gMoveableTris+8*0x38:3=int:-8:8 --mem gMoveableTris+0xC*0x38:3=int:-8:8 --mem gMoveableTris+0x14*0x38:3=int:-8:8 --mem gMoveableTris+0x18*0x38:3=int:-8:8 --mem gMoveableTris+0x20*0x38:3=int:-8:8 --mem gMoveableTris+0x24*0x38:3/2=int:-500:500 --mem gMoveableTris+0x28*0x38:3/2=int:-500:500 --mem gMoveableTris+0x2A*0x38:3/2=int:-500:500 --mem gMoveableTris+0x2E*0x38:3/2=int:-500:500 --mem gMoveableTris+0x30*0x38:3/2=int:-500:500 --mem gMoveableTris+0x34*0x38:3/2=int:-500:500 --mem gMoveableTris+0x36*0x38:3/2=halves:0,7,7 --mem gMoveableTris+0xA8=-1000 --mem gMoveableTris+0xB0=-1000 --mem gMoveableTris+0xB4=3000 --mem gMoveableTris+0xBC=-1000 --mem gMoveableTris+0xC0=-1000 --mem gMoveableTris+0xC8=3000 --mem gMoveableTris+0xCC:2=int:-500:500 --mem gMoveableTris+0xD0:2=int:-500:500 --mem gMoveableTris+0xD2:2=int:-500:500 --mem gMoveableTris+0xD6:2=int:-500:500 --mem gMoveableTris+0xD8:2=int:-500:500 --mem gMoveableTris+0xDC:2=int:-500:500 --mem gMoveableTris+0xDE:2=7
+ballista_ride_attach: -n 300 --arg a3=int --mem gBallistaPos=int:-6000:6000 --mem D_803F8B50=int:-6000:6000 --mem gBallistaState+0x4C:2=int:0:0xFFFF --mem gBallistaState+0x52:8=rand --mem gBallistaState+0x6A:10=rand --stub-ret veh_wheel_offset=int:-1000:1000 --stub-ret veh_wheel_offset.t6=int:-1000:1000
+ballista_ride_attach: -n 100 --seed 1 --arg a3=choice:0,10,-1 --mem gBallistaPos=choice:0,-1,0x3FFFFFFF,-0x40000000 --mem D_803F8B50=choice:0,-1,0x3FFFFFFF,-0x40000000 --mem gBallistaState+0x4C:2=choice:0,0x7FFF,0x8000,0xFFFF --mem gBallistaState+0x6A:10=rand --stub-ret veh_deck_to_local.t3=choice:0,-1,0x7FFF,0x8000,0x12345 --stub-ret veh_deck_to_local.t4=choice:0,-1,0xFFFF,0x18000 --stub-ret veh_wheel_offset=choice:0,1,-1,0x1000 --stub-ret veh_wheel_offset.t6=choice:0,1,-1,-0x1000
+# ballista_reground (fp in): veh_reground / ballista_build_model / veh_set_record; the f12-f26 pass-through is not an input (--sig drops it); followed down to the ground scanners
+ballista_reground: -n 200 --seed 1 --arg fp=int --follow veh_reground,veh_wheel_offset,math_rotate_xz_inv,ground_slot_height,ballista_build_model,mtx_build_model,mtx_scale,mtx_rotate_x,mtx_mul,mtx_rotate_z,mtx_rotate_y,mtx_translate,mtx_to_n64 --stub-ret math_cos=int:-0x10000:0x10000 --stub-ret math_sin=int:-0x10000:0x10000 --stub-ret ground_scan_part_tris=choice:0x5F5E0FF,100,-50,3000 --stub-ret ground_scan_moveable=choice:0x5F5E0FF,100,200,-50 --stub-ret ground_scan_grid=choice:0,1 --sig ground_scan_part_tris=a0,a1,a2 --sig ground_scan_moveable=a0,a1,a2,a3 --sig ground_scan_grid=a0,a1,a2 --mem gBallistaPos=int:-0x100000:0x100000 --mem D_803F8B4C=int:-3000:3000 --mem D_803F8B50=int:-0x100000:0x100000 --mem gBallistaState:0xA0=rand --mem gSlotSurface:8=rand --mem gModelRot:6=rand --mem gSlotStandOn:8=rand --mem gSlotGroundY:0x20=rand --heap 0x100 --heap 0x200 --mem gBallistaModel=rel:heap0 --mem @heap0=0x40 --mem @heap0+4=0x60 --mem @heap0+8=0x80 --mem @heap0+0x18=0x20 --mem @heap0+0x24=choice:0,0x40 --mem gBufferIndex:1=choice:0,1 --mem gBallistaMtxA=rel:heap1 --mem gBallistaMtxB=rel:heap1+0x40
+ballista_reground: -n 300 --arg fp=int --mem gBallistaPos:12=rand --sig veh_reground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5
+# ballista_ride_follow (id a3; s3 and FP out): callees stubbed, then its own-file callees and the matrix code followed
+ballista_ride_follow: -n 300 --arg a3=int --mem gBallistaPos:12=rand --mem gBallistaState:0xA4=rand --mem gBounceSound:1=rand --sig ballista_set_physics=
+ballista_ride_follow: -n 200 --seed 1 --arg a3=choice:0,10,0x7FFF --mem gBallistaPos:12=rand --mem gBallistaState:0xA4=rand --mem gBounceSound:1=rand --mem gGravity=rand --mem gBounceThreshold:2=rand --stub-ret veh_follow_heading=choice:0,-1,0x7FFF,0x8000,0x12345 --follow ballista_set_physics,ballista_build_model --mem gBallistaModel=rel:heap0 --mem gBallistaMtxA=rel:heap1 --mem gBallistaMtxB=rel:heap1+0x40 --follow mtx_build_model,mtx_scale,mtx_rotate_x,mtx_mul,mtx_rotate_z,mtx_rotate_y,mtx_translate,mtx_to_n64 --heap 0x100 --heap 0x200 --mem @heap0=0x40 --mem @heap0+4=0x60 --mem @heap0+8=0x80 --mem @heap0+0x18=0x20 --mem @heap0+0x24=choice:0,0x40 --mem gBufferIndex:1=choice:0,1
+# ballista_update: random over every branch; bounce clamps (ring end hit: obj_collide_vehicle modelled by oracle_D_803A7424.py); ring turn-back with midpoint/heading boundaries; then the small heading helpers followed. --sig drops the passthrough (non-)inputs of ballista_zone_alpha and veh_ground_contact's FP block
+ballista_update: -n 400 --mem gBallistaState:0xA6=rand --mem gBallistaState+0x9A:1=bytes:0,1,0x80 --mem gBallistaState+0x76:2=halves:0,1,0x40,0x41,0x42,0x82,0x83,0x7FFF,0xFFDC,0xFFDB,0xFFDD,0xFFB5,0xFFB4,0xFFB6,0x8000,0xFFFF --mem gBallistaState+0x4C:4=halves:0,0x400,0x7FF,0x800,0x801,0xFFF --mem gBallistaPos:0x38=rand --mem gTurboPending:1=bytes:0,1 --mem gBallistaThrottleHold:1=bytes:0,0,1,5 --mem gBallistaEscaping:1=bytes:0,1,0x80 --mem gBallistaBounced:1=bytes:0,1 --mem gCollBlocked:1=bytes:0,1 --mem gCollHit:1=rand --mem gBufferIndex:1=bytes:0,1 --mem gCollVehicleAnim=rand --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand --mem gBounceSound:1=rand --stub-ret veh_free_arc_mid=int:0:0xFFF --sig ballista_zone_alpha= --sig ballista_set_physics= --sig ballista_steer_rate= --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= --sig veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12 --sig snd_play=a0,a1:2,a2 --model obj_collide_vehicle=oracle_D_803A7424.py --heap 4 --mem @heap0:1=bytes:0,1
+ballista_update: -n 200 --seed 1 --mem gBallistaState:0xA6=rand --mem gBallistaState+0x76:2=halves:0,1,0x40,0x41,0x42,0x81,0x82,0x83,0x84,0xFFDC,0xFFDB,0xFFDD,0xFFB5,0xFFB4,0xFFB6,0x8000,0xFFFF,0x7FFF --mem gBallistaPos:0x38=rand --mem gBallistaThrottleHold:1=0 --mem gBallistaBounced:1=0 --mem gCollBlocked:1=0 --mem gBallistaHitSound:1=rand --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand --mem @heap0:1=bytes:1,1,1,0 --sig ballista_zone_alpha= --sig ballista_set_physics= --sig ballista_steer_rate= --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= --sig veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12 --sig snd_play=a0,a1:2,a2 --model obj_collide_vehicle=oracle_D_803A7424.py --heap 4
+ballista_update: -n 300 --seed 2 --mem gBallistaState:0xA6=rand --mem gBallistaState+0x4C:4=halves:0,1,0x7FF,0x800,0x801,0xFFE,0xFFF --mem gBallistaPos:0x38=rand --mem gCollBlocked:1=1 --mem gBallistaEscaping:1=rand --mem gBallistaHitSound:1=rand --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand --mem gBallistaEscapeHeading:2=rand --stub-ret veh_free_arc_mid=choice:0,1,0x7FF,0x800,0x801,0xFFE,0xFFF --stub-ret veh_turn_into_free_arc=int:-0x100:0x100 --stub-ret veh_turn_into_free_arc.a0=int:0:0xFFF --sig ballista_zone_alpha= --sig ballista_set_physics= --sig ballista_steer_rate= --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= --sig veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12 --sig snd_play=a0,a1:2,a2 --model obj_collide_vehicle=oracle_D_803A7424.py --heap 4
+ballista_update: -n 300 --seed 3 --follow ballista_set_physics,ballista_steer_rate,veh_free_arc_mid,veh_reverse_if_behind,veh_turn_into_free_arc,veh_step_heading,veh_hit_slowdown,veh_set_target_heading --mem gBallistaState:0xA6=rand --mem gBallistaState+0x76:2=halves:0,1,0x40,0x82,0x83,0xFFDB,0xFFB4,0x100,0xFF00 --mem gBallistaState+0x4C:4=halves:0,0x400,0x7FF,0x800,0x801,0xFFF --mem gBallistaState+0x96:3=bytes:0,1,2 --mem gBallistaPos:0x38=rand --mem gBallistaThrottleHold:1=bytes:0,0,1,5 --mem gBallistaEscaping:1=bytes:0,1 --mem gBallistaBounced:1=bytes:0,1 --mem gCollBlocked:1=bytes:0,1 --mem gFreeArcStart:2=int:0:0xFFF --mem gFreeArcEnd:2=int:0:0xFFF --mem gPlayFrames=choice:0,1 --mem gBallistaHitSound:1=rand --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand --mem gGravity=rand --mem gBounceThreshold:2=rand --mem @heap0:1=bytes:0,1 --mem gBallistaSteerDivisor=fbits:20:200 --sig ballista_zone_alpha= --sig ballista_set_physics= --sig ballista_steer_rate= --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= --sig veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12 --sig snd_play=a0,a1:2,a2 --model obj_collide_vehicle=oracle_D_803A7424.py --heap 4
+# (gpfix) vehicle 10's block (gBallistaState) through the whole collision chain: veh_prepare_escape and veh_collide_spheres ->
+# veh_collide_vehicles -> veh_scale_other_radius / veh_collide_vehicle_parts -> veh_scale_part_radius followed (gBacklashState+0xA0 is a decoy)
+ballista_update: -n 300 --seed 4 --follow ballista_set_physics,ballista_steer_rate,veh_free_arc_mid,veh_reverse_if_behind,veh_turn_into_free_arc,veh_step_heading,veh_hit_slowdown,veh_set_target_heading,veh_prepare_escape,veh_collide_spheres,veh_collide_vehicles,veh_collide_markers,veh_collide_commpts,veh_scale_other_radius,veh_collide_vehicle_parts,veh_scale_part_radius,math_spheres_overlap,veh_rides_on --mem gBallistaState:0xA6=rand --mem gBallistaState+0x76:2=halves:0,1,0x40,0x82,0x83,0xFFDB,0xFFB4,0x100,0xFF00 --mem gBallistaState+0x4C:4=halves:0,0x400,0x7FF,0x800,0x801,0xFFF --mem gBallistaState+0x96:3=bytes:0,1,2 --mem gBallistaPos:0x38=rand --mem gBallistaThrottleHold:1=bytes:0,0,1,5 --mem gBallistaEscaping:1=bytes:0,1 --mem gBallistaBounced:1=bytes:0,1 --mem gCollBlocked:1=bytes:0,1 --mem gFreeArcStart:2=int:0:0xFFF --mem gFreeArcEnd:2=int:0:0xFFF --mem gPlayFrames=choice:0,1 --mem gBallistaHitSound:1=rand --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand --mem gGravity=rand --mem gBounceThreshold:2=rand --mem @heap0:1=bytes:0,1 --mem gBallistaSteerDivisor=fbits:20:200 --sig ballista_zone_alpha= --sig ballista_set_physics= --sig ballista_steer_rate= --sig veh_free_arc_mid= --sig veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12 --sig snd_play=a0,a1:2,a2 --model obj_collide_vehicle=oracle_D_803A7424.py --heap 4 --mem gVehBoundSpheres:0xA0=words:0,10,-10,50,100,300 --mem gVehBoundSpheres+0xC*0x14:8=choice:0,10,50,300 --mem gVehBoundSpheres+0x10*0x14:8/1=choice:0,1,2,6,7 --mem gVehBoundSpheres+0x11*0x14:8/1=choice:1,1,0 --mem gVehBoundSpheres+0x10:1=10 --mem gVehBoundSpheres+0x11:1=choice:1,1,0 --mem gVehBoundSpheres+0x9D:1=0xFF --mem gDriverHidden=choice:0,1 --mem gVehPartSpheres:0xA0=words:0,10,-10,50,100,300 --mem gVehPartSpheres+0xC*0x14:8=choice:0,10,50,300 --mem gVehPartSpheres+0x12*0x14:8/1=choice:10,7,0,2 --mem gVehPartSpheres+0x13*0x14:8/1=choice:0,1 --mem gVehPartSpheres+0x9F:1=0xFF --mem gCommPtCount:1=0 --mem gRadarMarkers*0x14:25=-1 --mem gStandOn:0x40=words:0x000A0700,0x0A070000,0x07060000,0 --mem gStandOn+0x40=0xFFFFFFFF --mem gBacklashState+0xA0:1=choice:1,3 --mem gBallistaState+0xA0:1=choice:1,2,4
+# ballista_spawn (load vehicle 10; x t7, y s3, z s0, heading s1, model s2, fp): callees stubbed (veh_init_ground's FP pass-through dropped), then with the per-frame update ballista_update followed
+ballista_spawn: -n 300 --arg t7=int --arg s3=int --arg s0=int --arg s1=int --arg s2=0x80B00000 --arg fp=int --heap 0x100 --mem @heap0+4=choice:0x40,0x44 --mem @heap0+8=choice:0x60,0x64 --mem @heap0+0x18=choice:0x20,0x30 --mem gHeapPtr=choice:0x80B10000,0x80B20000 --mem gBallistaState:0xA6=rand --mem gBallistaPos:0x38=rand --mem gHaveBallista:1=rand --sig veh_init_ground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5 --sig ballista_update= --sig veh_add_shadow=a0:1,a1,a2:2,a3:2
+ballista_spawn: -n 200 --seed 1 --follow ballista_update --arg t7=int --arg s3=int --arg s0=int --arg s1=int --arg s2=0x80B00000 --arg fp=int --heap 0x100 --mem @heap0+4=choice:0x40,0x44 --mem @heap0+8=choice:0x60,0x64 --mem @heap0+0x18=choice:0x20,0x30 --mem gHeapPtr=choice:0x80B10000,0x80B20000 --mem gBallistaState:0xA6=rand --mem gBallistaPos:0x38=rand --mem gHaveBallista:1=rand --sig veh_init_ground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5 --sig veh_add_shadow=a0:1,a1,a2:2,a3:2 --sig ballista_zone_alpha= --sig ballista_set_physics= --sig ballista_steer_rate= --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= --sig veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12 --sig snd_play=a0,a1:2,a2 --model obj_collide_vehicle=oracle_D_803A7424.py --mem gCollBlocked:1=bytes:0,1 --mem gBallistaThrottleHold:1=bytes:0,1 --mem gBallistaHitSound:1=rand --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand

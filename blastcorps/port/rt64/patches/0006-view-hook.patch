@@ -1,0 +1,76 @@
+diff --git a/src/hle/rt64_workload_queue.cpp b/src/hle/rt64_workload_queue.cpp
+index 5a331aa..ae8ed65 100644
+--- a/src/hle/rt64_workload_queue.cpp
++++ b/src/hle/rt64_workload_queue.cpp
+@@ -303,7 +303,7 @@ namespace RT64 {
+         rendererCPUProfiler.start();
+ 
+         const bool aspectRatioAdjustment = (abs(workloadConfig.aspectRatioScale - 1.0f) > 1e-6f);
+-        const bool processProjections = aspectRatioAdjustment || prevFrame.matched|| curFrame.isDebuggerCameraEnabled(*this);
++        const bool processProjections = aspectRatioAdjustment || prevFrame.matched|| curFrame.isDebuggerCameraEnabled(*this) || (ViewHook != nullptr);
+         bool uploadProjections = false;
+         if (processProjections) {
+             ProjectionProcessor::ProcessParams projParams;
+diff --git a/src/render/rt64_projection_processor.cpp b/src/render/rt64_projection_processor.cpp
+index e842dcc..2ecf243 100644
+--- a/src/render/rt64_projection_processor.cpp
++++ b/src/render/rt64_projection_processor.cpp
+@@ -15,6 +15,8 @@ namespace RT64 {
+         matrix[3][0] *= aspectRatioScale;
+     }
+     
++    ViewHookFunction *ViewHook = nullptr;
++
+     // ProjectionProcessor
+ 
+     ProjectionProcessor::ProjectionProcessor() { }
+@@ -140,6 +142,19 @@ namespace RT64 {
+                 prevProjTransform = projMatrix;
+             }
+ 
++            // The host's view hook (perspective projections only).
++            if ((ViewHook != nullptr) && (proj.type == Projection::Type::Perspective)) {
++                ViewHookParams hookParams;
++                hookParams.workloadId = workload.workloadId;
++                hookParams.sceneIndex = uint32_t(sceneIndex);
++                hookParams.transformsIndex = proj.transformsIndex;
++                hookParams.gameView = &drawData.viewTransforms[proj.transformsIndex];
++                hookParams.gameProj = &drawData.projTransforms[proj.transformsIndex];
++                hookParams.curFrameWeight = p.curFrameWeight;
++                hookParams.prevFrameWeight = p.prevFrameWeight;
++                ViewHook(hookParams, viewMatrix, projMatrix, prevViewTransform, prevProjTransform);
++            }
++
+             viewProjMatrix = hlslpp::mul(viewMatrix, projMatrix);
+ 
+             interop::float4x4 &prevViewProjTransform = drawData.prevViewProjTransforms[proj.transformsIndex];
+diff --git a/src/render/rt64_projection_processor.h b/src/render/rt64_projection_processor.h
+index 5bc3a2a..0284ff2 100644
+--- a/src/render/rt64_projection_processor.h
++++ b/src/render/rt64_projection_processor.h
+@@ -9,6 +9,25 @@
+ #include "rt64_buffer_uploader.h"
+ 
+ namespace RT64 {
++    // A host's view hook: called for every perspective projection of every picture rendered (in-between
++    // pictures too), after RT64 computed (and interpolated) its view and projection, before they are
++    // combined and uploaded. It may replace the view and projection (the camera RT64 renders from).
++    // gameView is the view matrix as the game submitted it for this projection (current frame).
++    struct ViewHookParams {
++        uint64_t workloadId = 0;
++        uint32_t sceneIndex = 0;
++        uint32_t transformsIndex = 0;
++        const interop::float4x4 *gameView = nullptr;
++        const interop::float4x4 *gameProj = nullptr;
++        float curFrameWeight = 1.0f;
++        float prevFrameWeight = 0.0f;
++    };
++
++    typedef void ViewHookFunction(const ViewHookParams &params, interop::float4x4 &viewMatrix, interop::float4x4 &projMatrix,
++        interop::float4x4 &prevViewMatrix, interop::float4x4 &prevProjMatrix);
++
++    extern ViewHookFunction *ViewHook;
++
+     struct ProjectionProcessor {
+         std::unique_ptr<BufferUploader> bufferUploader;
+         std::vector<BufferUploader::Upload> uploads;

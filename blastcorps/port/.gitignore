@@ -1,0 +1,5 @@
+build/
+# Visual Studio / CMake (CMakePresets.json: out/build/<preset>)
+out/
+.vs/
+CMakeUserPresets.json

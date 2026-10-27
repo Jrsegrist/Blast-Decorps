@@ -1,0 +1,1033 @@
+# 62740: veh_free_arc_mid (midpoint of ring indices gFreeArcStart/gFreeArcEnd) and
+# veh_is_riding (id lookup in a -1-terminated table)
+
+veh_free_arc_mid: -n 300 --mem gFreeArcStart:2=int:0:0xFFF --mem gFreeArcEnd:2=int:0:0xFFF
+veh_free_arc_mid: -n 300 --seed 1 --mem gFreeArcStart:2=choice:0,1,0x7FF,0x800,0x801,0xFFE,0xFFF --mem gFreeArcEnd:2=choice:0,1,0x7FF,0x800,0x801,0xFFE,0xFFF
+veh_free_arc_mid: -n 200 --seed 2 --mem gFreeArcStart:2=int:0:0xFFFF --mem gFreeArcEnd:2=int:0:0xFFFF
+
+# 4-byte {id, flag, pad} entries terminated by a -1 word (the terminator at +0x40 bounds the scan)
+veh_is_riding: -n 300 --arg a0=choice:0,1,2,3,0xFF,-1,0x100,0x101 --mem gStandOn:64=words:0x00010000,0x01000000,0x01010000,0x02FF0000,0xFF010000,0x00000000,0xFFFFFFFF,0x03000000,0x00FFFFFF --mem gStandOn+0x40=0xFFFFFFFF
+
+# veh_sync_buffers(a, b, size): 8-byte-unit copy a->b, or b->a when gBufferIndex != 0.
+# size must be a multiple of 8 (the asm loops on size != 0).
+veh_sync_buffers: -n 300 --ret void --arg a0=ptr:0x100 --arg a1=ptr:0x100 --arg a2=choice:0,8,0x10,0x18,0x80,0xF8,0x100 --mem gBufferIndex:1=choice:0,1,0xFF
+# overlapping blocks (forward copy smears) in both directions
+veh_sync_buffers: -n 200 --seed 1 --ret void --arg a0=ptr:0x200 --arg a1=rel:a0+choice:8,0x10,0x40 --arg a2=choice:8,0x40,0x100 --mem gBufferIndex:1=choice:0,1
+
+# veh_rider_gravity: gGravity *= 3.0f if gRiderPass
+veh_rider_gravity: -n 300 --ret void --mem gRiderPass:1=choice:0,1,0xFF --mem gGravity:4=floats
+veh_rider_gravity: -n 100 --seed 1 --ret void --mem gRiderPass:1=choice:0,1 \
+    --mem gGravity=choice:0,0x80000000,0x7F800000,0xFF800000,0x7FC00000,0x7F7FFFFF,0xFF7FFFFF,0x00000001,0x00800000,0x3F800000,0x2AAAAAAB
+
+# veh_has_partial_rider_walk (non-ABI: id in s2, result in t0; recursive): 1 if id is in bytes 1-3 of a gStandOn
+# entry; an entry with bytes 1-3 all == id recurses on byte 0. Record pool keeps the recursion acyclic
+# (byte 0 < id for all-equal entries); one -1 terminator in a random slot plus one at +0x40.
+veh_has_partial_rider_walk: -n 300 --arg a0=choice:0,1,2,3,4,5,0xFF,0x100,-1 \
+    --mem gStandOn:0x40=onehot:4:-1:words:0x00010101,0x01020202,0x02030303,0x00030303,0x01040404,0x03040404,0x05010203,0x00000102,0x02010100,0x00020000,0x04000003,0x00000000,0x02000000 \
+    --mem gStandOn+0x40=-1
+veh_has_partial_rider_walk: -n 200 --seed 1 --arg s2=choice:1,2,3,4 \
+    --mem gStandOn:0x40=words:0x00010101,0x01020202,0x02030303,0x03040404,0x00000000,0x05060708 --mem gStandOn+0x40=-1
+veh_has_partial_rider_walk: -n 20 --seed 2 --arg a0=int --mem gStandOn=-1
+# veh_has_partial_rider: veh_has_partial_rider_walk(id); callee stubbed (mapped), then followed
+veh_has_partial_rider: -n 200 --arg a0=int
+veh_has_partial_rider: -n 300 --seed 1 --follow veh_has_partial_rider_walk --arg a0=choice:0,1,2,3,4,5,0xFF,0x100,-1 \
+    --mem gStandOn:0x40=onehot:4:-1:words:0x00010101,0x01020202,0x02030303,0x00030303,0x01040404,0x03040404,0x05010203,0x00000102,0x02010100,0x00020000,0x04000003,0x00000000,0x02000000 \
+    --mem gStandOn+0x40=-1
+
+# ---- phase C (wt-c2). gp = vehicle record (conventions.txt: in gp=a0); --arg gp=ptr gives it a
+# random 0x100-byte record, so every field write is visible.
+
+# veh_widen_bands: double the 5 band bounds at veh+0x78 if gWideFovLevel
+veh_widen_bands: -n 300 --arg gp=ptr:0x100 --mem gWideFovLevel:1=choice:0,1,0xFF
+veh_widen_bands: -n 100 --seed 1 --arg gp=ptr:0x100 --mem gWideFovLevel:1=1 --mem @gp+0x78:30=halves:0,1,0x4000,0x7FFF,0x8000,0xC000,0xFFFF
+
+# veh_hit_slowdown(veh, limit): direction byte + speed 3 toward 0, clamped at +-limit (if gPlayFrames)
+veh_hit_slowdown: -n 300 --arg gp=ptr:0x100 --arg a1=choice:-5,-1,0,1,3,5,100,0x7FFF,-0x8000,0x80000001 \
+    --mem gPlayFrames=choice:0,1*3 --mem @gp+0x76:2=choice:0,1,2,3,4,0xFFFF,0xFFFE,0xFFFD,0xFFFC,100,0xFF9C,0x7FFF,0x8000
+veh_hit_slowdown: -n 300 --seed 1 --arg gp=ptr:0x100 --arg a1=int:-10:10 --mem gPlayFrames=1 --mem @gp+0x76:2=choice:0,1,2,3,4,5,6,7,8,9,10,11,12,0xFFFF,0xFFFE,0xFFFD,0xFFFC,0xFFFB,0xFFFA,0xFFF9,0xFFF8,0xFFF6,0xFFF4
+
+# veh_set_target_heading(veh, angle): target heading = *angle or *angle - 0x800 (wrap +0xFFF) by direction match
+veh_set_target_heading: -n 300 --arg gp=ptr:0x100 --arg t7=ptr:0x10 \
+    --mem @t7:2=choice:0,1,0x7FF,0x800,0x801,0xFFF,0x7FFF,0x8000,0xFFFF --mem @gp+0x76:2=choice:0,1,0xFFFF,0x7FFF,0x8000 \
+    --mem @gp+0xA5:1=choice:0,1,0xFF,2
+
+# veh_reverse_if_behind(veh): target outside heading +-0x400 -> turn around (target, speed, ring indices)
+veh_reverse_if_behind: -n 400 --arg gp=ptr:0x100 --mem @gp+0x4C:2=int:0:0xFFF --mem @gp+0x4E:2=int:0:0xFFF \
+    --mem gFreeArcStart:2=int:0:0xFFF --mem gFreeArcEnd:2=int:0:0xFFF
+veh_reverse_if_behind: -n 400 --seed 1 --arg gp=ptr:0x100 \
+    --mem @gp+0x4C:2=choice:0,1,0x3FF,0x400,0x401,0x7FF,0x800,0xBFF,0xC00,0xC01,0xFFE,0xFFF \
+    --mem @gp+0x4E:2=choice:0,1,0x3FF,0x400,0x401,0x7FF,0x800,0xBFF,0xC00,0xC01,0xFFE,0xFFF \
+    --mem @gp+0x76:2=choice:0,1,0x7FFF,0x8000,0xFFFF \
+    --mem gFreeArcStart:2=choice:0,0x7FF,0x800,0x801,0xFFE,0xFFF --mem gFreeArcEnd:2=choice:0,0x7FE,0x7FF,0x800,0x801,0xFFF
+
+# veh_step_heading(veh, delta, v1, &a0): step heading by delta toward target, snap when passing it
+veh_step_heading: -n 400 --arg gp=ptr:0x100 --arg a1=int:-0x200:0x200 --arg v1=int \
+    --mem @gp+0x4C:2=int:0:0xFFF --mem @gp+0x4E:2=int:0:0xFFF
+veh_step_heading: -n 400 --seed 1 --arg gp=ptr:0x100 --arg a1=choice:-0x20,-8,-1,0,1,8,0x20,0x1000,-0x1000 --arg v1=int \
+    --mem @gp+0x4C:2=choice:0,1,0x8,0x10,0x7F0,0x800,0xFF0,0xFF8,0xFFE,0xFFF \
+    --mem @gp+0x4E:2=choice:0,1,0x8,0x10,0x18,0x800,0xFF8,0xFFF
+veh_step_heading: -n 200 --seed 2 --arg gp=ptr:0x100 --arg a1=int:-20:20 --arg v1=int \
+    --mem @gp+0x4C:2=choice:0,5,10,15,0xFF0,0xFFA --mem @gp+0x4E:2=choice:0,5,10,15,0xFF0,0xFFA
+
+# veh_reset_state(veh): reset fields
+veh_reset_state: -n 100 --arg gp=ptr:0x100
+
+# veh_snapshot / veh_rollback: vehicle save / restore through gVehSnapshot (0x300 + 0xA6 + 3 words)
+veh_snapshot: -n 100 --arg gp=ptr:0x100 --arg v0=ptr:0x300 --arg v1=ptr:0x10 --arg a0=ptr:0x10 --arg a1=ptr:0x10 \
+    --mem gVehSnapshot:0x3B4=rand
+veh_rollback: -n 100 --arg gp=ptr:0x100 --arg v0=ptr:0x300 --arg v1=ptr:0x10 --arg a0=ptr:0x10 --arg a1=ptr:0x10 \
+    --arg a2=ptr:0x100 --arg a3=ptr:0x100 --arg t0=choice:0,8,0x10,0x48,0x100 --mem gVehSnapshot:0x3B4=rand
+
+# veh_coast(veh): brake speed by 8 toward 0 when gPadStickY == 0
+veh_coast: -n 300 --arg gp=ptr:0x100 --mem gPadStickY:1=choice:0*3,1,0xFF \
+    --mem @gp+0x76:2=choice:0,1,7,8,9,0xFFFF,0xFFF9,0xFFF8,0xFFF7,0x7FFF,0x8000
+veh_coast: -n 200 --seed 1 --arg gp=ptr:0x100 --mem gPadStickY:1=0 --mem @gp+0x76:2=int:0:0xFFFF
+
+# veh_past_reverse_limit / veh_past_forward_limit (x in t2, p in s1 -> t4): x < p[0]*steer/-80 ; p[13]*steer/80 < x
+veh_past_reverse_limit: -n 300 --arg t2=int:-2000:2000 --arg s1=ptr:0x40 --mem @s1:2=int:0:0xFFFF --mem gPadStickY:1=int:0:255
+veh_past_reverse_limit: -n 300 --seed 1 --arg t2=int:-3:3 --arg s1=ptr:0x40 --mem @s1:2=choice:0,79,80,81,160,0xFFB0,0xFFB1,0xFF60,0x7FFF,0x8000 \
+    --mem gPadStickY:1=choice:0,1,2,0x7F,0x80,0xFF
+veh_past_forward_limit: -n 300 --arg t2=int:-2000:2000 --arg s1=ptr:0x40 --mem @s1+0x1A:2=int:0:0xFFFF --mem gPadStickY:1=int:0:255
+veh_past_forward_limit: -n 300 --seed 1 --arg t2=int:-3:3 --arg s1=ptr:0x40 --mem @s1+0x1A:2=choice:0,79,80,81,160,0xFFB0,0xFFB1,0xFF60,0x7FFF,0x8000 \
+    --mem gPadStickY:1=choice:0,1,2,0x7F,0x80,0xFF
+
+# veh_band_accel(veh, x, bands): band lookup; count = (veh+0x50 == 1 ? 5 : 7 - veh+0x50) - 2*gVehSlowed (must stay >= 0)
+veh_band_accel: -n 300 --arg gp=ptr:0x100 --arg t2=int:-6:6 --arg s1=ptr:0x40 --mem @gp+0x50:1=int:0:7 --mem gVehSlowed:1=0 \
+    --mem @s1:0x2A=halves:0,1,2,3,4,0xFFFF,0xFFFE,0xFFFC,0x7FFF,0x8000
+veh_band_accel: -n 300 --seed 1 --arg gp=ptr:0x100 --arg t2=int:-6:6 --arg s1=ptr:0x40 --mem @gp+0x50:1=int:0:5 --mem gVehSlowed:1=choice:1,0xFF \
+    --mem @s1:0x2A=halves:0,1,2,3,4,0xFFFF,0xFFFE,0xFFFC,0x7FFF,0x8000
+# only the last of 7 bands matches (x = 5 inside [5,5] in band 6; earlier bands are [0,0])
+veh_band_accel: -n 20 --seed 2 --arg gp=ptr:0x100 --arg t2=5 --arg s1=ptr:0x40 --mem @gp+0x50:1=0 --mem gVehSlowed:1=0 \
+    --mem @s1:0x24=zero --mem @s1+0x24:2=5 --mem @s1+0x26:2=5 --mem @s1+0x28:2=0x1234
+
+# veh_near_top_speed(veh, range) -> v0: |speed - band bound| < range
+veh_near_top_speed: -n 400 --arg gp=ptr:0x100 --arg v1=choice:0,1,5,6,10,11,0x7FFFFFFF,-1 --mem @gp+0x50:1=int:0:6 \
+    --mem @gp+0x76:2=choice:0,5,10,15,20,25,0xFFF6,0xFFEC,0x7FFF,0x8000 --mem @gp+0x78:0x2A=halves:0,10,20,30,0xFFF6,0x8000
+veh_near_top_speed: -n 200 --seed 1 --arg gp=ptr:0x100 --arg v1=int:0:40 --mem @gp+0x50:1=choice:0,1,2,3,4,5,6,0x80,0xFF \
+    --mem @gp+0x76:2=int:0:0xFFFF
+
+# veh_drive_traction(mode, f) -> t3: classify three flag bytes
+veh_drive_traction: -n 400 --arg t7=choice:0,1,2,3,4,5,-1,0x100 --arg s0=ptr:0x10 --mem @s0:3=bytes:0,1,0xFF
+
+# veh_steer(rate, angle): steering turn of *angle, gSteerRate/gSteerHeading outputs
+veh_steer: -n 400 --arg s3=int:-1000:1000 --arg s4=ptr:0x10 --mem @s4:2=int:0:0xFFFF \
+    --mem gWideFovLevel:1=choice:0,1 --mem gSteerTurnAround:1=choice:0*3,1 --mem gSteerAirborne:1=choice:0,1 --mem gPadStickX:1=int:0:255 \
+    --mem gSteerHeadingSnap:1=choice:0,1 --mem gVehJustSwitched:1=choice:0,1 --mem gSteerSnapAngle:2=int:0:0xFFFF \
+    --mem gSteerRate:2=rand --mem gSteerHeading:2=rand
+veh_steer: -n 300 --seed 1 --arg s3=choice:0,1,2,3,79,80,81,0x7FFFFFFF,0x80000000,-1 --arg s4=ptr:0x10 \
+    --mem @s4:2=choice:0,1,0xFFF,0x1000,0x1001,0xFFFF --mem gWideFovLevel:1=choice:0,1 --mem gSteerTurnAround:1=0 \
+    --mem gPadStickX:1=choice:0,1,0x7F,0x80,0xFF --mem gSteerHeadingSnap:1=0 --mem gSteerRate:2=rand --mem gSteerHeading:2=rand
+
+# veh_blocked_turn_rate(t5) -> t5: gBlockedTurnRates {key, value, threshold} lookup (value 0 ends; one at entry 8)
+veh_blocked_turn_rate: -n 400 --arg t5=int --mem gBlockedFrame=int:-20:20 --mem gUnpausedFrames=int:-20:20 --mem levelno=choice:1,2,3 \
+    --mem gBlockedTurnRates*12:8=choice:1,2,3 --mem gBlockedTurnRates+4*12:8=choice:0,5,6,7*3 --mem gBlockedTurnRates+8*12:8=int:-20:20 \
+    --mem gBlockedTurnRates+0x64=0
+veh_blocked_turn_rate: -n 200 --seed 1 --arg t5=int --mem gBlockedFrame=choice:0,-10,10 --mem gUnpausedFrames=choice:9,10,11,0,20,21 \
+    --mem levelno=1 --mem gBlockedTurnRates*12:8=1 --mem gBlockedTurnRates+4*12:8=choice:5,6 --mem gBlockedTurnRates+8*12:8=int:-1:1 \
+    --mem gBlockedTurnRates+0x64=0
+
+# veh_slope(div, f, p, out) -> f12: (p[0] - p[1]) / *div unless a flag byte is 1 or *div == 0
+veh_slope: -n 400 --arg t6=ptr:0x10 --arg s0=ptr:0x10 --arg s7=ptr:0x10 --arg t8=ptr:0x10 \
+    --mem @t6:2=choice:0,1,0xFFFF,7,0x7FFF,0x8000 --mem @s0:3=bytes:0*4,1,2 \
+    --mem @s7=int:-100000:100000 --mem @s7+4=int:-100000:100000
+
+# veh_slope_drop(p) -> t1: p[0]-p[6] or p[3]-p[6], whichever is smaller in magnitude
+veh_slope_drop: -n 300 --arg s7=ptr:0x20 --mem @s7=int:-1000:1000 --mem @s7+0xC=int:-1000:1000 --mem @s7+0x18=int:-1000:1000
+veh_slope_drop: -n 200 --seed 1 --arg s7=ptr:0x20 --mem @s7=choice:-5,0,5,10 --mem @s7+0xC=choice:-5,0,5,10 --mem @s7+0x18=choice:-5,0,5
+
+# veh_diamond_sands_damping(veh): gBounceDamping = 8 if veh+0x9F == 0x67 and levelno == 12
+veh_diamond_sands_damping: -n 200 --arg gp=ptr:0x100 --mem @gp+0x9F:1=choice:0x66,0x67,0x68 --mem levelno=choice:11,12,13 --mem gBounceDamping:1=rand
+
+# veh_copy_slot0(veh): copy current values to their shadows
+veh_copy_slot0: -n 100 --arg gp=ptr:0x100 --mem gSlotY:0x20=rand --mem gSlotStandOn:12=rand
+
+# veh_check_no_wheels(p): gNoWheels = all six halfwords zero
+veh_check_no_wheels: -n 200 --arg v1=ptr:0x10 --mem @v1:12=onehot:2/2:1,0x8000,0xFFFF:zero --mem gNoWheels:1=rand
+veh_check_no_wheels: -n 50 --seed 1 --arg v1=ptr:0x10 --mem @v1:12=zero --mem gNoWheels:1=rand
+
+# veh_ground_surface(veh, f, kind): average/max of gSlotSurface[0..2] into veh, gFailTrigger triggers
+veh_ground_surface: -n 400 --arg gp=ptr:0x100 --arg s0=ptr:0x10 --arg t8=choice:0,8,9,10,11,0x11,0x12,0x13 --mem @s0:1=choice:0,1,2 \
+    --mem gSlotSurface:3=bytes:0,1,2,50,99,100,101,0x66,0xFF --mem gPlayFrames=choice:0,1 --mem gFailTrigger:1=rand --mem gSurfaceMax:1=rand
+veh_ground_surface: -n 300 --seed 1 --arg gp=ptr:0x100 --arg s0=ptr:0x10 --arg t8=choice:0,9,11,0x11,0x12 --mem @s0:1=choice:0,1 \
+    --mem gSlotSurface:3=bytes:0,1,0x64,0x66 --mem gPlayFrames=choice:0,1 --mem gFailTrigger:1=rand --mem gSurfaceMax:1=rand
+
+# veh_clamp_climb(x) -> x clamped to <= 0x240 (s3 in and out)
+veh_clamp_climb: -n 200 --arg s3=choice:-1,0,1,0x23F,0x240,0x241,0x242,0x7FFFFFFF,0x80000000
+veh_clamp_climb: -n 200 --seed 1 --arg s3=int
+
+# ground_cache_tri(index, kind): swap a 0x14-byte record with *gGroundHitTri's when the list spans >= 0x8C bytes
+ground_cache_tri: -n 400 --heap 0x400 --arg v0=int:0:8 --arg t8=choice:0,0xFF,0xFE,0x1FF --mem gGroundCellTris=rel:heap0 \
+    --mem gGroundCellTrisEnd=rel:heap0+choice:0x78,0x8B,0x8C,0x8D,0x200 --mem gGroundHitTri=rel:heap0+0x14*int:0:12 \
+    --mem gGroundTriSwap:0x14=rand
+
+# ground_tri_box_contains: point in triangle bounding box
+ground_tri_box_contains: -n 400 --arg t0=int:-6:6 --arg t1=int:-6:6 --arg s1=int:-6:6 --arg s3=int:-6:6 --arg s4=int:-6:6 \
+    --arg s6=int:-6:6 --arg s7=int:-6:6 --arg t9=int:-6:6
+ground_tri_box_contains: -n 300 --seed 1 --arg t0=choice:0,-1,1,0x7FFFFFFF,0x80000000 --arg t1=choice:0,-1,1,0x7FFFFFFF,0x80000000 \
+    --arg s1=choice:0,-1,1,0x7FFFFFFF,0x80000000 --arg s3=choice:0,-1,1,0x7FFFFFFF,0x80000000 \
+    --arg s4=choice:0,-1,1,0x7FFFFFFF,0x80000000 --arg s6=choice:0,-1,1,0x7FFFFFFF,0x80000000 \
+    --arg s7=choice:0,-1,1,0x7FFFFFFF,0x80000000 --arg t9=choice:0,-1,1,0x7FFFFFFF,0x80000000
+
+# mtx_copy_at(src, dst, off): copy 64 bytes at +off
+mtx_copy_at: -n 100 --arg t0=ptr:0x100 --arg t1=ptr:0x100 --arg t2=choice:0,8,0x40,0x80,0xC0
+
+# ground_interp_dx0_zero / AB234 / AB2B8 / AB33C: k = (p - q) / d ; t = (m * k + c - e) / n (f10 / f20)
+ground_interp_dx0_zero: -n 400 --arg t0=int:-100000:100000 --arg s7=int:-100000:100000 --arg v1=choice:1,-1,3,7,100,-100,12345,0 \
+    --arg a1=int:-100000:100000 --arg t9=int:-100000:100000 --arg t1=int:-100000:100000 --arg a0=choice:1,-1,3,7,100,-100,12345,0
+ground_interp_dx12_zero: -n 400 --arg s7=int:-100000:100000 --arg t0=int:-100000:100000 --arg v0=choice:1,-1,3,7,100,-100,12345,0 \
+    --arg a0=int:-100000:100000 --arg t1=int:-100000:100000 --arg t9=int:-100000:100000 --arg a1=choice:1,-1,3,7,100,-100,12345,0
+ground_interp_dz0_zero: -n 400 --arg t1=int:-100000:100000 --arg t9=int:-100000:100000 --arg a1=choice:1,-1,3,7,100,-100,12345,0 \
+    --arg v1=int:-100000:100000 --arg s7=int:-100000:100000 --arg t0=int:-100000:100000 --arg v0=choice:1,-1,3,7,100,-100,12345,0
+ground_interp_dz12_zero: -n 400 --arg t9=int:-100000:100000 --arg t1=int:-100000:100000 --arg a0=choice:1,-1,3,7,100,-100,12345,0 \
+    --arg v0=int:-100000:100000 --arg t0=int:-100000:100000 --arg s7=int:-100000:100000 --arg v1=choice:1,-1,3,7,100,-100,12345,0
+
+# veh_rides_on(key0, key1) -> a2: gStandOn entry with byte1 == key1 and byte0 == key0
+veh_rides_on: -n 400 --arg t4=choice:0,1,2,3,0xFF,-1,0x100 --arg t8=choice:0,1,2,0xFF,0x100,-1 \
+    --mem gStandOn:64=words:0x00010000,0x01000000,0x01010000,0x02FF0000,0xFF010000,0x00000000,0x03020000,0x00FFFFFF \
+    --mem gStandOn+0x40=0xFFFFFFFF
+veh_rides_on: -n 200 --seed 1 --arg t4=choice:1,2 --arg t8=choice:1,2 \
+    --mem gStandOn:64=onehot:4:-1:words:0x01010000,0x02020000,0x01020000,0x02010000 --mem gStandOn+0x40=0xFFFFFFFF
+
+# veh_find_point(id, n, &rec) -> v1: first gVehPoints record with id, then n-1 records on
+veh_find_point: -n 300 --arg v0=5 --arg v1=int:-4:20 --mem gVehPoints:0x200=onehot:0x10@0xC/1:5:rand
+# (the id must occur: the scan has no terminator) - match in the first/last/a middle record
+veh_find_point: -n 100 --seed 1 --arg v0=0 --arg v1=choice:0,1,2 --mem gVehPoints:0x100=onehot:0x10@0xC/1:0:bytes:1,2,3
+veh_find_point: -n 100 --seed 2 --arg v0=0xFF --arg v1=choice:0,1,2 --mem gVehPoints:0x100=onehot:0x10@0xC/1:0xFF:bytes:1,2,3
+
+# math_dist3: rounded 3-D distance. The C's s64 math and (f64) s64 go through __ll_mul / __ll_to_d
+# (followed). Ranges keep the 64-bit sum from wrapping negative (the asm traps on the NaN).
+math_dist3: -n 300 --follow __ll_mul,__ll_to_d --arg t3=int:-0x30000000:0x30000000 --arg t4=int:-0x30000000:0x30000000 \
+    --arg t5=int:-0x30000000:0x30000000 --arg t6=int:-0x30000000:0x30000000 --arg t7=int:-0x30000000:0x30000000 \
+    --arg s0=int:-0x30000000:0x30000000
+math_dist3: -n 300 --seed 1 --follow __ll_mul,__ll_to_d --arg t3=int:-50:50 --arg t4=int:-50:50 --arg t5=int:-50:50 \
+    --arg t6=int:-50:50 --arg t7=int:-50:50 --arg s0=int:-50:50
+math_dist3: -n 100 --seed 2 --follow __ll_mul,__ll_to_d --arg t3=choice:0,0x7FFFFFFF,0x80000000 --arg t4=0 --arg t5=0 \
+    --arg t6=choice:0,0x7FFFFFFF,0x80000000,-1 --arg t7=0 --arg s0=0
+
+# ground_tri_height: plane height over (x, z) of a triangle; 64-bit cross products through __ll_mul,
+# (f64) s64 / (s64) f64 through __ll_to_d / __d_to_ll (followed)
+ground_tri_height: -n 400 --follow __ll_mul,__ll_to_d,__d_to_ll --arg t0=int:-1000:1000 --arg t1=int:-1000:1000 \
+    --arg s1=int:-1000:1000 --arg s2=int:-1000:1000 --arg s3=int:-1000:1000 --arg s4=int:-1000:1000 --arg s5=int:-1000:1000 \
+    --arg s6=int:-1000:1000 --arg s7=int:-1000:1000 --arg t8=int:-1000:1000 --arg t9=int:-1000:1000
+# vertical triangles (ny == 0) are frequent with x and z from {0, 5}
+ground_tri_height: -n 300 --seed 1 --follow __ll_mul,__ll_to_d,__d_to_ll --arg t0=int:-50:50 --arg t1=int:-50:50 \
+    --arg s1=choice:0,5 --arg s2=int:-50:50 --arg s3=choice:0,5 --arg s4=choice:0,5 --arg s5=int:-50:50 \
+    --arg s6=choice:0,5 --arg s7=choice:0,5 --arg t8=int:-50:50 --arg t9=choice:0,5
+# tiny triangles: many exact .5 quotients (round-half-even)
+ground_tri_height: -n 400 --seed 2 --follow __ll_mul,__ll_to_d,__d_to_ll --arg t0=int:-3:3 --arg t1=int:-3:3 \
+    --arg s1=int:-3:3 --arg s2=int:-3:3 --arg s3=int:-3:3 --arg s4=int:-3:3 --arg s5=int:-3:3 \
+    --arg s6=int:-3:3 --arg s7=int:-3:3 --arg t8=int:-3:3 --arg t9=int:-3:3
+ground_tri_height: -n 200 --seed 3 --follow __ll_mul,__ll_to_d,__d_to_ll --arg t0=int:-0x4000:0x4000 --arg t1=int:-0x4000:0x4000 \
+    --arg s1=int:-0x4000:0x4000 --arg s2=int:-0x4000:0x4000 --arg s3=int:-0x4000:0x4000 --arg s4=int:-0x4000:0x4000 \
+    --arg s5=int:-0x4000:0x4000 --arg s6=int:-0x4000:0x4000 --arg s7=int:-0x4000:0x4000 --arg t8=int:-0x4000:0x4000 \
+    --arg t9=int:-0x4000:0x4000
+
+# ground_tri_contains: point-in-triangle by edge sides vs the centre point (single-precision floats)
+ground_tri_contains: -n 400 --arg t0=int:-100:100 --arg t1=int:-100:100 --arg s1=int:-100:100 --arg s3=int:-100:100 \
+    --arg s4=int:-100:100 --arg s6=int:-100:100 --arg s7=int:-100:100 --arg t9=int:-100:100
+# small coordinates: points on edge lines (cross == 0 skips), degenerate triangles, inside/outside mixes
+ground_tri_contains: -n 400 --seed 1 --arg t0=int:-2:2 --arg t1=int:-2:2 --arg s1=int:-2:2 --arg s3=int:-2:2 \
+    --arg s4=int:-2:2 --arg s6=int:-2:2 --arg s7=int:-2:2 --arg t9=int:-2:2
+ground_tri_contains: -n 200 --seed 2 --arg t0=int:-0x100000:0x100000 --arg t1=int:-0x100000:0x100000 \
+    --arg s1=int:-0x100000:0x100000 --arg s3=int:-0x100000:0x100000 --arg s4=int:-0x100000:0x100000 \
+    --arg s6=int:-0x100000:0x100000 --arg s7=int:-0x100000:0x100000 --arg t9=int:-0x100000:0x100000
+
+# mtx_chain_transform(count, offsets, base, x, y, z): Mtx chain into gMtxWork then transform; 64-bit
+# products via __ll_mul / __ll_rshift (followed). Four 0x40-byte matrices in heap0.
+mtx_chain_transform: -n 300 --follow __ll_mul,__ll_rshift --heap 0x400 --arg a1=choice:0,1,2,3,4 --arg a2=ptr:0x10 \
+    --arg s4=rel:heap0 --mem @a2:0x10=words:0,0x40,0x80,0xC0 --mem gMtxWork:0x80=rand --arg v0=int --arg v1=int --arg a0=int
+mtx_chain_transform: -n 300 --seed 1 --follow __ll_mul,__ll_rshift --heap 0x100=halves:0,1,2,0xFFFF,0xFFFE,0x8000,0x7FFF,0x4000 \
+    --arg a1=choice:1,2,3,4 --arg a2=ptr:0x10 --arg s4=rel:heap0 --mem @a2:0x10=words:0,0x40,0x80,0xC0 \
+    --mem gMtxWork:0x80=rand --arg v0=int:-0x1000:0x1000 --arg v1=int:-0x1000:0x1000 --arg a0=int:-0x1000:0x1000
+
+# ---- phase D (wt-d2) ----
+# veh_slot_launch(index v0, a1/a2/a3 arrays, extra t2, value s3) -> s3 (clamped by veh_clamp_climb)
+veh_slot_launch: -n 200 --arg v0=int:0:3 --arg a1=ptr:0x40 --arg a2=ptr:0x40 --arg a3=ptr:0x40 \
+    --arg s3=choice:0,1,0x240,0x241,-1,0x7FFFFFFF,0x80000000 --mem gSlotAirborne:4=rand
+veh_slot_launch: -n 100 --seed 1 --follow veh_clamp_climb --arg v0=int:0:3 --arg a1=ptr:0x40 --arg a2=ptr:0x40 \
+    --arg a3=ptr:0x40 --arg s3=choice:0,1,0x240,0x241,-1,0x7FFFFFFF,0x80000000 --mem gSlotAirborne:4=rand
+
+# veh_ground_tilt: two tilt angles from gSlotGroundY/gSlotGroundY1/gSlotGroundY2 via math_atan (divisors nonzero: zero traps)
+veh_ground_tilt: -n 300 --mem gSlotGroundY=int:-0x4000:0x4000 --mem gSlotGroundY1=int:-0x4000:0x4000 \
+    --mem gSlotGroundY2=int:-0x4000:0x4000 --mem gVehTiltDivB:2=choice:1,2,3,0x40,0x7FFF,0xFFFF,0xFFC0 \
+    --mem gVehTiltDivA:2=choice:1,2,3,0x40,0x7FFF,0xFFFF,0xFFC0
+veh_ground_tilt: -n 300 --seed 1 --follow math_atan --mem gSlotGroundY=int:-0x4000:0x4000 \
+    --mem gSlotGroundY1=int:-0x4000:0x4000 --mem gSlotGroundY2=int:-0x4000:0x4000 \
+    --mem gVehTiltDivB:2=choice:1,2,3,0x40,0x7FFF,0xFFFF,0xFFC0 --mem gVehTiltDivA:2=choice:1,2,3,0x40,0x7FFF,0xFFFF,0xFFC0
+
+# veh_turn_into_free_arc(veh gp, cur a0, target a1, scale f0) -> a1 turn, a0 index. The asm keeps f0 across
+# veh_free_arc_mid, so the stub must not touch f0. Seed 2: window edges and .5 rounding ties.
+veh_turn_into_free_arc: -n 400 --sig veh_free_arc_mid= --stub-preserve veh_free_arc_mid=f0 --arg gp=ptr:0x100 \
+    --arg a0=int:0:0xFFF --arg a1=int:0:0xFFF --arg f0=float:-4:4 --mem gFreeArcStart:2=int:0:0xFFF \
+    --mem gFreeArcEnd:2=int:0:0xFFF --mem @gp+0x76:2=halves:0,1,0xFFFF,100,0xFF00,0x7FFF,0x8000
+veh_turn_into_free_arc: -n 400 --seed 1 --follow veh_free_arc_mid --arg gp=ptr:0x100 --arg a0=int:0:0xFFF --arg a1=int:0:0xFFF \
+    --arg f0=float:-4:4 --mem gFreeArcStart:2=int:0:0xFFF --mem gFreeArcEnd:2=int:0:0xFFF \
+    --mem @gp+0x76:2=halves:0,1,0xFFFF,100,0xFF00,0x7FFF,0x8000
+veh_turn_into_free_arc: -n 300 --seed 2 --follow veh_free_arc_mid --arg gp=ptr:0x100 \
+    --arg a0=choice:0,1,0x77,0x78,0x79,0x7FF,0x800,0x801,0xF87,0xF88,0xFFE,0xFFF \
+    --arg a1=choice:0,1,0x77,0x78,0x79,0x7FF,0x800,0x801,0xF87,0xF88,0xFFE,0xFFF \
+    --arg f0=choice:0x3F000000,0x3F800000,0xBF800000,0x40200000,0 \
+    --mem gFreeArcStart:2=choice:0,1,0x77,0x78,0x79,0x7FF,0x800,0x801,0xF87,0xF88,0xFFE,0xFFF \
+    --mem gFreeArcEnd:2=choice:0,1,0x77,0x78,0x79,0x7FF,0x800,0x801,0xF87,0xF88,0xFFE,0xFFF \
+    --mem @gp+0x76:2=halves:0,1,3,5,0xFFFF,0xFFFB
+
+# veh_throttle(veh gp, speed t6, mode t7, flags s0, bands s1, delta s2): stubbed with each
+# limit-check result, then the whole tree followed (bands = veh+0x78)
+veh_throttle: -n 400 --sig veh_drive_traction=a0,a1 --sig veh_past_reverse_limit=a0,a1 --sig veh_past_forward_limit=a0,a1 \
+    --sig veh_band_accel=a0,a1,a2 --stub-ret veh_past_forward_limit=0 --stub-ret veh_past_reverse_limit=0 --arg gp=ptr:0x100 \
+    --arg t6=ptr:0x10 --mem @t6:2=halves:0,1,100,0xFFFF,0xFF00,0x7FFF,0x8000,0x10 --arg t7=int:0:5 \
+    --arg s0=ptr:0x10 --arg s1=ptr:0x40 --mem @s1:0x40=halves:0,1,0xFFFF,0x100,0xFF00,0x7FFF,0x8000 \
+    --arg s2=int:0:40 --mem gHeldZ:1=choice:0*3,1 --mem gLastSpeed:2=halves:0,5,0xFFFB \
+    --mem gVehSlowed:1=choice:0,1 --mem levelno=choice:0x22,1,5 --mem gCurVehicle:1=choice:0xB,0x11,0x12,0,3,3 \
+    --mem gPadStickY:1=choice:0,1,0xFF,0x50,0xB0
+veh_throttle: -n 300 --seed 1 --sig veh_drive_traction=a0,a1 --sig veh_past_reverse_limit=a0,a1 --sig veh_past_forward_limit=a0,a1 \
+    --sig veh_band_accel=a0,a1,a2 --stub-ret veh_past_forward_limit=1 --stub-ret veh_past_reverse_limit=1 --stub-ret veh_band_accel=0 \
+    --arg gp=ptr:0x100 --arg t6=ptr:0x10 --mem @t6:2=halves:0,1,100,0xFFFF,0xFF00,0x10 --arg t7=int:0:5 \
+    --arg s0=ptr:0x10 --arg s1=ptr:0x40 --arg s2=int:0:40 --mem gHeldZ:1=choice:0*3,1 \
+    --mem gLastSpeed:2=halves:0,5,0xFFFB --mem gVehSlowed:1=choice:0,1 --mem levelno=choice:0x22,1,5 \
+    --mem gCurVehicle:1=choice:0xB,0x11,0x12,0,3,3 --mem gPadStickY:1=choice:0,1,0xFF,0x50,0xB0
+veh_throttle: -n 400 --seed 2 --follow veh_drive_traction,veh_past_reverse_limit,veh_past_forward_limit,veh_band_accel --arg gp=ptr:0x100 \
+    --mem @gp+0x50:1=bytes:0,1,2,3,4 --mem @gp+0x78:0x30=halves:0,1,0xFFFF,0x100,0xFF00,0x40,0x7F --arg t6=ptr:0x10 \
+    --mem @t6:2=halves:0,1,100,0xFFFF,0xFF00,0x10,0x40,0xFFC0 --arg t7=int:0:5 --arg s0=ptr:0x10 --mem @s0:4=bytes:0,1 \
+    --arg s1=rel:gp+0x78 --arg s2=int:0:40 --mem gHeldZ:1=choice:0*3,1 --mem gLastSpeed:2=halves:0,5,0xFFFB \
+    --mem gVehSlowed:1=choice:0,1 --mem levelno=choice:0x22,1,5 --mem gCurVehicle:1=choice:0xB,0x11,0x12,0,3,3 \
+    --mem gPadStickY:1=choice:0,1,0xFF,0x50,0xB0,0x20,0xE0
+
+# veh_throttle_lr(veh gp, speed t6, bands s1, delta s2) (no callers)
+veh_throttle_lr: -n 400 --sig veh_band_accel=a0,a1,a2 --arg gp=ptr:0x100 --arg t6=ptr:0x10 \
+    --mem @t6:2=halves:0,1,100,0xFFFF,0xFF00,0x7FFF,0x8000,0x10 --arg s1=ptr:0x40 --arg s2=int:0:40 \
+    --mem gHeldZ:1=choice:0,1 --mem gLastSpeed:2=halves:0,5,0xFFFB --mem gHeldL:1=choice:0,1 \
+    --mem gHeldR:1=choice:0,1
+veh_throttle_lr: -n 200 --seed 1 --stub-ret veh_band_accel=0 --sig veh_band_accel=a0,a1,a2 --arg gp=ptr:0x100 \
+    --arg t6=ptr:0x10 --mem @t6:2=halves:0,1,100,0xFFFF,0xFF00,0x10 --arg s1=ptr:0x40 --arg s2=int:0:40 \
+    --mem gHeldZ:1=choice:0,1 --mem gLastSpeed:2=halves:0,5,0xFFFB --mem gHeldL:1=choice:0,1 \
+    --mem gHeldR:1=choice:0,1
+veh_throttle_lr: -n 300 --seed 2 --follow veh_band_accel --arg gp=ptr:0x100 --mem @gp+0x50:1=bytes:0,1,2,3,4 \
+    --mem @gp+0x78:0x30=halves:0,1,0xFFFF,0x100,0xFF00,0x40,0x7F --arg t6=ptr:0x10 \
+    --mem @t6:2=halves:0,1,100,0xFFFF,0xFF00,0x10,0x40 --arg s1=rel:gp+0x78 --arg s2=int:0:40 \
+    --mem gHeldZ:1=choice:0,1 --mem gLastSpeed:2=halves:0,5,0xFFFB --mem gHeldL:1=choice:0,1 \
+    --mem gHeldR:1=choice:0,1 --mem gVehSlowed:1=choice:0,1
+
+# veh_apply_slope(veh gp, speed t6, kind t7, flags s0, p s7, clamp t8, div f2): div nonzero
+veh_apply_slope: -n 400 --sig veh_slope_drop=a0 --stub-ret veh_slope_drop=37 --arg gp=ptr:0x100 \
+    --mem @gp+0x78:2=halves:0,1,0xFFFF,0xFF00,0x100,0x7FFF,0x8000 --mem @gp+0x92:2=halves:0,1,0xFFFF,0xFF00,0x100,0x7FFF,0x8000 \
+    --arg t6=ptr:0x10 --mem @t6:2=halves:0,1,2,3,100,0xFFFF,0xFFFE,0xFF00,0x7FFF,0x8000 --arg t7=choice:0,2,9,0x10,1,3,0x11 \
+    --arg s0=ptr:0x10 --mem @s0:4=bytes:0*4,1,2,0xFF --arg s7=ptr:0x40 --arg t8=choice:0,1 --arg f2=float:-200:200 \
+    --mem gHeldZ:1=choice:0,1
+veh_apply_slope: -n 300 --seed 1 --sig veh_slope_drop=a0 --stub-ret veh_slope_drop=0 --arg gp=ptr:0x100 --arg t6=ptr:0x10 \
+    --mem @t6:2=halves:0,1,2,3,4,0xFFFF,0xFFFE,0xFFFD,0xFFFC --arg t7=choice:0,2,9,0x10,1,3,0x11 --arg s0=ptr:0x10 \
+    --mem @s0:4=0 --arg s7=ptr:0x40 --arg t8=0 --arg f2=float:-200:200 --mem gHeldZ:1=choice:0,1
+veh_apply_slope: -n 400 --seed 2 --follow veh_slope_drop --arg gp=ptr:0x100 \
+    --mem @gp+0x78:2=halves:0,1,0xFFFF,0xFF00,0x100,0x7FFF,0x8000 --mem @gp+0x92:2=halves:0,1,0xFFFF,0xFF00,0x100,0x7FFF,0x8000 \
+    --arg t6=ptr:0x10 --mem @t6:2=halves:0,1,2,3,100,0xFFFF,0xFFFE,0xFF00,0x7FFF,0x8000 --arg t7=choice:0,2,9,0x10,1,3,0x11 \
+    --arg s0=ptr:0x10 --mem @s0:4=bytes:0*6,1,2,0xFF --arg s7=ptr:0x40 \
+    --mem @s7:0x20=words:0,1,2,5,8,0xFFFFFFFF,0xFFFFFFF8,100,0xFFFFFF9C --arg t8=choice:0,1 \
+    --arg f2=choice:0x3F800000,0x40000000,0x41000000,0xBF800000,0x40800000,0x3E800000 --mem gHeldZ:1=choice:0,1
+
+# veh_turn_heading(veh gp, heading t1, rate t5, speed t6, target s4, out s5, flag s6, sound s7)
+veh_turn_heading: -n 400 --sig veh_blocked_turn_rate=a0 --sig snd_play=a0,a1,a2 --sig snd_modify=a0,a1,a2 \
+    --stub-ret veh_blocked_turn_rate=0x30 --arg gp=ptr:0x100 --mem @gp+0x50:1=bytes:0,1,2,3 --arg t1=ptr:0x10 \
+    --mem @t1:2=halves:0,1,0x7FF,0x800,0x801,0xFFE,0xFFF,0x100,0xF00 --arg t5=int --arg t6=ptr:0x10 \
+    --mem @t6:2=halves:0,1,2,0xFFFF,0xFFFE,0x100,0xFF00,0x7FFF,0x8000 --arg s4=ptr:0x10 \
+    --mem @s4:2=halves:0,1,0x7FF,0x800,0x801,0xFFE,0xFFF,0x100,0xF00,0x155,0x156 --arg s5=ptr:0x10 --arg s6=ptr:0x10 \
+    --mem @s6:1=bytes:0,1,0xFF --arg s7=choice:0,1 --mem gSkidSoundTimer:1=int:0:8 --mem gSkidPitchPerSpeed=fbits:-2:2 \
+    --mem gSkidPitch=int --mem gSfxBank=int
+veh_turn_heading: -n 400 --seed 1 --sig veh_blocked_turn_rate=a0 --sig snd_play=a0,a1,a2 --sig snd_modify=a0,a1,a2 \
+    --stub-ret veh_blocked_turn_rate=0xFFFFFF00 --arg gp=ptr:0x100 --mem @gp+0x50:1=bytes:0,1,2,3,0xFF --arg t1=ptr:0x10 \
+    --mem @t1:2=int:0:0xFFF --arg t5=int --arg t6=ptr:0x10 --mem @t6:2=halves:0,1,2,3,0xFFFF,0xFFFE,0x100,0xFF00,0x7FFF,0x8000 \
+    --arg s4=ptr:0x10 --mem @s4:2=int:0:0xFFF --arg s5=ptr:0x10 --arg s6=ptr:0x10 --mem @s6:1=bytes:0,1 \
+    --arg s7=choice:0,1 --mem gSkidSoundTimer:1=choice:5,6,7,0xFF --mem gSkidPitchPerSpeed=fbits:-2:2 --mem gSkidPitch=int \
+    --mem gSfxBank=int
+veh_turn_heading: -n 400 --seed 2 --follow veh_blocked_turn_rate --sig snd_play=a0,a1,a2 --sig snd_modify=a0,a1,a2 \
+    --arg gp=ptr:0x100 --mem @gp+0x50:1=bytes:0,1,2,3 --arg t1=ptr:0x10 --mem @t1:2=int:0:0xFFF --arg t5=int:0:0x100 \
+    --arg t6=ptr:0x10 --mem @t6:2=halves:0,1,2,3,0xFFFF,0xFFFE,0x10,0xFFF0 --arg s4=ptr:0x10 --mem @s4:2=int:0:0xFFF \
+    --arg s5=ptr:0x10 --arg s6=ptr:0x10 --mem @s6:1=bytes:0,1 --arg s7=choice:0,1 --mem gSkidSoundTimer:1=int:0:8 \
+    --mem gSkidPitchPerSpeed=fbits:-2:2 --mem gSkidPitch=int --mem gSfxBank=int --mem gBlockedTurnRates:0x24=words:0,1,2,3,0x40,0x100 \
+    --mem gBlockedTurnRates+0x28=0 --mem levelno=int:0:3 --mem gBlockedFrame=int:0:20 --mem gUnpausedFrames=int:0:40
+
+# veh_points_transform(id t0, p t1, end t2, base s4): point list at heap0 = {count 1}, {count 0}, {count 2}
+# (strides 12, 8, 16); end = after 0..3 entries. gVehPoints scan ends at the -1 word of record 12.
+veh_points_transform: -n 300 --heap 0x40 --heap 0x100 --mem @heap0+6:2=1 --mem @heap0+8=0x40 --mem @heap0+18:2=0 \
+    --mem @heap0+26:2=2 --mem @heap0+28=0 --mem @heap0+32=0x80 --arg t0=int:0:3 --arg t1=rel:heap0 \
+    --arg t2=choice:0x80B00000,0x80B0000C,0x80B00014,0x80B00024 --arg s4=rel:heap1 --mem gVehPoints:0x100=rand \
+    --mem gVehPoints+0xC*0x10:12/1=choice:0,1,2,3,7 --mem gVehPoints+0xC0=0xFFFFFFFF
+veh_points_transform: -n 300 --seed 1 --follow mtx_chain_transform,__ll_mul,__ll_rshift --heap 0x40 --heap 0x100 --mem @heap0+6:2=1 \
+    --mem @heap0+8=0x40 --mem @heap0+18:2=0 --mem @heap0+26:2=2 --mem @heap0+28=0 --mem @heap0+32=0x80 \
+    --arg t0=int:0:3 --arg t1=rel:heap0 --arg t2=choice:0x80B00000,0x80B0000C,0x80B00014,0x80B00024 \
+    --arg s4=rel:heap1 --mem gVehPoints:0x100=rand --mem gVehPoints+0xC*0x10:12/1=choice:0,1,2,3,7 \
+    --mem gVehPoints+0xC0=0xFFFFFFFF --mem gMtxWork:0x80=rand
+
+# veh_deck_transform(id t3, desc t4, base s4): 0-3 triangles, matrix count 0-2 (0 = mtx_chain_transform's s0 path)
+veh_deck_transform: -n 300 --heap 0x80 --heap 0x100 --mem @heap0:2=choice:0,1,2,3 --mem @heap0+2:2=choice:0,1,2 \
+    --mem @heap0+4:8=words:0,0x40 --arg t3=int:0:3 --arg t4=rel:heap0 --arg s4=rel:heap1 \
+    --mem gMoveableTrisEnd=rel:gMoveableTris+0x38*int:0:5 --mem gMoveableTris:0x1C0=rand \
+    --mem gMoveableTris+0x36*0x38:8/2=choice:0,1,2,3,0x10003
+veh_deck_transform: -n 300 --seed 1 --follow mtx_chain_transform,__ll_mul,__ll_rshift --heap 0x80 --heap 0x100 \
+    --mem @heap0:2=choice:0,1,2,3 --mem @heap0+2:2=choice:0,1,2 --mem @heap0+4:8=words:0,0x40 --arg t3=int:0:3 \
+    --arg t4=rel:heap0 --arg s4=rel:heap1 --mem gMoveableTrisEnd=rel:gMoveableTris+0x38*int:0:5 --mem gMoveableTris:0x1C0=rand \
+    --mem gMoveableTris+0x36*0x38:8/2=choice:0,1,2,3 --mem gMtxWork:0x80=rand
+
+# veh_zone_alpha(id a3, point t3/t4/t5): 0-4 zones; gVehicles records 0-3 carry ids 0-3 (one must match)
+veh_zone_alpha: -n 400 --stub-ret math_dist3=50 --arg a3=int:0:3 --arg t3=int --arg t4=int --arg t5=int \
+    --mem gAlphaZonesEnd=rel:gAlphaZones+0x24*int:0:4 --mem gAlphaZones:0x90=rand \
+    --mem gAlphaZones+0xC*0x24:4=choice:1,10,49,50,51,100,1000 --mem gAlphaZones+0x10*0x24:4/1=choice:0,1,1,2 \
+    --mem gAlphaZones+0x12*0x24:4/1=choice:0,1,1,1 --mem gAlphaZones+0x13*0x24:4/1=choice:0,1,2,3 \
+    --mem gAlphaZones+0x14*0x24:4/1=choice:0,0,5,0xFF --mem gAlphaZones+0x15*0x24:4/1=int:0:3 \
+    --mem gAlphaZones+0x16*0x24:4/1=int:0:3 --mem gAlphaZones+0x17*0x24:4/1=int:0:3 \
+    --mem gDefaultVehAlpha:1=choice:0,1,0x80,0xFF,0x40 --mem gVehicles+0x5C=0 --mem gVehicles+0xD0=1 \
+    --mem gVehicles+0x144=2 --mem gVehicles+0x1B8=3 --mem gVehicles+0x60*0x74:4=int
+veh_zone_alpha: -n 400 --seed 1 --follow math_dist3 --arg a3=int:0:3 --arg t3=int:-100:100 --arg t4=int:-100:100 \
+    --arg t5=int:-100:100 --mem gAlphaZonesEnd=rel:gAlphaZones+0x24*int:0:4 --mem gAlphaZones:0x90=rand \
+    --mem gAlphaZones*0x24:4=int:-100:100 --mem gAlphaZones+4*0x24:4=int:-100:100 --mem gAlphaZones+8*0x24:4=int:-100:100 \
+    --mem gAlphaZones+0xC*0x24:4=choice:1,10,50,100,200,1000 --mem gAlphaZones+0x10*0x24:4/1=choice:0,1,1,2 \
+    --mem gAlphaZones+0x12*0x24:4/1=choice:0,1,1,1 --mem gAlphaZones+0x13*0x24:4/1=choice:0,1,2,3 \
+    --mem gAlphaZones+0x14*0x24:4/1=choice:0,0,5,0xFF --mem gAlphaZones+0x15*0x24:4/1=int:0:3 \
+    --mem gAlphaZones+0x16*0x24:4/1=int:0:3 --mem gAlphaZones+0x17*0x24:4/1=int:0:3 \
+    --mem gDefaultVehAlpha:1=choice:0,1,0x80,0xFF,0x40 --mem gVehicles+0x5C=0 --mem gVehicles+0xD0=1 \
+    --mem gVehicles+0x144=2 --mem gVehicles+0x1B8=3 --mem gVehicles+0x60*0x74:4=int
+
+# ground_tri_interp: interpolation over a triangle. Seed 1/2: tiny coordinates hit the corner and
+# axis-aligned (callee) paths and degenerate divides (cvt.w.s of inf/NaN -> 0x7FFFFFFF).
+ground_tri_interp: -n 400 --arg t0=int:-1000:1000 --arg t1=int:-1000:1000 --arg s1=int:-1000:1000 --arg s3=int:-1000:1000 \
+    --arg s4=int:-1000:1000 --arg s6=int:-1000:1000 --arg s7=int:-1000:1000 --arg t9=int:-1000:1000 \
+    --arg t5=int:-1000:1000 --arg t6=int:-1000:1000 --arg t7=int:-1000:1000 --arg s0=int:-1000:1000 \
+    --arg t3=int:-1000:1000 --arg t4=int:-1000:1000
+ground_tri_interp: -n 400 --seed 1 --arg t0=int:-3:3 --arg t1=int:-3:3 --arg s1=int:-3:3 --arg s3=int:-3:3 --arg s4=int:-3:3 \
+    --arg s6=int:-3:3 --arg s7=int:-3:3 --arg t9=int:-3:3 --arg t5=int:-1000:1000 --arg t6=int:-1000:1000 \
+    --arg t7=int:-1000:1000 --arg s0=int:-1000:1000 --arg t3=int:-1000:1000 --arg t4=int:-1000:1000
+ground_tri_interp: -n 400 --seed 2 --follow ground_interp_dx0_zero,ground_interp_dx12_zero,ground_interp_dz0_zero,ground_interp_dz12_zero --arg t0=int:-3:3 \
+    --arg t1=int:-3:3 --arg s1=int:-3:3 --arg s3=int:-3:3 --arg s4=int:-3:3 --arg s6=int:-3:3 --arg s7=int:-3:3 \
+    --arg t9=int:-3:3 --arg t5=int:-1000:1000 --arg t6=int:-1000:1000 --arg t7=int:-1000:1000 --arg s0=int:-1000:1000 \
+    --arg t3=int:-1000:1000 --arg t4=int:-1000:1000
+ground_tri_interp: -n 300 --seed 3 --follow ground_interp_dx0_zero,ground_interp_dx12_zero,ground_interp_dz0_zero,ground_interp_dz12_zero \
+    --arg t0=int:-0x100000:0x100000 --arg t1=int:-0x100000:0x100000 --arg s1=int:-0x100000:0x100000 \
+    --arg s3=int:-0x100000:0x100000 --arg s4=int:-0x100000:0x100000 --arg s6=int:-0x100000:0x100000 \
+    --arg s7=int:-0x100000:0x100000 --arg t9=int:-0x100000:0x100000 --arg t5=int:-0x10000:0x10000 \
+    --arg t6=int:-0x10000:0x10000 --arg t7=int:-0x10000:0x10000 --arg s0=int:-0x10000:0x10000 \
+    --arg t3=int:-0x10000:0x10000 --arg t4=int:-0x10000:0x10000
+
+# Triangle scans (x t0, z t1, y t2). Stubbed with both tests passing (random heights), then the
+# whole tree followed on small triangles, then "tie" runs: one fixed triangle with y in {0, 32}
+# per vertex and y at the midpoints, so equal |y - h| from different triangles occurs (later wins).
+ground_scan_part_tris: -n 300 --stub-ret ground_tri_box_contains=1 --stub-ret ground_tri_contains=1 --heap 0xC8 --arg t0=int:-6:6 \
+    --arg t1=int:-6:6 --arg t2=int:-2000:500 --mem gGroupTris=rel:heap0 --mem gGroupTrisEnd=rel:heap0+0x28*int:0:5
+ground_scan_part_tris: -n 200 --seed 1 --stub-ret ground_tri_box_contains=0 --heap 0xC8 --arg t0=int:-6:6 --arg t1=int:-6:6 \
+    --arg t2=int:-2000:500 --mem gGroupTris=rel:heap0 --mem gGroupTrisEnd=rel:heap0+0x28*int:0:5
+ground_scan_part_tris: -n 400 --seed 2 --follow ground_tri_box_contains,ground_tri_contains,ground_tri_height,__ll_mul,__ll_to_d,__d_to_ll \
+    --heap 0xC8=words:0,1,2,3,4,5,0xFFFFFFFF,0xFFFFFFFE,0xFFFFFFFD,0xFFFFFC18,0x3E8 --arg t0=int:-6:6 --arg t1=int:-6:6 \
+    --arg t2=int:-2000:500 --mem gGroupTris=rel:heap0 --mem gGroupTrisEnd=rel:heap0+0x28*int:0:5
+ground_scan_part_tris: -n 300 --seed 3 --follow ground_tri_box_contains,ground_tri_contains,ground_tri_height,__ll_mul,__ll_to_d,__d_to_ll \
+    --heap 0xC8 --mem @heap0*0x28:5=0xFFFFFFC0 --mem @heap0+4*0x28:5=choice:0,32 --mem @heap0+8*0x28:5=0xFFFFFFC0 \
+    --mem @heap0+12*0x28:5=64 --mem @heap0+16*0x28:5=choice:0,32 --mem @heap0+20*0x28:5=0xFFFFFFC0 \
+    --mem @heap0+24*0x28:5=0 --mem @heap0+28*0x28:5=choice:0,32 --mem @heap0+32*0x28:5=64 --arg t0=int:-8:8 \
+    --arg t1=int:-8:8 --arg t2=choice:16*3,8,24,0,32 --mem gGroupTris=rel:heap0 --mem gGroupTrisEnd=rel:heap0+0x28*int:0:5
+ground_scan_moveable: -n 300 --stub-ret ground_tri_box_contains=1 --stub-ret ground_tri_contains=1 --arg t0=int:-6:6 --arg t1=int:-6:6 \
+    --arg t2=int:-2000:500 --arg t8=int:0:3 --mem gMoveableTris:0x118=rand --mem gMoveableTris+0x36*0x38:5/2=choice:0,1,2,3 \
+    --mem gMoveableTrisEnd=rel:gMoveableTris+0x38*int:0:5
+ground_scan_moveable: -n 400 --seed 1 --follow ground_tri_box_contains,ground_tri_contains,ground_tri_height,__ll_mul,__ll_to_d,__d_to_ll \
+    --arg t0=int:-6:6 --arg t1=int:-6:6 --arg t2=int:-2000:500 --arg t8=int:0:3 \
+    --mem gMoveableTris:0x118=words:0,1,2,3,4,5,0xFFFFFFFF,0xFFFFFFFE,0xFFFFFFFD,0xFFFFFC18,0x3E8 \
+    --mem gMoveableTris+0x36*0x38:5/2=choice:0,1,2,3 --mem gMoveableTrisEnd=rel:gMoveableTris+0x38*int:0:5
+ground_scan_moveable: -n 300 --seed 2 --follow ground_tri_box_contains,ground_tri_contains,ground_tri_height,__ll_mul,__ll_to_d,__d_to_ll \
+    --mem gMoveableTris:0x118=rand --mem gMoveableTris*0x38:5=0xFFFFFFC0 --mem gMoveableTris+4*0x38:5=choice:0,32 \
+    --mem gMoveableTris+8*0x38:5=0xFFFFFFC0 --mem gMoveableTris+12*0x38:5=64 --mem gMoveableTris+16*0x38:5=choice:0,32 \
+    --mem gMoveableTris+20*0x38:5=0xFFFFFFC0 --mem gMoveableTris+24*0x38:5=0 --mem gMoveableTris+28*0x38:5=choice:0,32 \
+    --mem gMoveableTris+32*0x38:5=64 --mem gMoveableTris+0x36*0x38:5/2=choice:0,1,2,3 --arg t0=int:-8:8 --arg t1=int:-8:8 \
+    --arg t2=choice:16*3,8,24,0,32 --arg t8=choice:0,1,2,3,5 --mem gMoveableTrisEnd=rel:gMoveableTris+0x38*int:0:5
+# ground_scan_grid: grid cells 0-10 point at lists of 1, 1, 0, 2, 3, 1, 2, 0, 1, 2, 1 triangles in heap0
+ground_scan_grid: -n 300 --stub-ret ground_tri_box_contains=1 --stub-ret ground_tri_contains=1 --heap 0x150 --arg t0=int:0:3 --arg t1=int:0:3 \
+    --arg t2=int:-2000:500 --mem gGroundCellW=choice:1,2 --mem gGroundCellD=choice:1,2 --mem gGroundCols:2=choice:1,2 \
+    --mem gGroundCells=rel:heap0 --mem gGroundCells+4=rel:heap0+0x18 --mem gGroundCells+8=rel:heap0+0x30 \
+    --mem gGroundCells+12=rel:heap0+0x34 --mem gGroundCells+16=rel:heap0+0x60 --mem gGroundCells+20=rel:heap0+0xA0 \
+    --mem gGroundCells+24=rel:heap0+0xB8 --mem gGroundCells+28=rel:heap0+0xE4 --mem gGroundCells+32=rel:heap0+0xE8 \
+    --mem gGroundCells+36=rel:heap0+0x100 --mem gGroundCells+40=rel:heap0+0x12C --mem gGroundCells+44=rel:heap0+0x144 \
+    --mem gGroundCellTris:12=rand
+ground_scan_grid: -n 400 --seed 1 --follow ground_tri_box_contains,ground_tri_contains,ground_tri_height,__ll_mul,__ll_to_d,__d_to_ll \
+    --heap 0x150=halves:0,0,1,2,0xFFFF,0xFFFE,0x100 --arg t0=int:0:3 --arg t1=int:0:3 --arg t2=int:-2000:500 \
+    --mem gGroundCellW=choice:1,2 --mem gGroundCellD=choice:1,2 --mem gGroundCols:2=choice:1,2 \
+    --mem gGroundCells=rel:heap0 --mem gGroundCells+4=rel:heap0+0x18 --mem gGroundCells+8=rel:heap0+0x30 \
+    --mem gGroundCells+12=rel:heap0+0x34 --mem gGroundCells+16=rel:heap0+0x60 --mem gGroundCells+20=rel:heap0+0xA0 \
+    --mem gGroundCells+24=rel:heap0+0xB8 --mem gGroundCells+28=rel:heap0+0xE4 --mem gGroundCells+32=rel:heap0+0xE8 \
+    --mem gGroundCells+36=rel:heap0+0x100 --mem gGroundCells+40=rel:heap0+0x12C --mem gGroundCells+44=rel:heap0+0x144 \
+    --mem gGroundCellTris:12=rand
+ground_scan_grid: -n 300 --seed 2 --follow ground_tri_box_contains,ground_tri_contains,ground_tri_height,__ll_mul,__ll_to_d,__d_to_ll \
+    --heap 0x150 --mem @heap0*0x14:16/2=0xFFFE --mem @heap0+2*0x14:16/2=choice:0,1 --mem @heap0+4*0x14:16/2=0xFFFE \
+    --mem @heap0+6*0x14:16/2=2 --mem @heap0+8*0x14:16/2=choice:0,1 --mem @heap0+10*0x14:16/2=0xFFFE \
+    --mem @heap0+12*0x14:16/2=0 --mem @heap0+14*0x14:16/2=choice:0,1 --mem @heap0+16*0x14:16/2=2 \
+    --mem @heap0+0x12*0x14:16/2=choice:0x100,0x200,0x300,0x301 --arg t0=int:0:3 --arg t1=int:0:3 \
+    --arg t2=choice:16*3,8,24,0,32 --mem gGroundCellW=choice:1,2 --mem gGroundCellD=choice:1,2 --mem gGroundCols:2=choice:1,2 \
+    --mem gGroundCells=rel:heap0 --mem gGroundCells+4=rel:heap0+0x18 --mem gGroundCells+8=rel:heap0+0x30 \
+    --mem gGroundCells+12=rel:heap0+0x34 --mem gGroundCells+16=rel:heap0+0x60 --mem gGroundCells+20=rel:heap0+0xA0 \
+    --mem gGroundCells+24=rel:heap0+0xB8 --mem gGroundCells+28=rel:heap0+0xE4 --mem gGroundCells+32=rel:heap0+0xE8 \
+    --mem gGroundCells+36=rel:heap0+0x100 --mem gGroundCells+40=rel:heap0+0x12C --mem gGroundCells+44=rel:heap0+0x144 \
+    --mem gGroundCellTris:12=rand
+# ground_scan_object (obj s0 with list offsets at +0x24/+0x28): only h <= y counts
+ground_scan_object: -n 300 --stub-ret ground_tri_box_contains=1 --stub-ret ground_tri_contains=1 --heap 0x100 --mem @heap0+0x24=0x30 \
+    --mem @heap0+0x28=choice:0x30,0x44,0x58,0x6C,0x80,0x94 --arg s0=rel:heap0 --arg t0=int:-6:6 --arg t1=int:-6:6 \
+    --arg t2=int:-2000:2000
+ground_scan_object: -n 400 --seed 1 --follow ground_tri_box_contains,ground_tri_contains,ground_tri_height,__ll_mul,__ll_to_d,__d_to_ll \
+    --heap 0x100 --mem @heap0+0x24=0x30 --mem @heap0+0x28=choice:0x30,0x44,0x58,0x6C,0x80,0x94 \
+    --mem @heap0+0x30:0x64=halves:0,0,1,2,0xFFFF,0xFFFE,0x20,0xFFE0 --arg s0=rel:heap0 --arg t0=int:-40:40 \
+    --arg t1=int:-40:40 --arg t2=int:-1500:1500
+ground_scan_guard_tris: -n 300 --stub-ret ground_tri_box_contains=1 --stub-ret ground_tri_contains=1 --heap 0x64 --arg t0=int:-6:6 \
+    --arg t1=int:-6:6 --arg t2=int:-2000:500 --mem gGuardTris=rel:heap0 --mem gGuardTrisEnd=rel:heap0+0x14*int:0:5
+ground_scan_guard_tris: -n 400 --seed 1 --follow ground_tri_box_contains,ground_tri_contains,ground_tri_height,__ll_mul,__ll_to_d,__d_to_ll \
+    --heap 0x64=halves:0,1,2,0xFFFF,0xFFFE,0x20,0xFFE0 --arg t0=int:-40:40 --arg t1=int:-40:40 --arg t2=int:-2000:500 \
+    --mem gGuardTris=rel:heap0 --mem gGuardTrisEnd=rel:heap0+0x14*int:0:5
+ground_scan_guard_tris: -n 300 --seed 2 --follow ground_tri_box_contains,ground_tri_contains,ground_tri_height,__ll_mul,__ll_to_d,__d_to_ll \
+    --heap 0x64 --mem @heap0*0x14:5/2=0xFFFE --mem @heap0+2*0x14:5/2=choice:0,1 --mem @heap0+4*0x14:5/2=0xFFFE \
+    --mem @heap0+6*0x14:5/2=2 --mem @heap0+8*0x14:5/2=choice:0,1 --mem @heap0+10*0x14:5/2=0xFFFE \
+    --mem @heap0+12*0x14:5/2=0 --mem @heap0+14*0x14:5/2=choice:0,1 --mem @heap0+16*0x14:5/2=2 --arg t0=int:-8:8 \
+    --arg t1=int:-8:8 --arg t2=choice:16*3,8,24,0,32 --mem gGuardTris=rel:heap0 \
+    --mem gGuardTrisEnd=rel:heap0+0x14*int:0:5 --mem gGuardTrisBestY=int
+
+# --- phase D wave 2 (wt-e2) ---
+# veh_steer_throttle(rate s3, angle s4, veh gp, speed t6, mode t7, flags s0, bands s1, delta s2):
+# veh_steer(rate, angle) then veh_throttle(veh, speed, mode, flags, bands, delta). Stubbed, then both followed.
+veh_steer_throttle: -n 300 --arg s3=int --arg s4=ptr:0x10 --arg gp=ptr:0x100 --arg t6=ptr:0x10 --arg t7=int:0:5 \
+    --arg s0=ptr:0x10 --arg s1=ptr:0x40 --arg s2=int:0:40
+veh_steer_throttle: -n 300 --seed 1 --follow veh_steer,veh_throttle,veh_drive_traction,veh_past_reverse_limit,veh_past_forward_limit,veh_band_accel \
+    --arg s3=int:-1000:1000 --arg s4=ptr:0x10 --mem @s4:2=int:0:0xFFFF --mem gWideFovLevel:1=choice:0,1 \
+    --mem gSteerTurnAround:1=choice:0*3,1 --mem gSteerAirborne:1=choice:0,1 --mem gPadStickX:1=int:0:255 \
+    --mem gSteerHeadingSnap:1=choice:0,1 --mem gVehJustSwitched:1=choice:0,1 --mem gSteerSnapAngle:2=int:0:0xFFFF \
+    --mem gSteerRate:2=rand --mem gSteerHeading:2=rand --arg gp=ptr:0x100 --mem @gp+0x50:1=bytes:0,1,2,3,4 \
+    --mem @gp+0x78:0x30=halves:0,1,0xFFFF,0x100,0xFF00,0x40,0x7F --arg t6=ptr:0x10 \
+    --mem @t6:2=halves:0,1,100,0xFFFF,0xFF00,0x10,0x40,0xFFC0 --arg t7=int:0:5 --arg s0=ptr:0x10 --mem @s0:4=bytes:0,1 \
+    --arg s1=rel:gp+0x78 --arg s2=int:0:40 --mem gHeldZ:1=choice:0*3,1 --mem gLastSpeed:2=halves:0,5,0xFFFB \
+    --mem gVehSlowed:1=choice:0,1 --mem levelno=choice:0x22,1,5 --mem gCurVehicle:1=choice:0xB,0x11,0x12,0,3,3 \
+    --mem gPadStickY:1=choice:0,1,0xFF,0x50,0xB0,0x20,0xE0
+
+# veh_slot_land(index v0, a a1, b a2, c a3, extra t3, pos s6, s3 in/out): |pos - (a*(b-2) + round(gGravity*(b-2)^2))|
+# vs gBounceThreshold: over -> (sound 0xC if gBounceSound) veh_slot_launch(.., |d| / gBounceDamping); else gSlotAirborne[index] = 0
+veh_slot_land: -n 300 --arg v0=int:0:3 --arg a1=ptr:0x40 --arg a2=ptr:0x40 --arg a3=ptr:0x40 \
+    --mem @a1:0x10=words:0,1,-1,5,100,-100 --mem @a2:0x10=words:0,1,2,3,4,10,-5 --arg t3=int --arg s6=int:-2000:2000 \
+    --arg s3=int --mem gGravity:4=floats:-4:4 --mem gBounceThreshold:1=bytes:0,1,5,50,0x80,0xFF \
+    --mem gBounceDamping:1=bytes:1,2,3,7,0xFF --mem gBounceSound:1=bytes:0,1 --mem gSlotAirborne:4=rand --sig snd_play=a0,a1,a2
+# |d| exactly at the threshold (b = 2: predicted 0) and the rounding of gGravity * n^2 at .5
+veh_slot_land: -n 200 --seed 1 --arg v0=int:0:3 --arg a1=ptr:0x40 --arg a2=ptr:0x40 --arg a3=ptr:0x40 \
+    --mem @a1:0x10=words:0 --mem @a2:0x10=words:2 --arg t3=int --arg s6=choice:4,5,6,-4,-5,-6,0 --arg s3=int \
+    --mem gGravity:4=floats:-4:4 --mem gBounceThreshold:1=bytes:5 --mem gBounceDamping:1=bytes:1,2,3 --mem gBounceSound:1=bytes:0,1 \
+    --mem gSlotAirborne:4=rand --sig snd_play=a0,a1,a2
+veh_slot_land: -n 200 --seed 2 --arg v0=int:0:3 --arg a1=ptr:0x40 --arg a2=ptr:0x40 --arg a3=ptr:0x40 \
+    --mem @a1:0x10=words:0 --mem @a2:0x10=words:3,1,5 --arg t3=int --arg s6=int:-3:3 --arg s3=int \
+    --mem gGravity=choice:0x3F000000,0x3FC00000,0xBF000000,0x40200000 --mem gBounceThreshold:1=bytes:0,1,2 \
+    --mem gBounceDamping:1=bytes:1 --mem gBounceSound:1=bytes:0 --mem gSlotAirborne:4=rand
+veh_slot_land: -n 200 --seed 3 --follow veh_slot_launch,veh_clamp_climb --arg v0=int:0:3 --arg a1=ptr:0x40 --arg a2=ptr:0x40 \
+    --arg a3=ptr:0x40 --mem @a1:0x10=words:0,1,-1,5,100,-100 --mem @a2:0x10=words:0,1,2,3,4,10,-5 --arg t3=int \
+    --arg s6=int:-20000:20000 --arg s3=int --mem gGravity:4=floats:-4:4 --mem gBounceThreshold:1=bytes:0,1,5,50,0x80,0xFF \
+    --mem gBounceDamping:1=bytes:1,2,3,7,0xFF --mem gBounceSound:1=bytes:0,1 --mem gSlotAirborne:4=rand --sig snd_play=a0,a1,a2
+
+# ground_slot_height(index v0, x t0, z t1, y t2, skip t8, veh gp, fp): pick among the three scans' heights (stubbed results),
+# store flags/height for the slot, result t3. Sentinel path, h1/h2 compare, found path (h3 via AA094's t3).
+ground_slot_height: -n 200 --arg v0=int:0:7 --arg t0=int --arg t1=int --arg t2=int:-2000:2000 --arg t8=choice:0,1,0xFF \
+    --arg gp=ptr:0x100 --arg fp=int --mem gSlotStandOn:8=rand --mem gSlotSurface:8=rand --mem gSlotGroundY:0x20=rand \
+    --stub-ret ground_scan_part_tris=0x5F5E0FF --stub-ret ground_scan_moveable=0x5F5E0FF --stub-ret ground_scan_grid=0
+ground_slot_height: -n 200 --seed 1 --arg v0=int:0:7 --arg t0=int --arg t1=int --arg t2=choice:-20,29,30,31,80,180,-120,-300 \
+    --arg t8=choice:0,1,0xFF --arg gp=ptr:0x100 --arg fp=int --mem gSlotStandOn:8=rand --mem gSlotSurface:8=rand \
+    --mem gSlotGroundY:0x20=rand --stub-ret ground_scan_part_tris=100 --stub-ret ground_scan_moveable=200 --stub-ret ground_scan_grid=0
+ground_slot_height: -n 200 --seed 2 --arg v0=int:0:7 --arg t0=int --arg t1=int --arg t2=choice:-20,29,30,31,80,180,-120,-300 \
+    --arg t8=choice:0,1,0xFF --arg gp=ptr:0x100 --arg fp=int --mem gSlotStandOn:8=rand --mem gSlotSurface:8=rand \
+    --mem gSlotGroundY:0x20=rand --stub-ret ground_scan_part_tris=-100 --stub-ret ground_scan_moveable=0x5F5E0FF --stub-ret ground_scan_grid=0
+ground_slot_height: -n 200 --seed 3 --arg v0=int:0:7 --arg t0=int --arg t1=int --arg t2=choice:-20,29,30,31,80,180,-120,-300 \
+    --arg t8=choice:0,1,0xFF --arg gp=ptr:0x100 --arg fp=int --mem gSlotStandOn:8=rand --mem gSlotSurface:8=rand \
+    --mem gSlotGroundY:0x20=rand --stub-ret ground_scan_part_tris=100 --stub-ret ground_scan_moveable=200 --stub-ret ground_scan_grid=1 \
+    --stub-ret ground_scan_grid.t3=150
+ground_slot_height: -n 200 --seed 4 --arg v0=int:0:7 --arg t0=int --arg t1=int --arg t2=choice:-20,29,30,31,80,180,-120,-300 \
+    --arg t8=choice:0,1,0xFF --arg gp=ptr:0x100 --arg fp=int --mem gSlotStandOn:8=rand --mem gSlotSurface:8=rand \
+    --mem gSlotGroundY:0x20=rand --stub-ret ground_scan_part_tris=100 --stub-ret ground_scan_moveable=200 --stub-ret ground_scan_grid=1 \
+    --stub-ret ground_scan_grid.t3=-50
+# the three scans for real on small lists (9DC0: heap0, 9F24: gMoveableTris, AA094: grid in heap1), ground_cache_tri too
+ground_slot_height: -n 300 --seed 5 --follow-all --heap 0xC8=words:0,1,2,3,4,5,0xFFFFFFFF,0xFFFFFFFE,0xFFFFFFFD,0xFFFFFC18,0x3E8 \
+    --heap 0x150=halves:0,0,1,2,0xFFFF,0xFFFE,0x100 --arg v0=int:0:7 --arg t0=int:0:3 --arg t1=int:0:3 \
+    --arg t2=int:-2100:380 --arg t8=choice:0,1,2,3,0xFF --arg gp=ptr:0x100 --arg fp=int \
+    --mem gGroupTris=rel:heap0 --mem gGroupTrisEnd=rel:heap0+0x28*int:0:5 \
+    --mem gMoveableTris:0x118=words:0,1,2,3,4,5,0xFFFFFFFF,0xFFFFFFFE,0xFFFFFFFD,0xFFFFFC18,0x3E8 \
+    --mem gMoveableTris+0x36*0x38:5/2=choice:0,1,2,3 --mem gMoveableTrisEnd=rel:gMoveableTris+0x38*int:0:5 \
+    --mem gGroundCellW=choice:1,2 --mem gGroundCellD=choice:1,2 --mem gGroundCols:2=choice:1,2 \
+    --mem gGroundCells=rel:heap1 --mem gGroundCells+4=rel:heap1+0x18 --mem gGroundCells+8=rel:heap1+0x30 \
+    --mem gGroundCells+12=rel:heap1+0x34 --mem gGroundCells+16=rel:heap1+0x60 --mem gGroundCells+20=rel:heap1+0xA0 \
+    --mem gGroundCells+24=rel:heap1+0xB8 --mem gGroundCells+28=rel:heap1+0xE4 --mem gGroundCells+32=rel:heap1+0xE8 \
+    --mem gGroundCells+36=rel:heap1+0x100 --mem gGroundCells+40=rel:heap1+0x12C --mem gGroundCells+44=rel:heap1+0x144 \
+    --mem gGroundCellTris=rel:gMoveableTris --mem gGroundCellTrisEnd=rel:gMoveableTris+choice:0x8C,0x118 --mem gGroundHitTri=rel:gMoveableTris+0x14*int:0:6 \
+    --mem gSlotStandOn:8=rand --mem gSlotSurface:8=rand --mem gSlotGroundY:0x20=rand --mem gObjectFloorY=rand --mem gGuardTrisBestY=rand
+
+# veh_deck_to_local / veh_deck_to_world(id a3, x t0, z t1; r: t3, t4, f12-f26): first gMoveableTris record with id whose
+# triangle holds (x, z) (record 3 always qualifies), then ground_tri_interp. Stubbed tests, then followed.
+veh_deck_to_local: -n 300 --stub-ret ground_tri_box_contains=1 --stub-ret ground_tri_contains=1 --arg a3=7 --arg t0=int --arg t1=int \
+    --mem gMoveableTris:0xE0=rand --mem gMoveableTris+0x36*0x38:3/2=halves:0,7,8 --mem gMoveableTris+0xDE:2=7
+veh_deck_to_local: -n 300 --seed 2 --follow-all --arg a3=7 --arg t0=int:-6:6 --arg t1=int:-6:6 --mem gMoveableTris:0xE0=rand \
+    --mem gMoveableTris*0x38:3=int:-8:8 --mem gMoveableTris+8*0x38:3=int:-8:8 --mem gMoveableTris+0xC*0x38:3=int:-8:8 \
+    --mem gMoveableTris+0x14*0x38:3=int:-8:8 --mem gMoveableTris+0x18*0x38:3=int:-8:8 --mem gMoveableTris+0x20*0x38:3=int:-8:8 \
+    --mem gMoveableTris+0x24*0x38:3/2=int:-500:500 --mem gMoveableTris+0x28*0x38:3/2=int:-500:500 \
+    --mem gMoveableTris+0x2A*0x38:3/2=int:-500:500 --mem gMoveableTris+0x2E*0x38:3/2=int:-500:500 \
+    --mem gMoveableTris+0x30*0x38:3/2=int:-500:500 --mem gMoveableTris+0x34*0x38:3/2=int:-500:500 \
+    --mem gMoveableTris+0x36*0x38:3/2=halves:0,7,7 \
+    --mem gMoveableTris+0xA8=-1000 --mem gMoveableTris+0xB0=-1000 --mem gMoveableTris+0xB4=3000 --mem gMoveableTris+0xBC=-1000 \
+    --mem gMoveableTris+0xC0=-1000 --mem gMoveableTris+0xC8=3000 --mem gMoveableTris+0xCC:2=int:-500:500 \
+    --mem gMoveableTris+0xD0:2=int:-500:500 --mem gMoveableTris+0xD2:2=int:-500:500 --mem gMoveableTris+0xD6:2=int:-500:500 \
+    --mem gMoveableTris+0xD8:2=int:-500:500 --mem gMoveableTris+0xDC:2=int:-500:500 --mem gMoveableTris+0xDE:2=7
+veh_deck_to_world: -n 300 --stub-ret ground_tri_box_contains=1 --stub-ret ground_tri_contains=1 --arg a3=7 --arg t0=int --arg t1=int \
+    --mem gMoveableTris:0xE0=rand --mem gMoveableTris+0x36*0x38:3/2=halves:0,7,8 --mem gMoveableTris+0xDE:2=7
+veh_deck_to_world: -n 300 --seed 2 --follow-all --arg a3=7 --arg t0=int:-6:6 --arg t1=int:-6:6 --mem gMoveableTris:0xE0=rand \
+    --mem gMoveableTris*0x38:3=int:-500:500 --mem gMoveableTris+8*0x38:3=int:-500:500 --mem gMoveableTris+0xC*0x38:3=int:-500:500 \
+    --mem gMoveableTris+0x14*0x38:3=int:-500:500 --mem gMoveableTris+0x18*0x38:3=int:-500:500 --mem gMoveableTris+0x20*0x38:3=int:-500:500 \
+    --mem gMoveableTris+0x24*0x38:3/2=int:-8:8 --mem gMoveableTris+0x28*0x38:3/2=int:-8:8 \
+    --mem gMoveableTris+0x2A*0x38:3/2=int:-8:8 --mem gMoveableTris+0x2E*0x38:3/2=int:-8:8 \
+    --mem gMoveableTris+0x30*0x38:3/2=int:-8:8 --mem gMoveableTris+0x34*0x38:3/2=int:-8:8 \
+    --mem gMoveableTris+0x36*0x38:3/2=halves:0,7,7 \
+    --mem gMoveableTris+0xA8=int:-500:500 --mem gMoveableTris+0xB0=int:-500:500 --mem gMoveableTris+0xB4=int:-500:500 \
+    --mem gMoveableTris+0xBC=int:-500:500 --mem gMoveableTris+0xC0=int:-500:500 --mem gMoveableTris+0xC8=int:-500:500 \
+    --mem gMoveableTris+0xCC:2=-1000 --mem gMoveableTris+0xD0:2=-1000 --mem gMoveableTris+0xD2:2=3000 --mem gMoveableTris+0xD6:2=-1000 \
+    --mem gMoveableTris+0xD8:2=-1000 --mem gMoveableTris+0xDC:2=3000 --mem gMoveableTris+0xDE:2=7
+# the point at a corner of record 3's triangle (ground_tri_interp keeps ground_tri_contains's FP results)
+veh_deck_to_world: -n 100 --seed 3 --follow-all --arg a3=7 --arg t0=choice:-1000,3000 --arg t1=-1000 --mem gMoveableTris:0xE0=rand \
+    --mem gMoveableTris+0x36*0x38:3/2=halves:0,8 --mem gMoveableTris+0xA8=int:-500:500 --mem gMoveableTris+0xB0=int:-500:500 \
+    --mem gMoveableTris+0xB4=int:-500:500 --mem gMoveableTris+0xBC=int:-500:500 --mem gMoveableTris+0xC0=int:-500:500 \
+    --mem gMoveableTris+0xC8=int:-500:500 --mem gMoveableTris+0xCC:2=-1000 --mem gMoveableTris+0xD0:2=-1000 \
+    --mem gMoveableTris+0xD2:2=3000 --mem gMoveableTris+0xD6:2=-1000 --mem gMoveableTris+0xD8:2=-1000 --mem gMoveableTris+0xDC:2=3000 \
+    --mem gMoveableTris+0xDE:2=7
+
+# ground_over_object(x, y, z) (o32, C caller): objects gObjects..gObjectsEnd whose info box holds (x, z) -> ground_scan_object
+ground_over_object: -n 300 --heap 0x100 --arg a0=int --arg a1=int --arg a2=int --mem gObjects:0x3F0=rand \
+    --mem gObjects*0xFC:4=rel:heap0 --mem @heap0+0x20=0x40 --mem @heap0+0x40:8=rand \
+    --mem gObjectsEnd=rel:gObjects+0xFC*int:0:4 --stub-ret ground_tri_box_contains=1 --sig ground_scan_object=a0,a1,a2,a3,*stack0
+ground_over_object: -n 200 --seed 1 --heap 0x100 --arg a0=int --arg a1=int --arg a2=int --mem gObjects:0x3F0=rand \
+    --mem gObjects*0xFC:4=rel:heap0 --mem @heap0+0x20=0x40 --mem @heap0+0x40:8=rand \
+    --mem gObjectsEnd=rel:gObjects+0xFC*int:0:4 --stub-ret ground_tri_box_contains=0 --sig ground_scan_object=a0,a1,a2,a3,*stack0
+# boxes and triangles for real (ground_scan_object's list at info+0x30..+0x94, the box at info+0xA0)
+ground_over_object: -n 300 --seed 2 --follow-all --heap 0x100 --arg a0=int:-40:40 --arg a1=int:-2000:2000 --arg a2=int:-40:40 \
+    --mem gObjects:0x3F0=rand --mem gObjects*0xFC:4=rel:heap0 --mem @heap0+0x24=0x30 \
+    --mem @heap0+0x28=choice:0x30,0x44,0x58,0x6C,0x80,0x94 --mem @heap0+0x30:0x64=halves:0,0,1,2,0xFFFF,0xFFFE,0x20,0xFFE0 \
+    --mem @heap0+0x20=0xA0 --mem @heap0+0xA0:8=halves:0xFFFF,0,1,2,0xFFFE --mem gObjectsEnd=rel:gObjects+0xFC*int:0:4 \
+    --mem gObjectFloorY=rand
+# no objects
+ground_over_object: -n 20 --seed 3 --arg a0=int --arg a1=int --arg a2=int --mem gObjectsEnd=sym:gObjects
+
+# veh_deck_to_local_c / veh_deck_to_world_c (o32: id, x, z, uOut, wOut): veh_deck_to_local / veh_deck_to_world's t3, t4 stored as
+# halves / words; stubbed (only id, x, z compared: the asm passes the caller's f24 along), then followed
+veh_deck_to_local_c: -n 200 --seed 0 --ret void --arg a0=int --arg a1=int --arg a2=int --heap 8 --arg a3=rel:heap0 \
+    --arg stack0=rel:heap0+4 --sig veh_deck_to_local=a0,a1,a2
+veh_deck_to_local_c: -n 300 --seed 1 --ret void --follow-all --arg a0=7 --arg a1=int:-6:6 --arg a2=int:-6:6 --heap 8 \
+    --arg a3=rel:heap0 --arg stack0=rel:heap0+4 --mem gMoveableTris:0xE0=rand \
+    --mem gMoveableTris*0x38:3=int:-8:8 --mem gMoveableTris+8*0x38:3=int:-8:8 --mem gMoveableTris+0xC*0x38:3=int:-8:8 \
+    --mem gMoveableTris+0x14*0x38:3=int:-8:8 --mem gMoveableTris+0x18*0x38:3=int:-8:8 --mem gMoveableTris+0x20*0x38:3=int:-8:8 \
+    --mem gMoveableTris+0x24*0x38:3/2=int:-500:500 --mem gMoveableTris+0x28*0x38:3/2=int:-500:500 \
+    --mem gMoveableTris+0x2A*0x38:3/2=int:-500:500 --mem gMoveableTris+0x2E*0x38:3/2=int:-500:500 \
+    --mem gMoveableTris+0x30*0x38:3/2=int:-500:500 --mem gMoveableTris+0x34*0x38:3/2=int:-500:500 \
+    --mem gMoveableTris+0x36*0x38:3/2=halves:0,7,7 \
+    --mem gMoveableTris+0xA8=-1000 --mem gMoveableTris+0xB0=-1000 --mem gMoveableTris+0xB4=3000 --mem gMoveableTris+0xBC=-1000 \
+    --mem gMoveableTris+0xC0=-1000 --mem gMoveableTris+0xC8=3000 --mem gMoveableTris+0xCC:2=int:-500:500 \
+    --mem gMoveableTris+0xD0:2=int:-500:500 --mem gMoveableTris+0xD2:2=int:-500:500 --mem gMoveableTris+0xD6:2=int:-500:500 \
+    --mem gMoveableTris+0xD8:2=int:-500:500 --mem gMoveableTris+0xDC:2=int:-500:500 --mem gMoveableTris+0xDE:2=7
+veh_deck_to_world_c: -n 200 --seed 0 --ret void --arg a0=int --arg a1=int --arg a2=int --heap 8 --arg a3=rel:heap0 \
+    --arg stack0=rel:heap0+4 --sig veh_deck_to_world=a0,a1,a2
+veh_deck_to_world_c: -n 300 --seed 1 --ret void --follow-all --arg a0=7 --arg a1=int:-6:6 --arg a2=int:-6:6 --heap 8 \
+    --arg a3=rel:heap0 --arg stack0=rel:heap0+4 --mem gMoveableTris:0xE0=rand \
+    --mem gMoveableTris*0x38:3=int:-500:500 --mem gMoveableTris+8*0x38:3=int:-500:500 --mem gMoveableTris+0xC*0x38:3=int:-500:500 \
+    --mem gMoveableTris+0x14*0x38:3=int:-500:500 --mem gMoveableTris+0x18*0x38:3=int:-500:500 --mem gMoveableTris+0x20*0x38:3=int:-500:500 \
+    --mem gMoveableTris+0x24*0x38:3/2=int:-8:8 --mem gMoveableTris+0x28*0x38:3/2=int:-8:8 \
+    --mem gMoveableTris+0x2A*0x38:3/2=int:-8:8 --mem gMoveableTris+0x2E*0x38:3/2=int:-8:8 \
+    --mem gMoveableTris+0x30*0x38:3/2=int:-8:8 --mem gMoveableTris+0x34*0x38:3/2=int:-8:8 \
+    --mem gMoveableTris+0x36*0x38:3/2=halves:0,7,7 \
+    --mem gMoveableTris+0xA8=int:-500:500 --mem gMoveableTris+0xB0=int:-500:500 --mem gMoveableTris+0xB4=int:-500:500 \
+    --mem gMoveableTris+0xBC=int:-500:500 --mem gMoveableTris+0xC0=int:-500:500 --mem gMoveableTris+0xC8=int:-500:500 \
+    --mem gMoveableTris+0xCC:2=-1000 --mem gMoveableTris+0xD0:2=-1000 --mem gMoveableTris+0xD2:2=3000 --mem gMoveableTris+0xD6:2=-1000 \
+    --mem gMoveableTris+0xD8:2=-1000 --mem gMoveableTris+0xDC:2=3000 --mem gMoveableTris+0xDE:2=7
+
+# veh_move_along_heading (f f12, angle t4, *len t6 (s16), *px t7, *pz s1 -> t0, t1, s3, fp): length scaled by |f|, offset
+# along the angle's quadrant; sine/cosine stubbed 0..0x10000 (a stub's result reaches the asm zero-extended),
+# then followed for every sign
+veh_move_along_heading: -n 400 --seed 0 --arg f12=float:-3:3 --arg t4=int:-0x100:0x1100 --heap 0x10 --arg t6=rel:heap0 \
+    --arg t7=rel:heap0+4 --arg s1=rel:heap0+8 --mem @heap0:2=int:0:0xFFFF --mem @heap0+4=int:-0x10000000:0x10000000 \
+    --mem @heap0+8=int:-0x10000000:0x10000000 --stub-ret math_cos=int:0:0x10000 --stub-ret math_sin=int:0:0x10000
+veh_move_along_heading: -n 300 --seed 1 --arg f12=choice:0,0x80000000,0x3F800000,0xBF800000,0x3F7FFFFF,0x3F800001,0x40000000,0x3F000000 \
+    --arg t4=choice:0,0x3FF,0x400,0x7FF,0x800,0xBFF,0xC00,0xFFF,0x1000,-1,-0x400 --heap 0x10 --arg t6=rel:heap0 \
+    --arg t7=rel:heap0+4 --arg s1=rel:heap0+8 --mem @heap0:2=halves:0,1,0xFFFF,0x7FFF,0x8000,3,5 \
+    --mem @heap0+4=int:-0x10000000:0x10000000 --mem @heap0+8=int:-0x10000000:0x10000000 \
+    --stub-ret math_cos=choice:0,0x10000,1,0xFFFF,0xB505 --stub-ret math_sin=choice:0,0x10000,1,0xFFFF,0xB505
+veh_move_along_heading: -n 300 --seed 2 --arg f12=float:-3:3 --arg t4=int:-0x1000:0x1100 --heap 0x10 --arg t6=rel:heap0 \
+    --arg t7=rel:heap0+4 --arg s1=rel:heap0+8 --mem @heap0:2=int:0:0xFFFF --mem @heap0+4=int:-0x10000000:0x10000000 \
+    --mem @heap0+8=int:-0x10000000:0x10000000 --follow math_cos,math_sin,math_cosf,math_sinf
+veh_move_along_heading: -n 200 --seed 3 --arg f12=choice:0,0x3F800000,0xBF800000,0x3F7FFFFF,0x40000000 \
+    --arg t4=choice:0,0x3FF,0x400,0x7FF,0x800,0xBFF,0xC00,0xFFF,0x1000,-1,-0x400,0x200,0x600,0xA00,0xE00 --heap 0x10 \
+    --arg t6=rel:heap0 --arg t7=rel:heap0+4 --arg s1=rel:heap0+8 --mem @heap0:2=halves:0,1,0xFFFF,0x7FFF,0x8000,0x1234 \
+    --mem @heap0+4=int:-0x10000000:0x10000000 --mem @heap0+8=int:-0x10000000:0x10000000 \
+    --follow math_cos,math_sin,math_cosf,math_sinf
+
+# veh_respawn_if_out (veh gp, id t8, px t7, py s2, pz s1, x/z t0/t1 in/out): vehicle-7 level limits, box gBoundsMinX..36,
+# respawn record (key id or 1 by gLevelKind; keys 1, 2, 7, 0xD always present in records 12..15)
+veh_respawn_if_out: -n 400 --seed 0 --heap 0x100 --arg gp=rel:heap0 --arg t8=choice:7*3,1,2,0xD --heap 0x10 --arg t7=rel:heap1 \
+    --arg s2=rel:heap1+4 --arg s1=rel:heap1+8 --arg t0=int:-0x1000:0x20000 --arg t1=int:-0x1000:0x20000 --heap 0x90 \
+    --mem gRespawnPoints=rel:heap2 --mem @heap2+0x6C:1=1 --mem @heap2+0x75:1=2 --mem @heap2+0x7E:1=7 --mem @heap2+0x87:1=0xD \
+    --mem gLevelKind=choice:0,1,0x80,2,0x81 --mem levelno=choice:0,0x12,0xD,5 --mem gBoundsMinX:2=halves:0,100,500 \
+    --mem gBoundsMaxX:2=halves:1000,2000,4000 --mem gBoundsMinZ:2=halves:0,100,900 --mem gBoundsMaxZ:2=halves:1000,2000,4000 \
+    --mem gCamSnap:1=bytes:0,2 --sig fx_spawn_at_late=a0,a1,a2,a3,stack0
+# vehicle 7 level limits exactly at their edges (box wide open)
+veh_respawn_if_out: -n 300 --seed 1 --heap 0x100 --arg gp=rel:heap0 --arg t8=7 --heap 0x10 --arg t7=rel:heap1 \
+    --arg s2=rel:heap1+4 --arg s1=rel:heap1+8 --arg t0=choice:0x7CE0,0x7CFF,0x7D00,0x7D1F,0x7D20 \
+    --arg t1=choice:0x7060,0x707F,0x7080,0x709F,0x8960,0x897F,0x8980,0x899F --heap 0x90 \
+    --mem gRespawnPoints=rel:heap2 --mem @heap2+0x6C:1=1 --mem @heap2+0x75:1=2 --mem @heap2+0x7E:1=7 --mem @heap2+0x87:1=0xD \
+    --mem gLevelKind=choice:0,1 --mem levelno=choice:0,0x12,0xD,5 --mem gBoundsMinX:2=0x8000 --mem gBoundsMaxX:2=0x7FFF \
+    --mem gBoundsMinZ:2=0x8000 --mem gBoundsMaxZ:2=0x7FFF --sig fx_spawn_at_late=a0,a1,a2,a3,stack0
+# box edges (other vehicles): just inside / outside each side of 100..1000 x 200..900
+veh_respawn_if_out: -n 300 --seed 2 --heap 0x100 --arg gp=rel:heap0 --arg t8=choice:1,2,0xD --heap 0x10 --arg t7=rel:heap1 \
+    --arg s2=rel:heap1+4 --arg s1=rel:heap1+8 --arg t0=choice:0xC7F,0xC80,0x7D1F,0x7D20,0x4000 \
+    --arg t1=choice:0x18FF,0x1900,0x709F,0x70A0,0x4000 --heap 0x90 --mem gRespawnPoints=rel:heap2 --mem @heap2+0x6C:1=1 \
+    --mem @heap2+0x75:1=2 --mem @heap2+0x7E:1=7 --mem @heap2+0x87:1=0xD --mem gLevelKind=choice:0,0x80 \
+    --mem levelno=5 --mem gBoundsMinX:2=100 --mem gBoundsMaxX:2=1000 --mem gBoundsMinZ:2=200 --mem gBoundsMaxZ:2=900 \
+    --sig fx_spawn_at_late=a0,a1,a2,a3,stack0
+# callees run for real (veh_reset_state, fx_spawn_at_late; fx_spawn and hud_panel_start stubbed)
+veh_respawn_if_out: -n 200 --seed 3 --heap 0x100 --arg gp=rel:heap0 --arg t8=choice:7,1,2,0xD --heap 0x10 --arg t7=rel:heap1 \
+    --arg s2=rel:heap1+4 --arg s1=rel:heap1+8 --arg t0=int:-0x1000:0x20000 --arg t1=int:-0x1000:0x20000 --heap 0x90 \
+    --mem gRespawnPoints=rel:heap2 --mem @heap2+0x6C:1=1 --mem @heap2+0x75:1=2 --mem @heap2+0x7E:1=7 --mem @heap2+0x87:1=0xD \
+    --mem gLevelKind=choice:0,1,0x80 --mem levelno=choice:0,0x12,0xD,5 --mem gBoundsMinX:2=halves:0,100,500 \
+    --mem gBoundsMaxX:2=halves:1000,2000,4000 --mem gBoundsMinZ:2=halves:0,100,900 --mem gBoundsMaxZ:2=halves:1000,2000,4000 \
+    --follow veh_reset_state,fx_spawn_at_late
+
+# veh_follow_angle (A t3/t4, offset t5/t6, B t7/s0 -> s6): arcsine of |B + d - A| / 2 / |A - B| (clamped) >> 3;
+# __ll_mul / __ll_to_f are the C build's s64 helpers
+veh_follow_angle: -n 400 --seed 0 --follow __ll_mul,__ll_to_f --arg t3=int:-0x8000:0x8000 --arg t4=int:-0x8000:0x8000 \
+    --arg t5=int:-0x8000:0x8000 --arg t6=int:-0x8000:0x8000 --arg t7=int:-0x8000:0x8000 --arg s0=int:-0x8000:0x8000 \
+    --stub-ret math_asin=choice:0,1,7,8,0x3FFF,0x4000,0x7FFFFFFF,0x12345
+# the clamp: ratio just below / at / above 1 (B - A = (100, 0), offset 99 / 100 / 101 ...)
+veh_follow_angle: -n 200 --seed 1 --follow __ll_mul,__ll_to_f --arg t3=choice:0,-50 --arg t4=choice:0,7 \
+    --arg t5=choice:99,100,101,-300,0,199,200,201 --arg t6=choice:0,1,-1 --arg t7=rel:t3+100 --arg s0=rel:t4+0 \
+    --stub-ret math_asin=int
+veh_follow_angle: -n 300 --seed 2 --follow __ll_mul,__ll_to_f,math_asin --arg t3=int:-0x100000:0x100000 \
+    --arg t4=int:-0x100000:0x100000 --arg t5=int:-0x100000:0x100000 --arg t6=int:-0x100000:0x100000 \
+    --arg t7=int:-0x100000:0x100000 --arg s0=int:-0x100000:0x100000
+
+# ---- wt-g3: ground-height slot functions ----
+# veh_wheel_offset(index v0, tbl v1, angle *s4) -> t5, t6: math_rotate_xz_inv(tbl[i].x, tbl[i].z, *angle)
+veh_wheel_offset: -n 300 --arg v0=int:0:7 --arg v1=ptr:0x40 --mem @v1:0x20=halves:0,1,0x7FFF,0x8000,0xFFFF,0x1234,0xFF00 \
+    --arg s4=ptr:4 --mem @s4:2=halves:0,0x400,0xFFF,0x7FFF,0x8000,0xFFFF,0x123
+veh_wheel_offset: -n 200 --seed 1 --follow math_rotate_xz_inv --arg v0=int:0:7 --arg v1=ptr:0x40 --mem @v1:0x20=halves:0,1,0x7FFF,0x8000,0xFFFF,0x1234,0xFF00 \
+    --arg s4=ptr:4 --mem @s4:2=halves:0,0x400,0xFFF,0x7FFF,0x8000,0xFFFF,0x123
+veh_wheel_offset: -n 200 --seed 2 --follow-all --arg v0=int:0:7 --arg v1=ptr:0x40 --mem @v1:0x20=halves:0,1,0x7FFF,0x8000,0xFFFF,0x1234,0xFF00 \
+    --arg s4=ptr:4 --mem @s4:2=int:0:0xFFFF
+
+# veh_update_stand_on(x t0, z t1, tbl t3, angle s4, ys s7, key t8, veh gp, fp; f12-f26 in/out) -> t6: three slots via
+# veh_wheel_offset + ground_slot_height, then the slot kinds into key's gStandOn record (found, or the -1 end claimed)
+veh_update_stand_on: -n 300 --arg t0=int:-0x100000:0x100000 --arg t1=int:-0x100000:0x100000 --arg t3=ptr:0x40 --arg s4=ptr:4 \
+    --arg s7=ptr:0x30 --arg t8=choice:0,1,2,5,0xFF,0x105 --arg gp=ptr:0x100 --arg fp=int \
+    --stub-ret veh_wheel_offset=int:-0x1000:0x1000 --stub-ret veh_wheel_offset.t6=int:-0x1000:0x1000 \
+    --mem gStandOn:0x1C=bytes:0,1,0xFF,5,2 --mem gStandOn+0x1C=0xFFFFFFFF --mem gSlotStandOn:3=rand
+veh_update_stand_on: -n 200 --seed 1 --arg t0=int:-0x100000:0x100000 --arg t1=int:-0x100000:0x100000 --arg t3=ptr:0x40 --arg s4=ptr:4 \
+    --arg s7=ptr:0x30 --arg t8=choice:1,2,0xFF --arg gp=ptr:0x100 --arg fp=int \
+    --stub-ret veh_wheel_offset=int:-0x1000:0x1000 --stub-ret veh_wheel_offset.t6=int:-0x1000:0x1000 \
+    --mem gStandOn:0x20=onehot:4:0xFFFFFFFF:words:0x00010203,0x05000000,0xFF000000,0xFF0000FF,0x01FFFFFF \
+    --mem gStandOn+0x20=0xFFFFFFFF --mem gSlotStandOn:3=rand
+# the slot functions followed (scans stubbed; sine/cosine stubbed so f12/f14 stay as given)
+veh_update_stand_on: -n 200 --seed 2 --follow veh_wheel_offset,math_rotate_xz_inv,ground_slot_height --arg t0=int:-0x100000:0x100000 \
+    --arg t1=int:-0x100000:0x100000 --arg t3=ptr:0x40 --arg s4=ptr:4 --arg s7=ptr:0x30 --mem @s7:0x30=words:0,100,-100,3000 \
+    --arg t8=choice:1,2,0xFF --arg gp=ptr:0x100 --arg fp=int --stub-ret math_cos=int:-0x10000:0x10000 \
+    --stub-ret math_sin=int:-0x10000:0x10000 --stub-ret ground_scan_part_tris=choice:0x5F5E0FF,100,-50,3000 \
+    --stub-ret ground_scan_moveable=choice:0x5F5E0FF,100,200,-50 --stub-ret ground_scan_grid=choice:0,1 \
+    --mem gStandOn:0x1C=bytes:0,1,0xFF,5,2 --mem gStandOn+0x1C=0xFFFFFFFF --mem gSlotStandOn:8=rand \
+    --mem gSlotSurface:8=rand --mem gSlotGroundY:0x20=rand
+
+# veh_slot_grounded(index v0, a/b/c a1-a3, tbl v1, x t0, z t1, angle s4, ys s7, key t8, veh gp, fp; f) -> s3:
+# v = clamp(y - prev), expected = v + round(gGravity) + y; h <= expected - 0x1E -> veh_slot_launch, else EE[i] = 0
+veh_slot_grounded: -n 300 --arg v0=int:0:2 --arg a1=ptr:0x10 --arg a2=ptr:0x10 --arg a3=ptr:0x10 --arg v1=ptr:0x40 \
+    --arg t0=int:-0x100000:0x100000 --arg t1=int:-0x100000:0x100000 --arg s4=ptr:4 --arg s7=ptr:0x30 \
+    --mem @s7:0x30=words:0,100,-100,500,3000,-3000,0x240,0x241,29,30,31 --arg t8=choice:0,1,9 --arg gp=ptr:0x100 --arg fp=int \
+    --stub-ret veh_wheel_offset=int:-0x1000:0x1000 --stub-ret veh_wheel_offset.t6=int:-0x1000:0x1000 \
+    --stub-ret veh_clamp_climb=int:-1000:1000 --stub-ret ground_slot_height=int:-4000:4000 --stub-ret veh_slot_launch=int \
+    --mem gGravity:4=floats:-50:50 --mem gSlotAirborne:4=rand --mem gSlotY:0x10=rand
+# boundary: expected = 100 exactly (v 0, gGravity 0.0, y 100), h around expected - 0x1E
+veh_slot_grounded: -n 200 --seed 1 --arg v0=int:0:2 --arg a1=ptr:0x10 --arg a2=ptr:0x10 --arg a3=ptr:0x10 --arg v1=ptr:0x40 \
+    --arg t0=int:-0x100000:0x100000 --arg t1=int:-0x100000:0x100000 --arg s4=ptr:4 --arg s7=ptr:0x30 \
+    --mem @s7:0x30=words:100 --arg t8=choice:0,1,9 --arg gp=ptr:0x100 --arg fp=int \
+    --stub-ret veh_wheel_offset=int:-0x1000:0x1000 --stub-ret veh_wheel_offset.t6=int:-0x1000:0x1000 \
+    --stub-ret veh_clamp_climb=0 --stub-ret ground_slot_height=choice:69,70,71,0,-1 --stub-ret veh_slot_launch=int \
+    --mem gGravity=0 --mem gSlotAirborne:4=rand --mem gSlotY:0x10=rand
+veh_slot_grounded: -n 200 --seed 2 --follow veh_wheel_offset,math_rotate_xz_inv,veh_clamp_climb,veh_slot_launch,ground_slot_height \
+    --arg v0=int:0:2 --arg a1=ptr:0x10 --arg a2=ptr:0x10 --arg a3=ptr:0x10 --arg v1=ptr:0x40 \
+    --arg t0=int:-0x100000:0x100000 --arg t1=int:-0x100000:0x100000 --arg s4=ptr:4 --arg s7=ptr:0x30 \
+    --mem @s7:0x30=words:0,100,-100,500,3000,-3000,0x240,0x241,29,30,31 --arg t8=choice:0,1,9 --arg gp=ptr:0x100 --arg fp=int \
+    --stub-ret math_cos=int:-0x10000:0x10000 --stub-ret math_sin=int:-0x10000:0x10000 \
+    --stub-ret ground_scan_part_tris=choice:0x5F5E0FF,100,-50,3000 --stub-ret ground_scan_moveable=choice:0x5F5E0FF,100,200,-50 \
+    --stub-ret ground_scan_grid=choice:0,1 --mem gGravity:4=floats:-50:50 --mem gSlotAirborne:8=rand --mem gSlotY:0x10=rand \
+    --mem gSlotStandOn:8=rand --mem gSlotSurface:8=rand --mem gSlotGroundY:0x20=rand
+
+# veh_slot_airborne(index v0, a/b/c a1-a3, tbl v1, x t0, z t1, angle s4, ys s7, key t8, veh gp, fp, s3 in/out; f):
+# airborne slot: drop = a*n + round(g*n*n) (b = n + 1), expected = c + drop; landed (h < expected, or key 9 with
+# gJbombCeilingAbove and h - expected >= 0x6A5) -> gSlotY = max(expected, 0), EE = 1; else gSlotY = h, veh_slot_land
+veh_slot_airborne: -n 300 --arg v0=int:0:2 --arg a1=ptr:0x10 --arg a2=ptr:0x10 --arg a3=ptr:0x10 \
+    --mem @a1:0x10=words:0,1,-1,5,-20,100 --mem @a2:0x10=words:0,1,2,3,10,-4 --mem @a3:0x10=words:0,100,-100,3000,-3000 \
+    --arg v1=ptr:0x40 --arg t0=int:-0x100000:0x100000 --arg t1=int:-0x100000:0x100000 --arg s4=ptr:4 --arg s7=ptr:0x30 \
+    --arg t8=choice:0,1,9,9 --arg gp=ptr:0x100 --arg fp=int --arg s3=int \
+    --stub-ret veh_wheel_offset=int:-0x1000:0x1000 --stub-ret veh_wheel_offset.t6=int:-0x1000:0x1000 \
+    --stub-ret ground_slot_height=int:-4000:4000 --stub-ret veh_slot_land=int \
+    --mem gGravity:4=floats:-50:50 --mem gJbombCeilingAbove:1=choice:0,1 --mem gSlotAirborne:4=rand --mem gSlotY:0x10=rand
+# boundary: expected = 100 (a 0, n 0, c 100); h at expected and at expected + 0x6A4/0x6A5, key 9 with/without the flag
+veh_slot_airborne: -n 200 --seed 1 --arg v0=int:0:2 --arg a1=ptr:0x10 --arg a2=ptr:0x10 --arg a3=ptr:0x10 \
+    --mem @a1:0x10=words:0 --mem @a2:0x10=words:0 --mem @a3:0x10=words:100 \
+    --arg v1=ptr:0x40 --arg t0=int:-0x100000:0x100000 --arg t1=int:-0x100000:0x100000 --arg s4=ptr:4 --arg s7=ptr:0x30 \
+    --arg t8=choice:9,9,8 --arg gp=ptr:0x100 --arg fp=int --arg s3=int \
+    --stub-ret veh_wheel_offset=int:-0x1000:0x1000 --stub-ret veh_wheel_offset.t6=int:-0x1000:0x1000 \
+    --stub-ret ground_slot_height=choice:99,100,101,1800,1801,1802 --stub-ret veh_slot_land=int \
+    --mem gGravity:4=floats:-50:50 --mem gJbombCeilingAbove:1=choice:0,1,1 --mem gSlotAirborne:4=rand --mem gSlotY:0x10=rand
+# negative expected (clamped to 0 when landed)
+veh_slot_airborne: -n 100 --seed 2 --arg v0=int:0:2 --arg a1=ptr:0x10 --arg a2=ptr:0x10 --arg a3=ptr:0x10 \
+    --mem @a1:0x10=words:0 --mem @a2:0x10=words:0 --mem @a3:0x10=words:-100,-1,0 \
+    --arg v1=ptr:0x40 --arg t0=int:-0x100000:0x100000 --arg t1=int:-0x100000:0x100000 --arg s4=ptr:4 --arg s7=ptr:0x30 \
+    --arg t8=choice:9,1 --arg gp=ptr:0x100 --arg fp=int --arg s3=int \
+    --stub-ret veh_wheel_offset=int:-0x1000:0x1000 --stub-ret veh_wheel_offset.t6=int:-0x1000:0x1000 \
+    --stub-ret ground_slot_height=choice:-200,-101,0,1 --stub-ret veh_slot_land=int \
+    --mem gGravity:4=floats:-50:50 --mem gJbombCeilingAbove:1=choice:0,1 --mem gSlotAirborne:4=rand --mem gSlotY:0x10=rand
+veh_slot_airborne: -n 200 --seed 3 --follow veh_wheel_offset,math_rotate_xz_inv,veh_slot_land,veh_slot_launch,veh_clamp_climb,ground_slot_height \
+    --arg v0=int:0:2 --arg a1=ptr:0x10 --arg a2=ptr:0x10 --arg a3=ptr:0x10 \
+    --mem @a1:0x10=words:0,1,-1,5,-20,100 --mem @a2:0x10=words:0,1,2,3,10,-4 --mem @a3:0x10=words:0,100,-100,3000,-3000 \
+    --arg v1=ptr:0x40 --arg t0=int:-0x100000:0x100000 --arg t1=int:-0x100000:0x100000 --arg s4=ptr:4 --arg s7=ptr:0x30 \
+    --mem @s7:0x30=words:0,100,-100,3000 --arg t8=choice:0,1,9,9 --arg gp=ptr:0x100 --arg fp=int --arg s3=int \
+    --stub-ret math_cos=int:-0x10000:0x10000 --stub-ret math_sin=int:-0x10000:0x10000 \
+    --stub-ret ground_scan_part_tris=choice:0x5F5E0FF,100,-50,3000 --stub-ret ground_scan_moveable=choice:0x5F5E0FF,100,200,-50 \
+    --stub-ret ground_scan_grid=choice:0,1 --sig snd_play=a0,a1,a2 \
+    --mem gGravity:4=floats:-50:50 --mem gJbombCeilingAbove:1=choice:0,1 --mem gSlotAirborne:8=rand --mem gSlotY:0x10=rand \
+    --mem gSlotStandOn:8=rand --mem gSlotSurface:8=rand --mem gSlotGroundY:0x20=rand --mem gBounceThreshold:1=bytes:0,5,50,0xFF \
+    --mem gBounceDamping:1=bytes:1,2,7 --mem gBounceSound:1=bytes:0,1
+
+# veh_init_ground(tbl v1, y t2, x t7, z s0, dst s1, mid s2, angle s4, key t8, fp, veh gp; f) -> s3 = dst: per slot
+# ground_scan_moveable (kind 0 -> ground_scan_grid may replace h and fp), records/kinds/flags, mid, veh+0x50, gStandOn record
+veh_init_ground: -n 300 --arg v1=ptr:0x40 --arg t2=int:-3000:3000 --arg t7=int:-0x100000:0x100000 --arg s0=int:-0x100000:0x100000 \
+    --arg s1=ptr:0x30 --arg s2=ptr:4 --arg s4=ptr:4 --arg t8=choice:0,1,2,5,0xFF --arg fp=int --arg gp=ptr:0x100 \
+    --stub-ret veh_wheel_offset=int:-0x1000:0x1000 --stub-ret veh_wheel_offset.t6=int:-0x1000:0x1000 \
+    --stub-ret ground_scan_moveable=int:-0x10000000:0x10000000 --stub-ret ground_scan_moveable.t6=choice:0,0,1,5,0x100 \
+    --stub-ret ground_scan_grid=choice:0,1 --stub-ret ground_scan_grid.t3=int:-0x10000000:0x10000000 --stub-ret ground_scan_grid.fp=int \
+    --mem gStandOn:0x1C=bytes:0,1,0xFF,5,2 --mem gStandOn+0x1C=0xFFFFFFFF --mem gSlotStandOn:3=rand --mem gSlotSurface:3=rand
+veh_init_ground: -n 200 --seed 1 --follow veh_wheel_offset,math_rotate_xz_inv --arg v1=ptr:0x40 --arg t2=int:-3000:3000 \
+    --arg t7=int:-0x100000:0x100000 --arg s0=int:-0x100000:0x100000 --arg s1=ptr:0x30 --arg s2=ptr:4 --arg s4=ptr:4 \
+    --arg t8=choice:1,2,0xFF --arg fp=int --arg gp=ptr:0x100 --stub-ret math_cos=int:-0x10000:0x10000 \
+    --stub-ret math_sin=int:-0x10000:0x10000 --stub-ret ground_scan_moveable=int:-0x10000000:0x10000000 \
+    --stub-ret ground_scan_moveable.t6=choice:0,1 --stub-ret ground_scan_grid.t3=int:-0x10000000:0x10000000 --stub-ret ground_scan_grid.fp=int \
+    --mem gStandOn:0x20=onehot:4:0xFFFFFFFF:words:0x00010203,0x05000000,0xFF000000,0xFF0000FF,0x01FFFFFF \
+    --mem gStandOn+0x20=0xFFFFFFFF --mem gSlotStandOn:3=rand --mem gSlotSurface:3=rand
+
+# veh_reground: as veh_init_ground through ground_slot_height (veh+0x9B = 0 first); gModelRot/gModelRotZ = 0; t6, s1, s3 out
+veh_reground: -n 300 --arg v1=ptr:0x40 --arg t2=int:-3000:3000 --arg t7=int:-0x100000:0x100000 --arg s0=int:-0x100000:0x100000 \
+    --arg s1=ptr:0x30 --arg s2=ptr:4 --arg s4=ptr:4 --arg t8=choice:0,1,2,5,0xFF --arg fp=int --arg gp=ptr:0x100 \
+    --stub-ret veh_wheel_offset=int:-0x1000:0x1000 --stub-ret veh_wheel_offset.t6=int:-0x1000:0x1000 --stub-ret ground_slot_height=int:-0x10000000:0x10000000 \
+    --mem gSlotSurface:3=rand --mem gModelRot:6=rand
+veh_reground: -n 200 --seed 1 --follow veh_wheel_offset,math_rotate_xz_inv,ground_slot_height --arg v1=ptr:0x40 --arg t2=int:-3000:3000 \
+    --arg t7=int:-0x100000:0x100000 --arg s0=int:-0x100000:0x100000 --arg s1=ptr:0x30 --arg s2=ptr:4 --arg s4=ptr:4 \
+    --arg t8=choice:0,1,2,5,0xFF --arg fp=int --arg gp=ptr:0x100 --stub-ret math_cos=int:-0x10000:0x10000 \
+    --stub-ret math_sin=int:-0x10000:0x10000 --stub-ret ground_scan_part_tris=choice:0x5F5E0FF,100,-50,3000 \
+    --stub-ret ground_scan_moveable=choice:0x5F5E0FF,100,200,-50 --stub-ret ground_scan_grid=choice:0,1 \
+    --mem gSlotSurface:8=rand --mem gModelRot:6=rand --mem gSlotStandOn:8=rand --mem gSlotGroundY:0x20=rand
+
+# veh_follow_heading(tbl v1, x1 t0, angle a2, id a3, z1 t1, x2 s1, z2 s2; r f24 in) -> t0 heading, s3 distance, f24/f26
+veh_follow_heading: -n 300 --arg v1=ptr:0x40 --arg t0=int --arg a2=ptr:4 --mem @a2:2=int:0:0xFFF --arg a3=int:0:9 --arg t1=int \
+    --arg s1=int --arg s2=int --arg f24=float --stub-ret veh_deck_to_world.t3=int:-0x10000:0x10000 \
+    --stub-ret veh_deck_to_world.t4=int:-0x10000:0x10000 --stub-ret veh_wheel_offset=int:-0x1000:0x1000 \
+    --stub-ret veh_wheel_offset.t6=int:-0x1000:0x1000 --stub-ret veh_follow_angle=choice:0,1,0x200,0x3FF,0x400,0x401,0x800,0x801,0xC00 \
+    --mem gVehWheelHeading:2=rand
+# wrap boundaries: heading near 0 / 0xFFF, turn amounts 0x400 / 0x401 / 0x800 / 0x801 in sequence
+veh_follow_heading: -n 300 --seed 1 --arg v1=ptr:0x40 --arg t0=int --arg a2=ptr:4 --mem @a2:2=halves:0,1,0x3FF,0x400,0x7FF,0x800,0xBFF,0xC00,0xFFE,0xFFF \
+    --arg a3=int:0:9 --arg t1=int --arg s1=int --arg s2=int --arg f24=float --stub-ret veh_deck_to_world.t3=choice:0,100,-100 \
+    --stub-ret veh_deck_to_world.t4=choice:0,100,-100 --stub-ret veh_wheel_offset=choice:0,10,-10,100 \
+    --stub-ret veh_wheel_offset.t6=choice:0,10,-10,100 --stub-ret veh_follow_angle=seq:0x401,0x401,0,0x7FF,0x400,0x3FF,0x401,0x800 \
+    --mem gVehWheelHeading:2=rand
+veh_follow_heading: -n 200 --seed 2 --follow veh_wheel_offset,math_rotate_xz_inv --arg v1=ptr:0x40 --arg t0=int --arg a2=ptr:4 \
+    --mem @a2:2=int:0:0xFFF --arg a3=int:0:9 --arg t1=int --arg s1=int --arg s2=int --arg f24=float \
+    --stub-ret veh_deck_to_world.t3=int:-0x10000:0x10000 --stub-ret veh_deck_to_world.t4=int:-0x10000:0x10000 \
+    --stub-ret math_cos=int:-0x10000:0x10000 --stub-ret math_sin=int:-0x10000:0x10000 \
+    --stub-ret veh_follow_angle=choice:0,1,0x200,0x3FF,0x400,0x401,0x800,0x801,0xC00 --mem gVehWheelHeading:2=rand
+
+# mtx_build_model(x s4, y s5, z s6, scale s7, m t8): scale matrix, three rotations (gModelRot/gModelRotZ/gModelRotY), translation << 11
+mtx_build_model: -n 200 --arg s4=int --arg s5=int --arg s6=int --arg s7=int --arg t8=ptr:0x40 --mem gModelRot:6=rand
+mtx_build_model: -n 100 --seed 1 --follow-all --arg s4=int:-0x8000:0x8000 --arg s5=int:-0x8000:0x8000 --arg s6=int:-0x8000:0x8000 \
+    --arg s7=int:0:0x20000 --arg t8=ptr:0x40 --mem gModelRot:6=rand --mem gMtxWork:0x40=rand
+# mtx_build_model_rot(x, y, z, rx, ry, rz, scale, m) (o32): angles to gModelRot/gModelRotY/gModelRotZ, then mtx_build_model
+mtx_build_model_rot: -n 200 --ret void --arg a0=int --arg a1=int --arg a2=int --arg a3=int --arg stack0=int --arg stack1=int \
+    --arg stack2=int --arg stack3=ptr:0x40 --mem gModelRot:6=rand
+mtx_build_model_rot: -n 100 --seed 1 --ret void --follow-all --arg a0=int:-0x8000:0x8000 --arg a1=int:-0x8000:0x8000 \
+    --arg a2=int:-0x8000:0x8000 --arg a3=int --arg stack0=int --arg stack1=int --arg stack2=int:0:0x20000 \
+    --arg stack3=ptr:0x40 --mem gModelRot:6=rand --mem gMtxWork:0x40=rand
+
+# veh_ground_contact (veh gp, id t8, px t7, py s2, pz s1, x t0, z t1, divB t9, divA fp, angle s4, flags s0, tbl v1,
+# a/b/c a1-a3, ys s7, s3 in/out; f): reset, slots (flags 0/1 -> 93B0/95A4, gNoWheels stops after slot 0),
+# history shift, tilts into gModelRotZ / gModelRot (= fp out), veh_update_shadow, veh_ground_surface, veh_update_stand_on
+veh_ground_contact: -n 300 --arg gp=ptr:0x100 --arg t8=choice:0,1,7,0xFF,0x1FF --heap 0x20 --arg t7=rel:heap0 \
+    --arg s2=rel:heap0+4 --arg s1=rel:heap0+8 --arg t0=int:-0x100000:0x100000 --arg t1=int:-0x100000:0x100000 \
+    --arg t9=choice:1,0x40,0x100,0x1000,-0x100,0x7FFF --arg fp=choice:1,0x40,0x100,0x1000,-0x100,0x7FFF \
+    --arg s4=ptr:4 --arg s0=ptr:4 --mem @s0:3=bytes:0,1 --arg v1=ptr:0x10 --arg a1=ptr:0x10 --arg a2=ptr:0x10 \
+    --arg a3=ptr:0x10 --arg s7=ptr:0x24 --arg s3=int \
+    --stub-ret veh_respawn_if_out.t0=int:-0x100000:0x100000 --stub-ret veh_respawn_if_out.t1=int:-0x100000:0x100000 \
+    --stub-ret veh_slot_grounded=int --stub-ret veh_slot_airborne.s3=int --stub-ret math_atan=int \
+    --stub-ret veh_ground_tilt=int --stub-ret veh_ground_tilt.a3=int \
+    --mem gNoWheels:1=choice:0,0,1 --mem gSlotAirborne:3=rand --mem gSlotY:12=words:0,1,-1,100,-100,3000,0x4000,-0x4000 \
+    --mem gSlotGroundY:12=rand --mem gRiderPass:1=choice:0,1 --mem gHaveRideables:1=choice:0,1 \
+    --mem gVehTiltDivB:6=rand --mem gVehSlot0Flags:1=rand --mem gModelRot:6=rand \
+    --sig veh_update_shadow=a0:1,a1,a2,a3,stack0,stack1,stack2,stack3 --sig veh_rider_gravity=
+# the tilt division edges: h difference 0 / +-1 / +-0x7FFF, divisors 1 / -1 / 0x7FFF, all slots grounded
+veh_ground_contact: -n 300 --seed 1 --arg gp=ptr:0x100 --arg t8=choice:1,0xFF --heap 0x20 --arg t7=rel:heap0 \
+    --arg s2=rel:heap0+4 --arg s1=rel:heap0+8 --arg t0=int --arg t1=int \
+    --arg t9=choice:1,-1,0x7FFF,3 --arg fp=choice:1,-1,0x7FFF,3 \
+    --arg s4=ptr:4 --arg s0=ptr:4 --mem @s0:3=bytes:0 --arg v1=ptr:0x10 --arg a1=ptr:0x10 --arg a2=ptr:0x10 \
+    --arg a3=ptr:0x10 --arg s7=ptr:0x24 --arg s3=int --stub-ret veh_slot_grounded=int --stub-ret math_atan=int \
+    --mem gNoWheels:1=0 --mem gSlotAirborne:3=rand --mem gSlotY:12=words:0,1,-1,0x7FFF,-0x7FFF \
+    --mem gSlotGroundY:12=rand --mem gRiderPass:1=0 --mem gHaveRideables:1=1 \
+    --mem gVehTiltDivB:6=rand --mem gVehSlot0Flags:1=rand --mem gModelRot:6=rand \
+    --sig veh_update_shadow=a0:1,a1,a2,a3,stack0,stack1,stack2,stack3 --sig veh_rider_gravity=
+# the helpers that only touch globals followed (veh_respawn_if_out / slots / scans stubbed)
+veh_ground_contact: -n 200 --seed 2 --follow veh_check_no_wheels,veh_diamond_sands_damping,veh_rider_gravity,veh_copy_slot0,veh_ground_surface,veh_ground_tilt,math_atan \
+    --arg gp=ptr:0x100 --arg t8=choice:0,1,7,9,0xFF --heap 0x20 --arg t7=rel:heap0 \
+    --arg s2=rel:heap0+4 --arg s1=rel:heap0+8 --arg t0=int:-0x100000:0x100000 --arg t1=int:-0x100000:0x100000 \
+    --arg t9=choice:1,0x40,0x100,0x1000,-0x100,0x7FFF --arg fp=choice:1,0x40,0x100,0x1000,-0x100,0x7FFF \
+    --arg s4=ptr:4 --arg s0=ptr:4 --mem @s0:3=bytes:0,1 --arg v1=ptr:0x10 --mem @v1:0xC=halves:0,0,1 \
+    --arg a1=ptr:0x10 --arg a2=ptr:0x10 --arg a3=ptr:0x10 --arg s7=ptr:0x24 --arg s3=int \
+    --stub-ret veh_respawn_if_out.t0=int:-0x100000:0x100000 --stub-ret veh_respawn_if_out.t1=int:-0x100000:0x100000 \
+    --stub-ret veh_slot_grounded=int --stub-ret veh_slot_airborne.s3=int \
+    --mem gNoWheels:1=choice:0,0,1 --mem gSlotAirborne:3=rand --mem gSlotY:12=words:0,1,-1,100,-100,3000,0x4000,-0x4000 \
+    --mem gSlotGroundY:12=words:0,1,-1,100,-100,3000,0x4000,-0x4000 --mem gRiderPass:1=choice:0,1 --mem gHaveRideables:1=choice:0,1 \
+    --mem gVehTiltDivB:6=rand --mem gVehSlot0Flags:1=rand --mem gModelRot:6=rand --mem gSlotSurface:3=bytes:0,1,100,0x66 \
+    --mem gBounceDamping:1=rand --mem gSurfaceMax:1=rand --mem gFailTrigger:1=rand --mem gPlayFrames=choice:0,1 \
+    --mem levelno=choice:0,12 --mem gGravity:4=floats --mem gSlotAirborne1:2=rand --mem gSlotStandOn1:2=rand \
+    --sig veh_update_shadow=a0:1,a1,a2,a3,stack0,stack1,stack2,stack3
+# the whole slot tree followed too (veh_respawn_if_out, the triangle scans and sine/cosine stubbed)
+veh_ground_contact: -n 200 --seed 3 --follow veh_check_no_wheels,veh_diamond_sands_damping,veh_rider_gravity,veh_copy_slot0,veh_ground_surface,veh_ground_tilt,math_atan,veh_slot_grounded,veh_slot_airborne,veh_wheel_offset,math_rotate_xz_inv,veh_clamp_climb,veh_slot_launch,veh_slot_land,ground_slot_height,veh_update_stand_on \
+    --arg gp=ptr:0x100 --mem @gp+4:0x24=words:0,100,-100,3000 --arg t8=choice:0,1,7,9,0xFF --heap 0x20 --arg t7=rel:heap0 \
+    --arg s2=rel:heap0+4 --arg s1=rel:heap0+8 --arg t0=int:-0x100000:0x100000 --arg t1=int:-0x100000:0x100000 \
+    --arg t9=choice:1,0x40,0x100,0x1000,-0x100,0x7FFF --arg fp=choice:1,0x40,0x100,0x1000,-0x100,0x7FFF \
+    --arg s4=ptr:4 --arg s0=ptr:4 --mem @s0:3=bytes:0,1 --arg v1=ptr:0x10 --mem @v1:0xC=halves:0,0,1,0x100,0xFF00 \
+    --arg a1=ptr:0x10 --mem @a1:0xC=words:0,1,-1,5,-20,100 --arg a2=ptr:0x10 --mem @a2:0xC=words:0,1,2,3,10,-4 \
+    --arg a3=ptr:0x10 --mem @a3:0xC=words:0,100,-100,3000,-3000 --arg s7=ptr:0x24 --mem @s7:0x24=words:0,100,-100,3000 \
+    --arg s3=int --stub-ret veh_respawn_if_out.t0=int:-0x100000:0x100000 --stub-ret veh_respawn_if_out.t1=int:-0x100000:0x100000 \
+    --stub-ret math_cos=int:-0x10000:0x10000 --stub-ret math_sin=int:-0x10000:0x10000 \
+    --stub-ret ground_scan_part_tris=choice:0x5F5E0FF,100,-50,3000 --stub-ret ground_scan_moveable=choice:0x5F5E0FF,100,200,-50 \
+    --stub-ret ground_scan_grid=choice:0,1 --sig snd_play=a0,a1,a2 \
+    --mem gNoWheels:1=choice:0,0,1 --mem gSlotAirborne:3=rand --mem gSlotY:12=words:0,1,-1,100,-100,3000,0x4000,-0x4000 \
+    --mem gSlotGroundY:12=words:0,1,-1,100,-100,3000,0x4000,-0x4000 --mem gRiderPass:1=choice:0,1 --mem gHaveRideables:1=choice:0,1 \
+    --mem gVehTiltDivB:6=rand --mem gVehSlot0Flags:1=rand --mem gModelRot:6=rand --mem gSlotSurface:3=bytes:0,1,100,0x66 \
+    --mem gBounceDamping:1=bytes:1,2,7 --mem gSurfaceMax:1=rand --mem gFailTrigger:1=rand --mem gPlayFrames=choice:0,1 \
+    --mem levelno=choice:0,12 --mem gGravity:4=floats:-50:50 --mem gSlotAirborne1:2=rand --mem gSlotStandOn1:2=rand \
+    --mem gJbombCeilingAbove:1=choice:0,1 --mem gBounceThreshold:1=bytes:0,5,50,0xFF --mem gBounceSound:1=bytes:0,1 \
+    --mem gSlotStandOn:3=rand --mem gStandOn:0x1C=bytes:0,1,0xFF,5,2 --mem gStandOn+0x1C=0xFFFFFFFF \
+    --sig veh_update_shadow=a0:1,a1,a2,a3,stack0,stack1,stack2,stack3
+
+# (disp) gStandOn tree walks. Tables: 6 top entries {type, parent in 1/2/7},
+# 4 second-level entries (parents = top types, types 0xA/0x10/0x20/0: no
+# cycles), -1 at +40; bytes 2-3 random. Hooks stubbed (mapped through
+# conventions.txt, FP state chained), then whole walks with the walk itself
+# followed.
+veh_attach_riders_walk: -n 300 --arg a0=choice:1,2,7 \
+    --mem gStandOn:48=rand --mem gStandOn*4:6/1=choice:0,3,4,5,8,9,0xD,0xE,0xF,0xA,0x20 \
+    --mem gStandOn+1*4:6/1=choice:1,2,7 --mem gStandOn+24*4:4/1=choice:0x10,0x20,0,0xA \
+    --mem gStandOn+25*4:4/1=choice:3,4,5,8,9,0xD,0xE,0xF --mem gStandOn+40=-1
+# parent 0 matches (unlike veh_move_riders_walk); ids above 0xFF never match; empty table
+veh_attach_riders_walk: -n 200 --seed 1 --arg a0=choice:0,0x100,0x101,-1 \
+    --mem gStandOn:48=rand --mem gStandOn*4:10/1=choice:0,3,4,5,8,9,0xD,0xE,0xF,0xA,0xFF \
+    --mem gStandOn+1*4:10/1=choice:0,1,0xFF --mem gStandOn+40=-1
+veh_attach_riders_walk: -n 20 --seed 2 --arg a0=int --mem gStandOn=-1
+# every type once, in order, all under parent 1 (each recursion finds nothing)
+veh_attach_riders_walk: -n 50 --seed 3 --arg a0=1 \
+    --mem gStandOn:44=hex:03010000_04010000_05010000_08010000_09010000_0A010000_0D010000_0E010000_0F010000_00010000_10010000 \
+    --mem gStandOn+44=-1
+# entry words that only look like the end marker (type 0xFF, parent 0xFF)
+veh_attach_riders_walk: -n 50 --seed 4 --arg a0=0xFF \
+    --mem gStandOn:16=hex:FFFFFFFE_03FF0000_FFFF00FF_FFFFFFFF
+veh_attach_riders: -n 200 --sig veh_attach_riders_walk=a0 --arg a0=int
+veh_attach_riders: -n 200 --seed 1 --follow veh_attach_riders_walk --sig skyfall_ride_attach=a0 --sig backlash_ride_attach=a0 \
+    --sig ramdozer_ride_attach=a0 --sig amdream_ride_attach=a0 --sig police_ride_attach=a0 --sig ateam_ride_attach=a0 \
+    --sig starski_ride_attach=a0 --sig jbomb_ride_attach=a0 --sig ballista_ride_attach=a0 --arg a0=choice:1,2,7 \
+    --mem gStandOn:48=rand --mem gStandOn*4:6/1=choice:0,3,4,5,8,9,0xD,0xE,0xF,0xA,0x20 \
+    --mem gStandOn+1*4:6/1=choice:1,2,7 --mem gStandOn+24*4:4/1=choice:0x10,0x20,0,0xA \
+    --mem gStandOn+25*4:4/1=choice:3,4,5,8,9,0xD,0xE,0xF --mem gStandOn+40=-1
+veh_move_riders_walk: -n 300 --arg a0=choice:1,2,7 \
+    --mem gStandOn:48=rand --mem gStandOn*4:6/1=choice:0,3,4,5,8,9,0xD,0xE,0xF,0xA,0x20 \
+    --mem gStandOn+1*4:6/1=choice:1,2,7 --mem gStandOn+24*4:4/1=choice:0x10,0x20,0,0xA \
+    --mem gStandOn+25*4:4/1=choice:3,4,5,8,9,0xD,0xE,0xF --mem gStandOn+40=-1
+# parent 0 never matches (id 0 finds nothing); ids above 0xFF never match; empty table
+veh_move_riders_walk: -n 200 --seed 1 --arg a0=choice:0,1,0x100,0x101,-1 \
+    --mem gStandOn:48=rand --mem gStandOn*4:10/1=choice:0,3,4,5,8,9,0xD,0xE,0xF,0xA,0xFF \
+    --mem gStandOn+1*4:10/1=choice:0,1,0xFF --mem gStandOn+40=-1
+veh_move_riders_walk: -n 20 --seed 2 --arg a0=int --mem gStandOn=-1
+veh_move_riders_walk: -n 50 --seed 3 --arg a0=1 \
+    --mem gStandOn:44=hex:03010000_04010000_05010000_08010000_09010000_0A010000_0D010000_0E010000_0F010000_00010000_10010000 \
+    --mem gStandOn+44=-1
+veh_move_riders_walk: -n 50 --seed 4 --arg a0=0xFF \
+    --mem gStandOn:16=hex:FFFFFFFE_03FF0000_FFFF00FF_FFFFFFFF
+veh_move_riders: -n 200 --sig veh_move_riders_walk=a0 --arg a0=int
+veh_move_riders: -n 200 --seed 1 --follow veh_move_riders_walk --sig skyfall_ride_follow=a0 --sig backlash_ride_follow=a0 \
+    --sig ramdozer_ride_follow=a0 --sig amdream_ride_follow=a0 --sig police_ride_follow=a0 --sig ateam_ride_follow=a0 \
+    --sig starski_ride_follow=a0 --sig jbomb_ride_follow=a0 --sig ballista_ride_follow=a0 --arg a0=choice:1,2,7 \
+    --mem gStandOn:48=rand --mem gStandOn*4:6/1=choice:0,3,4,5,8,9,0xD,0xE,0xF,0xA,0x20 \
+    --mem gStandOn+1*4:6/1=choice:1,2,7 --mem gStandOn+24*4:4/1=choice:0x10,0x20,0,0xA \
+    --mem gStandOn+25*4:4/1=choice:3,4,5,8,9,0xD,0xE,0xF --mem gStandOn+40=-1
+# (disp) whole-chain: every hook type once under id 1 on two big triangles
+# (both coordinate sets), each vehicle at a random spot with a 12-bit heading;
+# veh_attach_riders with everything followed; veh_move_riders with the walk, the hooks,
+# the steering/interpolation and ground-contact code followed (empty ground
+# lists, an in-bounds box); model placement, sound/effects and the record
+# store stubbed (backlash_build_model/amdream_build_model/police_build_model/ateam_build_model/
+# starski_build_model args not compared: no or partial conventions).
+veh_attach_riders: -n 200 --seed 5 --follow-all --arg a0=1 --mem \
+    gStandOn:40=hex:03010000_04010000_05010000_08010000_09010000_0A010000_0D010000_0E010000_0F010000_FFFFFFFF \
+    --mem \
+    gMoveableTris:0x70=hex:FFFC0000_00000000_FFFC0000_00080000_00000000_FFFC0000_FFFC0000_00000000_00080000_9000_0000_9000_7000_0000_9000_9000_0000_7000_0001_FFFC0000_00000000_FFFC0000_00080000_00000000_FFFC0000_FFFC0000_00000000_00080000_7000_0000_9000_7000_0000_7000_9000_0000_7000_0001 \
+    --mem gMoveableTrisEnd=rel:gMoveableTris+0x70 --heap 0x100 --mem gGroupTris=rel:heap0 --mem gGroupTrisEnd=rel:heap0 \
+    --mem gGroundCellW=0x1000000 --mem gGroundCellD=0x1000000 --mem gGroundCols:2=1 --mem gGroundCells=rel:heap0+0x10 \
+    --mem gGroundCells+4=rel:heap0+0x14 --mem gSkyfallPos=int:0:0x4000 --mem gSkyfallPos+8=int:0:0x4000 --mem \
+    gRamdozerPos=int:0:0x4000 --mem gRamdozerPos+8=int:0:0x4000 --mem gBacklashPos=int:0:0x4000 --mem \
+    gBacklashPos+8=int:0:0x4000 --mem gAmdreamPos=int:0:0x4000 --mem gAmdreamPos+8=int:0:0x4000 --mem \
+    gJbombPos=int:0:0x4000 --mem gJbombPos+8=int:0:0x4000 --mem gBallistaPos=int:0:0x4000 --mem \
+    gBallistaPos+8=int:0:0x4000 --mem gPolicePos=int:0:0x4000 --mem gPolicePos+8=int:0:0x4000 --mem \
+    gAteamPos=int:0:0x4000 --mem gAteamPos+8=int:0:0x4000 --mem gStarskiPos=int:0:0x4000 --mem \
+    gStarskiPos+8=int:0:0x4000 --mem gSkyfallState+0x4C:2=int:0:0xFFF --mem \
+    gSkyfallState+0x6A:4=halves:0x10,0x200,0x1000,0x123 --mem gSkyfallState+0x6E:2=int:0:0xFFF --mem \
+    gSkyfallState+0x70:4=halves:0x10,0x200,0x1000,0x123 --mem gRamdozerState+0x4C:2=int:0:0xFFF --mem \
+    gRamdozerState+0x6A:4=halves:0x10,0x200,0x1000,0x123 --mem gRamdozerState+0x6E:2=int:0:0xFFF --mem \
+    gRamdozerState+0x70:4=halves:0x10,0x200,0x1000,0x123 --mem gBacklashState+0x4C:2=int:0:0xFFF --mem \
+    gBacklashState+0x6A:4=halves:0x10,0x200,0x1000,0x123 --mem gBacklashState+0x6E:2=int:0:0xFFF --mem \
+    gBacklashState+0x70:4=halves:0x10,0x200,0x1000,0x123 --mem gAmdreamState+0x4C:2=int:0:0xFFF --mem \
+    gAmdreamState+0x6A:4=halves:0x10,0x200,0x1000,0x123 --mem gAmdreamState+0x6E:2=int:0:0xFFF --mem \
+    gAmdreamState+0x70:4=halves:0x10,0x200,0x1000,0x123 --mem gJbombState+0x4C:2=int:0:0xFFF --mem \
+    gJbombState+0x6A:4=halves:0x10,0x200,0x1000,0x123 --mem gJbombState+0x6E:2=int:0:0xFFF --mem \
+    gJbombState+0x70:4=halves:0x10,0x200,0x1000,0x123 --mem gBallistaState+0x4C:2=int:0:0xFFF --mem \
+    gBallistaState+0x6A:4=halves:0x10,0x200,0x1000,0x123 --mem gBallistaState+0x6E:2=int:0:0xFFF --mem \
+    gBallistaState+0x70:4=halves:0x10,0x200,0x1000,0x123 --mem gPoliceState+0x4C:2=int:0:0xFFF --mem \
+    gPoliceState+0x6A:4=halves:0x10,0x200,0x1000,0x123 --mem gPoliceState+0x6E:2=int:0:0xFFF --mem \
+    gPoliceState+0x70:4=halves:0x10,0x200,0x1000,0x123 --mem gAteamState+0x4C:2=int:0:0xFFF --mem \
+    gAteamState+0x6A:4=halves:0x10,0x200,0x1000,0x123 --mem gAteamState+0x6E:2=int:0:0xFFF --mem \
+    gAteamState+0x70:4=halves:0x10,0x200,0x1000,0x123 --mem gStarskiState+0x4C:2=int:0:0xFFF --mem \
+    gStarskiState+0x6A:4=halves:0x10,0x200,0x1000,0x123 --mem gStarskiState+0x6E:2=int:0:0xFFF --mem \
+    gStarskiState+0x70:4=halves:0x10,0x200,0x1000,0x123 --mem gBoundsMinX:2=0x8000 --mem gBoundsMaxX:2=0x7FFF --mem \
+    gBoundsMinZ:2=0x8000 --mem gBoundsMaxZ:2=0x7FFF --mem levelno=1
+veh_move_riders: -n 200 --seed 5 --follow \
+    veh_move_riders_walk,skyfall_ride_follow,ramdozer_ride_follow,backlash_ride_follow,amdream_ride_follow,jbomb_ride_follow,ballista_ride_follow,police_ride_follow,ateam_ride_follow,starski_ride_follow,veh_follow_heading,veh_deck_to_world,veh_deck_to_local,ground_tri_interp,ground_interp_dx0_zero,ground_interp_dx12_zero,ground_interp_dz0_zero,ground_interp_dz12_zero,veh_follow_angle,veh_wheel_offset,math_asin,ground_tri_box_contains,ground_tri_contains,veh_ground_contact,math_rotate_xz_inv,veh_check_no_wheels,veh_diamond_sands_damping,veh_rider_gravity,veh_slot_grounded,veh_slot_airborne,math_atan,veh_ground_tilt,veh_ground_surface,ground_scan_moveable,ground_scan_grid,ground_scan_part_tris,veh_update_stand_on,veh_slot_land,veh_slot_launch,veh_clamp_climb,ground_tri_height,veh_copy_slot0,math_cos,math_sin,veh_respawn_if_out,math_cosf,math_sinf,ground_slot_height,ground_cache_tri \
+    --sig skyfall_set_physics= --sig ramdozer_set_physics= --sig backlash_set_physics= --sig amdream_set_physics= --sig jbomb_set_gravity= \
+    --sig jbomb_set_tuning= --sig ballista_set_physics= --sig police_set_physics= --sig ateam_set_physics= --sig starski_set_physics= \
+    --sig backlash_build_model= --sig amdream_build_model= --sig police_build_model= --sig ateam_build_model= --sig starski_build_model= \
+    --arg a0=1 --mem \
+    gStandOn:40=hex:03010000_04010000_05010000_08010000_09010000_0A010000_0D010000_0E010000_0F010000_FFFFFFFF \
+    --mem \
+    gMoveableTris:0x70=hex:FFFC0000_00000000_FFFC0000_00080000_00000000_FFFC0000_FFFC0000_00000000_00080000_9000_0000_9000_7000_0000_9000_9000_0000_7000_0001_FFFC0000_00000000_FFFC0000_00080000_00000000_FFFC0000_FFFC0000_00000000_00080000_7000_0000_9000_7000_0000_7000_9000_0000_7000_0001 \
+    --mem gMoveableTrisEnd=rel:gMoveableTris+0x70 --heap 0x100 --mem gGroupTris=rel:heap0 --mem gGroupTrisEnd=rel:heap0 \
+    --mem gGroundCellW=0x1000000 --mem gGroundCellD=0x1000000 --mem gGroundCols:2=1 --mem gGroundCells=rel:heap0+0x10 \
+    --mem gGroundCells+4=rel:heap0+0x14 --mem gSkyfallPos=int:0:0x4000 --mem gSkyfallPos+8=int:0:0x4000 --mem \
+    gRamdozerPos=int:0:0x4000 --mem gRamdozerPos+8=int:0:0x4000 --mem gBacklashPos=int:0:0x4000 --mem \
+    gBacklashPos+8=int:0:0x4000 --mem gAmdreamPos=int:0:0x4000 --mem gAmdreamPos+8=int:0:0x4000 --mem \
+    gJbombPos=int:0:0x4000 --mem gJbombPos+8=int:0:0x4000 --mem gBallistaPos=int:0:0x4000 --mem \
+    gBallistaPos+8=int:0:0x4000 --mem gPolicePos=int:0:0x4000 --mem gPolicePos+8=int:0:0x4000 --mem \
+    gAteamPos=int:0:0x4000 --mem gAteamPos+8=int:0:0x4000 --mem gStarskiPos=int:0:0x4000 --mem \
+    gStarskiPos+8=int:0:0x4000 --mem gSkyfallState+0x4C:2=int:0:0xFFF --mem \
+    gSkyfallState+0x6A:4=halves:0x10,0x200,0x1000,0x123 --mem gSkyfallState+0x6E:2=int:0:0xFFF --mem \
+    gSkyfallState+0x70:4=halves:0x10,0x200,0x1000,0x123 --mem gRamdozerState+0x4C:2=int:0:0xFFF --mem \
+    gRamdozerState+0x6A:4=halves:0x10,0x200,0x1000,0x123 --mem gRamdozerState+0x6E:2=int:0:0xFFF --mem \
+    gRamdozerState+0x70:4=halves:0x10,0x200,0x1000,0x123 --mem gBacklashState+0x4C:2=int:0:0xFFF --mem \
+    gBacklashState+0x6A:4=halves:0x10,0x200,0x1000,0x123 --mem gBacklashState+0x6E:2=int:0:0xFFF --mem \
+    gBacklashState+0x70:4=halves:0x10,0x200,0x1000,0x123 --mem gAmdreamState+0x4C:2=int:0:0xFFF --mem \
+    gAmdreamState+0x6A:4=halves:0x10,0x200,0x1000,0x123 --mem gAmdreamState+0x6E:2=int:0:0xFFF --mem \
+    gAmdreamState+0x70:4=halves:0x10,0x200,0x1000,0x123 --mem gJbombState+0x4C:2=int:0:0xFFF --mem \
+    gJbombState+0x6A:4=halves:0x10,0x200,0x1000,0x123 --mem gJbombState+0x6E:2=int:0:0xFFF --mem \
+    gJbombState+0x70:4=halves:0x10,0x200,0x1000,0x123 --mem gBallistaState+0x4C:2=int:0:0xFFF --mem \
+    gBallistaState+0x6A:4=halves:0x10,0x200,0x1000,0x123 --mem gBallistaState+0x6E:2=int:0:0xFFF --mem \
+    gBallistaState+0x70:4=halves:0x10,0x200,0x1000,0x123 --mem gPoliceState+0x4C:2=int:0:0xFFF --mem \
+    gPoliceState+0x6A:4=halves:0x10,0x200,0x1000,0x123 --mem gPoliceState+0x6E:2=int:0:0xFFF --mem \
+    gPoliceState+0x70:4=halves:0x10,0x200,0x1000,0x123 --mem gAteamState+0x4C:2=int:0:0xFFF --mem \
+    gAteamState+0x6A:4=halves:0x10,0x200,0x1000,0x123 --mem gAteamState+0x6E:2=int:0:0xFFF --mem \
+    gAteamState+0x70:4=halves:0x10,0x200,0x1000,0x123 --mem gStarskiState+0x4C:2=int:0:0xFFF --mem \
+    gStarskiState+0x6A:4=halves:0x10,0x200,0x1000,0x123 --mem gStarskiState+0x6E:2=int:0:0xFFF --mem \
+    gStarskiState+0x70:4=halves:0x10,0x200,0x1000,0x123 --mem gBoundsMinX:2=0x8000 --mem gBoundsMaxX:2=0x7FFF --mem \
+    gBoundsMinZ:2=0x8000 --mem gBoundsMaxZ:2=0x7FFF --mem levelno=1

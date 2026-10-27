@@ -1,0 +1,62 @@
+# 7F8B0: LZSS decompressor (lzss_decompress / 41C0 / 42CC), kiunzip wrapper, looping-sound wrappers
+
+# bit reader: mask a3, state a0/t3/t4 (s4 = 0x80, s5 = 1 as its only caller sets them)
+lzss_read_bits: -n 300 --arg s4=0x80 --arg s5=1 --arg a0=ptr:0x20 --arg a3=choice:0x80,0x40,0x200,0x800,1,0x10000,0 \
+    --arg t4=choice:0x80,0x40,0x20,0x10,8,4,2,1 --arg t3=int:0:255
+# masks 0 (one step) .. 0x80000000 (32 steps, 4 reloads); bit wrap 1 -> 0x80; extreme bytes
+lzss_read_bits: -n 300 --seed 1 --arg s4=0x80 --arg s5=1 --arg a0=ptr:0x20 --mem @a0:0x20=bytes:0,0xFF,0x80,1,0x7F \
+    --arg a3=choice:0,1,0x8000,0x80000000,0xFFFFFFFF --arg t4=choice:0x80,1,2 --arg t3=choice:0,0xFF,0x80,1
+
+# decompressor, bit reader stubbed: reads return 0 (literal 0 / end), reader left at bit 0x40 with a random byte
+lzss_decode: -n 300 --stub-ret lzss_read_bits=0 --stub-ret lzss_read_bits.t4=0x40 --stub-ret lzss_read_bits.t3=rand \
+    --arg a0=ptr:0x40 --arg a1=ptr:0x400 --arg a2=ptr:0x1000 --arg a3=choice:10,12 --sig lzss_read_bits=a0
+# whole decompressor on random streams (random window contents: copies read unwritten bytes too)
+lzss_decode: -n 300 --seed 1 --follow lzss_read_bits --arg a0=ptr:0x40 --arg a1=ptr:0x1000 --arg a2=ptr:0x1000 \
+    --arg a3=choice:4,8,10,11,12
+# odd/even source start; byte pools with long zero/one runs; small windows wrap often
+lzss_decode: -n 300 --seed 2 --follow lzss_read_bits --heap 0x48=bytes:0,0,0xFF,0x80,0x7F,1,0x55 --heap 0x1000=rand \
+    --heap 0x1000=rand --arg a0=rel:heap0+choice:0,1 --arg a1=rel:heap1 --arg a2=rel:heap2 --arg a3=choice:4,5,10,12
+# empty stream (first flag 0, offset 0): ends at once, source rounded up to even
+lzss_decode: -n 50 --seed 3 --follow lzss_read_bits --heap 0x10=zero --heap 0x40=rand --heap 0x1000=rand \
+    --arg a0=rel:heap0+choice:0,1,2 --arg a1=rel:heap1 --arg a2=rel:heap2 --arg a3=choice:10,12
+
+# C-callable wrapper: callee stubbed (pointers in and out), then the whole tree
+lzss_decompress: --ret void -n 200 --stub-ret lzss_decode.a0=rand --stub-ret lzss_decode.a1=rand --arg a0=ptr:8 --arg a1=ptr:8 \
+    --arg a2=int --arg a3=int:0:255
+lzss_decompress: --ret void -n 300 --seed 1 --follow lzss_decode,lzss_read_bits --heap 0x40 --heap 0x1000=rand --heap 0x1000=rand \
+    --arg a0=ptr:8 --arg a1=ptr:8 --mem @a0=rel:heap0+choice:0,1 --mem @a1=rel:heap1 --arg a2=rel:heap2 \
+    --arg a3=choice:4,8,10,12
+
+# kiunzip wrapper (callee is matched C: stubbed)
+kiunzip_entry: -n 200 --arg a0=int --arg a1=int --arg a2=int --mem gKiunzipSrc=rand --mem gKiunzipDst=rand \
+    --sig kiunzip=a0,a1,a2
+
+# start loop: sound id in a1 (s16 range: snd_play takes an s16), then veh_set_engine_level(0)
+veh_start_engine_sound: --ret void -n 200 --arg a1=int:-0x8000:0x7FFF --mem gEngineSoundLevel:2=rand --mem gHornHeld:2=rand --mem gSfxBank=int \
+    --sig snd_play=a0,a1,a2 --sig veh_set_engine_level=a0
+veh_start_engine_sound: --ret void -n 200 --seed 1 --follow veh_set_engine_level --arg a1=int:0:0x200 --mem gEngineSoundLevel:2=rand \
+    --mem gHornHeld:2=rand --mem gSfxBank=int --mem gEngineLevelForce=choice:0,1 --mem gCurVehicle:1=choice:0,1 \
+    --mem gEnginePitchStep=floats:0:1 --mem gEnginePitchStepSideswipe=floats:0:1 --mem gEngineSound=int --sig snd_play=a0,a1,a2 \
+    --sig snd_modify=a0,a1,a2
+
+# stop both loops (null handles skipped)
+veh_stop_engine_sounds: --ret void -n 200 --mem gEngineSound=choice:0,0x80300000,1 --mem gHornSound=choice:0,0x80300010,-1 --sig snd_stop=a0
+
+# level s5: |s5| vs the old halfword, forced by gEngineLevelForce, factor by gCurVehicle
+veh_set_engine_level: -n 400 --arg s5=choice:0,1,-1,5,-5,100,-100,0x7FFF,-0x7FFF,0x8000,-0x8000,0x12345 \
+    --mem gEngineSoundLevel:2=halves:0,1,5,100,0x7FFF,0x8000,0xFFFF,0x2345 --mem gEngineLevelForce=choice:0,0,1,-1 \
+    --mem gCurVehicle:1=choice:0,1,2,0xFF --mem gEnginePitchStep=floats:0:2 --mem gEnginePitchStepSideswipe=floats:0:2 --mem gEngineSound=int \
+    --sig snd_modify=a0,a1,a2
+# unchanged level (no update) vs the halfword sign-extension boundary
+veh_set_engine_level: -n 200 --seed 1 --arg s5=choice:5,-5,0x8000,-0x8000,0xFFFF --mem gEngineSoundLevel:2=halves:5,0x8000,0xFFFF \
+    --mem gEngineLevelForce=0 --mem gCurVehicle:1=choice:0,1 --mem gEnginePitchStep=floats:0:2 --mem gEnginePitchStepSideswipe=floats:0:2 \
+    --mem gEngineSound=int --sig snd_modify=a0,a1,a2
+
+# second loop on/off from the two input bytes; id in a1
+veh_update_horn: -n 300 --arg a1=int:-0x8000:0x7FFF --mem gHeldL:1=choice:0,0,1,0x80 --mem gHeldR:1=choice:0,0,1,2 \
+    --mem gHornHeld:2=halves:0,0x100,0x8100,0x200,0x300,0x8000,0xFF --mem gHornSound=choice:0,0x80300000 \
+    --mem gSfxBank=int --sig snd_play=a0,a1,a2 --sig snd_stop=a0
+# [data] the flag halfword's low byte random too (only its high byte is compared and replaced)
+veh_update_horn: -n 300 --seed 1 --arg a1=int:-0x8000:0x7FFF --mem gHeldL:1=choice:0,0,1,0x80 --mem gHeldR:1=choice:0,0,1,2 \
+    --mem gHornHeld:2=rand --mem gHornSound=choice:0,0x80300000 \
+    --mem gSfxBank=int --sig snd_play=a0,a1,a2 --sig snd_stop=a0

@@ -1,0 +1,28 @@
+# OUT: the header with BC_VERSION, the git hash of SRC (+ "-modified" when its
+# files differ from HEAD); rewritten only when that changes (port/Makefile's
+# version.h, for the CMake build)
+find_package(Git QUIET)
+set(v dev)
+if(OVERRIDE)
+    set(v ${OVERRIDE})   # BC_GIT_VERSION (a build of a copy of the sources: tools/msvc_build.sh)
+elseif(GIT_FOUND)
+    execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD WORKING_DIRECTORY ${SRC}
+        OUTPUT_VARIABLE h OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE r ERROR_QUIET)
+    if(r EQUAL 0 AND h)
+        set(v ${h})
+        execute_process(COMMAND ${GIT_EXECUTABLE} diff --quiet HEAD -- . WORKING_DIRECTORY ${SRC}
+            RESULT_VARIABLE d ERROR_QUIET)
+        if(NOT d EQUAL 0)
+            set(v ${v}-modified)
+        endif()
+    endif()
+endif()
+set(text "#define BC_VERSION \"${v}\"\n")
+if(EXISTS ${OUT})
+    file(READ ${OUT} old)
+else()
+    set(old "")
+endif()
+if(NOT old STREQUAL text)
+    file(WRITE ${OUT} "${text}")
+endif()

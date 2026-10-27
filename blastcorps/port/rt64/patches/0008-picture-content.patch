@@ -1,0 +1,87 @@
+RT64 port patch 0008: what each presented picture shows (Blast Corps port; MIT, as RT64).
+
+The host's frame-time report (src/live/live_rt64.cpp) checks that the content
+of the pictures advances evenly: each in-between picture shows the game frame
+before plus its interpolation weight of the way to its own frame.  The
+workload queue keeps, with the interpolated frame counters the present thread
+reads, the workload the pictures were rendered from and each picture's
+weight in the order they are presented; PresentedInfo passes them on
+(contentWorkload, contentWeight; -1 when unknown).  Nothing else changes.
+
+--- a/src/hle/rt64_present_queue.h
++++ b/src/hle/rt64_present_queue.h
+@@ -31,6 +31,10 @@
+             uint32_t viOriginalRate = 0;
+             uint32_t syncInterval = 0;  // the swap chain present's
+             Timestamp readyTime;        // when the picture was drawn (before any pacing wait)
++            // (port patch 0008) what the picture shows: the workload it was rendered from and its
++            // interpolation weight (1: the workload's own frame; -1: unknown)
++            uint64_t contentWorkload = 0;
++            float contentWeight = -1.0f;
+         };
+ 
+         // (port patch 0007) How pictures between the game's are scheduled when the vsync pacing (0005)
+--- a/src/hle/rt64_present_queue.cpp
++++ b/src/hle/rt64_present_queue.cpp
+@@ -476,8 +476,23 @@
+                 }
+ 
+                 if (presentedHook != nullptr) {
++                    // (port patch 0008) what the picture shows (one picture of the game's own frame when
++                    // nothing is interpolated)
++                    uint64_t contentWorkload = 0;
++                    float contentWeight = -1.0f;
++                    {
++                        std::scoped_lock<std::mutex> weightLock(ext.sharedResources->interpolatedMutex);
++                        contentWorkload = frameCounters.workloadId;
++                        if ((framesToPresent > 1) && (uint32_t(i) < InterpolatedFrameCounters::MaxWeights)) {
++                            contentWeight = frameCounters.weights[i];
++                        }
++                        else if (framesToPresent == 1) {
++                            contentWeight = (frameCounters.count == 1) ? frameCounters.weights[0] : 1.0f;
++                        }
++                    }
++
+                     presentedHook({ present.presentId, uint32_t(i), uint32_t(framesToPresent), hold, present.submitTime, presentTimestamp,
+-                        targetRate, viOriginalRate, syncInterval, readyTime });
++                        targetRate, viOriginalRate, syncInterval, readyTime, contentWorkload, contentWeight });
+                 }
+             }
+         }
+--- a/src/hle/rt64_shared_queue_resources.h
++++ b/src/hle/rt64_shared_queue_resources.h
+@@ -23,6 +23,11 @@
+         uint32_t available = 0;
+         uint32_t count = 0;
+         bool skipped = false;
++        // (port patch 0008) the workload rendered into these pictures and each picture's interpolation
++        // weight, by the order they are presented in (for the host's report: PresentedInfo)
++        static constexpr uint32_t MaxWeights = 16;
++        uint64_t workloadId = 0;
++        float weights[MaxWeights] = {};
+     };
+ 
+     struct SharedQueueResources {
+--- a/src/hle/rt64_workload_queue.cpp
++++ b/src/hle/rt64_workload_queue.cpp
+@@ -1042,6 +1042,7 @@
+                 curFrameCounters.presented = 0;
+                 curFrameCounters.available = 0;
+                 curFrameCounters.count = displayFrames;
++                curFrameCounters.workloadId = workload.workloadId;   // (port patch 0008)
+ 
+                 // Create as many render targets as required to store the interpolated targets.
+                 auto &interpolatedTargets = ext.sharedResources->interpolatedColorTargets;
+@@ -1129,6 +1130,12 @@
+                         ext.workloadExtrasUploader->submit(ext.workloadGraphicsWorker, { extrasUpload });
+                     }
+ 
++                    // (port patch 0008) the weight of the picture presented in this place
++                    if (framesRendered < InterpolatedFrameCounters::MaxWeights) {
++                        std::scoped_lock<std::mutex> weightLock(ext.sharedResources->interpolatedMutex);
++                        curFrameCounters.weights[framesRendered] = curFrameWeight;
++                    }
++
+                     int64_t renderTimeMicro = workloadTimer.elapsedMicroseconds();
+                     threadRenderFrame(curFrame, prevFrame, workloadConfig, workload.debuggerRenderer, workload.debuggerCamera, curFrameWeight, prevFrameWeight, deltaTimeMs,
+                         interpolationTargetKey, interpolationTargetFbPairIndex, overrideTarget, overrideModifier, velocityUploaderUsed, uploadExtras, tileInterpolationUsed, lookAtInterpolationUsed);

@@ -1,0 +1,218 @@
+# 5FD50: index lists (cull_restart_now, cull_restart), display-list links (lvl_build_dl_calls),
+# animation records (lvl_step_tex_anims)
+
+# cull_restart_now / cull_restart: n = gLevelCols * gLevelRows entries (lists hold 100 / 104 halves)
+cull_restart_now: -n 300 --ret void --mem gLevelCols:2=int:0:10 --mem gLevelRows:2=int:0:10 --mem gVisibleCells:0xC8=rand --mem gCullCells:0xD0=rand --mem gCullDelay:2=int:0:0xFFFF --mem gCullCellsEnd=int --mem gCullQuadTop=int
+# n = 0, 1, 100 (the -1 lands on gCullCellsEnd's high half) and up to 121 (overlapping lists)
+cull_restart_now: -n 200 --seed 1 --ret void --mem gLevelCols:2=choice:0,1,10,11 --mem gLevelRows:2=choice:0,1,10,11 --mem gVisibleCells:0xC8=rand --mem gCullCells:0xD0=rand --mem gCullDelay:2=int:0:0xFFFF
+cull_restart: -n 300 --ret void --arg a0=int --mem gLevelCols:2=int:0:10 --mem gLevelRows:2=int:0:10 --mem gVisibleCells:0xC8=rand --mem gCullCells:0xD0=rand --mem gCullDelay:2=int:0:0xFFFF --mem gCullCellsEnd=int --mem gCullQuadTop=int
+cull_restart: -n 200 --seed 1 --ret void --arg a0=choice:0,1,-1,0x7FFF,0x8000,0xFFFF,0x10000 --mem gLevelCols:2=choice:0,1,10,11 --mem gLevelRows:2=choice:0,1,10,11 --mem gVisibleCells:0xC8=rand --mem gCullCells:0xD0=rand
+
+# lvl_build_dl_calls(-, gfx, dl, end): DLs packed in [dl, end), each ended by 0xB8000000; end is
+# 0..20 commands past dl with the command before it an end marker (so end is a list boundary)
+lvl_build_dl_calls: -n 300 --ret void --arg a0=int --arg a1=ptr --arg a2=ptr:0x100 --arg a3=rel:a2+8*int:0:20 --mem @a2:0x100=words:0xB8000000*3,0x06000000,0x01000000,0xB8000001,0 --mem @a3-8=0xB8000000
+# every command an end marker (one list per command)
+lvl_build_dl_calls: -n 100 --seed 1 --ret void --arg a1=ptr --arg a2=ptr:0x100 --arg a3=rel:a2+8*int:0:20 --mem @a2:0x100=words:0xB8000000
+# one long list (single end marker at the end)
+lvl_build_dl_calls: -n 100 --seed 2 --ret void --arg a1=ptr --arg a2=ptr:0x100 --arg a3=rel:a2+8*int:1:20 --mem @a2:0x100=words:0x06000000,0xE7000000,0 --mem @a3-8=0xB8000000
+
+# lvl_step_tex_anims(base): records at base+0x40 with nFrames 1,0,2,1 (sizes 12,8,16,12);
+# end offset at a record boundary (0..4 records). timer/period/frame around the wraps.
+lvl_step_tex_anims: -n 400 --ret void --arg a0=ptr:0x100 --mem @a0+0x2c=0x40 --mem @a0+0x30=choice:0x40,0x4C,0x54,0x64,0x70*3 \
+    --mem @a0+0x44:1=bytes:1 --mem @a0+0x45:1=bytes:0,1,2,0xFF --mem @a0+0x46:1=bytes:0,1,0x80 --mem @a0+0x48:2=halves:1,2,3,5,0xFF,0xFFFF --mem @a0+0x4A:2=halves:0,1,2,4,0xFE,0xFFFE,0xFFFF \
+    --mem @a0+0x50:1=bytes:0 --mem @a0+0x51:1=bytes:0,1,0xFF --mem @a0+0x52:1=bytes:0,1 --mem @a0+0x54:2=halves:1,2,3,0xFFFF --mem @a0+0x56:2=halves:0,1,2,0xFFFE,0xFFFF \
+    --mem @a0+0x58:1=bytes:2 --mem @a0+0x59:1=bytes:0,1,2,0xFF --mem @a0+0x5A:1=bytes:0,1 --mem @a0+0x5C:2=halves:1,2,3,0x100,0xFFFF --mem @a0+0x5E:2=halves:0,1,2,0xFF,0xFFFE,0xFFFF \
+    --mem @a0+0x68:1=bytes:1 --mem @a0+0x69:1=bytes:0,1,0xFF --mem @a0+0x6A:1=bytes:0,1 --mem @a0+0x6C:2=halves:1,2,7,0xFFFF --mem @a0+0x6E:2=halves:0,1,6,0xFFFE,0xFFFF
+# period 0 with fade off (the timer never wraps; no division)
+lvl_step_tex_anims: -n 100 --seed 1 --ret void --arg a0=ptr:0x100 --mem @a0+0x2c=0x40 --mem @a0+0x30=0x4C \
+    --mem @a0+0x44:1=bytes:1 --mem @a0+0x45:1=bytes:0,1,0xFF --mem @a0+0x46:1=bytes:0 --mem @a0+0x48:2=halves:0 --mem @a0+0x4A:2=halves:0,1,0xFFFE,0xFFFF
+
+# cull_step_delayed(a0..a3): counts gCullDelay down, or at 0 calls cull_walk_grid with the same args
+cull_step_delayed: -n 200 --ret void --sig cull_walk_grid=a0,a1,a2,a3 --arg a0=int --arg a1=int --arg a2=int --arg a3=int \
+    --mem gCullDelay:2=halves:0*3,1,2,0x7FFF,0x8000,0xFFFF
+cull_step_delayed: -n 50 --seed 1 --ret void --sig cull_walk_grid=a0,a1,a2,a3 --arg a0=int --arg a1=int --arg a2=int --arg a3=int \
+    --mem gCullDelay:2=halves:0
+
+# ---- phase C (non-ABI register interfaces, see tools_port/conventions.txt) ----
+
+# cull_grid_height_range (s0=x s1=z s2=w s3=h s4=stride s6=grid -> v1=min, a0=max): w, h >= 1
+cull_grid_height_range: -n 300 --arg s0=int:0:3 --arg s1=int:0:3 --arg s2=int:1:4 --arg s3=int:1:4 --arg s4=choice:8,10 \
+    --arg s6=ptr:0x200 --mem @s6:0x200=halves:0,1,0x7FFF,0x8000,0xFFFF,0x7FFE,0x8001,0x1234
+# only the start values' extremes (nothing below 0x7FFF / above -0x8000), single cells
+cull_grid_height_range: -n 100 --seed 1 --arg s0=int:0:3 --arg s1=int:0:3 --arg s2=choice:1,4 --arg s3=choice:1,4 --arg s4=8 \
+    --arg s6=ptr:0x200 --mem @s6:0x200=halves:0x7FFF,0x8000
+
+# cull_box_corners (a2=v, s0/s1/s2/s3 = x/z/w/d, s7/t8 = scales, v1/a0 = y0/y1)
+cull_box_corners: -n 300 --arg a2=ptr:0x80 --arg s0=int --arg s1=int --arg s2=int --arg s3=int --arg s7=int --arg t8=int \
+    --arg v1=int --arg a0=int
+cull_box_corners: -n 100 --seed 1 --arg a2=ptr:0x80 --arg s0=choice:0x7FFF,0x8000,-1,0x10000 --arg s1=choice:0x7FFF,-1,0x10000 \
+    --arg s2=choice:1,-1,0x10000 --arg s3=choice:1,-1 --arg s7=choice:0x20,-1,0x10001 --arg t8=choice:0x20,-1 \
+    --arg v1=choice:0x7FFF,0x8000,0x12345 --arg a0=choice:-1,0x8000
+
+# cull_rsp_test (a1=data_ptr a2=writeback a3=data_size -> t6): 1x1 grid, RDP output word
+cull_rsp_test: -n 300 --arg a1=int --arg a2=int --arg a3=int --mem gLevelCols:2=choice:1,1,2,0,0x101 \
+    --mem gLevelRows:2=choice:1,2,0 --mem gCullTask:0x60=rand --mem gCullOutput=choice:0xE8000000,0,0xE8000001,0x68000000 \
+    --sig osWritebackDCache=a0,a1 --sig osInvalDCache=a0,a1 --sig osSendMesg=a0,a1,a2 --sig rsp_wait_task=a0
+
+# lvl_find_tex_anim (a0=base t4=id -> gp): records nFrames 1,0,2,1 (sizes 12,8,16,12), ids 1..3, frame
+# indices incl. the last, fade on/off; list end after 0..4 records
+lvl_find_tex_anim: -n 400 --arg a0=ptr:0x100 --arg t4=choice:1,2,3,4 --mem gLevelTexAnimCur:0xC=rand \
+    --mem @a0+0x2C=0x40 --mem @a0+0x30=choice:0x40,0x4C,0x54,0x64,0x70*3 \
+    --mem @a0+0x40=choice:1,2,3 --mem @a0+0x4C=choice:1,2,3 --mem @a0+0x54=choice:1,2,3 --mem @a0+0x64=choice:1,2,3 \
+    --mem @a0+0x44:1=1 --mem @a0+0x50:1=0 --mem @a0+0x58:1=2 --mem @a0+0x68:1=1 \
+    --mem @a0+0x45:1=choice:0,1 --mem @a0+0x51:1=choice:0,1 --mem @a0+0x59:1=choice:0,1,2 --mem @a0+0x69:1=choice:0,1 \
+    --mem @a0+0x46:1=choice:0,1,0x80 --mem @a0+0x52:1=choice:0,1 --mem @a0+0x5A:1=choice:0,1 --mem @a0+0x6A:1=choice:0,1
+
+# lvl_copy_dl_tex_anim (a0=base a1=dst t5/t6 = start/end offsets gp=patch -> a1): copies of 0..8 commands;
+# the scans run on into dst's random commands (pool with 0xFD/0xFA opcodes)
+lvl_copy_dl_tex_anim: -n 400 --arg a0=ptr:0x100 --arg a1=ptr:0x200 --arg t5=0x40 --arg t6=rel:0x40+8*int:0:8 \
+    --arg gp=choice:0,1,1 --mem @a0+0x40:0x40=words:0xFD000000,0xFA000000,0x06000000,0x12345678,0xFD123456 \
+    --mem @a1:0x200=words:0xFD000000,0xFA000000,0x06000000,0x12345678,0xFAFFFFFF,0xFC000000 \
+    --mem gLevelTexAnimCur:0xC=rand --mem gLevelTexAnimCur=choice:0,0x80123456 --mem gLevelTexAnimNext=choice:0,0x80654321 \
+    --mem gLevelTexAnimFade:1=choice:0,1 --mem gLevelTexAnimAlpha:1=int
+
+# ---- phase D (wave 1, wt-d4) ----
+# cull_test_cells (cursors t3/s5 in-out; task data a1/a2/a3; block x/z/w/h/stride s0-s4, grid s6, scales s7/t8):
+# callees stubbed, cull_rsp_test's visibility result from --stub-ret; w/h around 1 (single cell), odd/even
+# halves, 0 and 0x7FFFFFFF (inputs stay where the asm's add/sub don't trap)
+# Input range (wt-f1 investigation): the only caller, cull_walk_grid, loads x/z/w/h/stride with `lh`
+# (s16), and w, h >= 1 (cull_grid_height_range counts them down with != 0). In that range none of the asm's
+# trapping ops can overflow: z*stride + x < 2^31, x + (w >> 1) < 2^17, w - (w >> 1) >= 0. The overflow
+# trap (exception 21) the C doesn't take needs 32-bit x/z/stride (z*stride + x or x + (w >> 1) past
+# 2^31) or a negative w/h (w - (w >> 1) with srl'd w), neither reachable in game; so x/z/stride stay s16.
+cull_test_cells: -n 300 --seed 0 --stub-ret cull_rsp_test=1 --arg t3=ptr:0x60 --arg s5=ptr:0x20 \
+    --arg a1=int --arg a2=int --arg a3=int --arg s0=int:0:0x7FFF --arg s1=int:0:0x7FFF \
+    --arg s2=choice:1*3,2,3,4,5,0x10,0x11,0,0x7FFFFFFF --arg s3=choice:1*3,2,3,4,7,0,0x7FFFFFFF \
+    --arg s4=int:-0x8000:0x7FFF --arg s6=int --arg s7=int --arg t8=int
+cull_test_cells: -n 100 --seed 1 --stub-ret cull_rsp_test=0 --arg t3=ptr:0x60 --arg s5=ptr:0x20 \
+    --arg a1=int --arg a2=int --arg a3=int --arg s0=int:-0x8000:0x7FFF --arg s1=int:-0x8000:0x7FFF --arg s2=choice:1,2,3 --arg s3=choice:1,2,3 \
+    --arg s4=int:-0x8000:0x7FFF --arg s6=int --arg s7=int --arg t8=int
+cull_test_cells: -n 100 --seed 2 --stub-ret cull_rsp_test=rand --arg t3=ptr:0x60 --arg s5=ptr:0x20 \
+    --arg a1=int --arg a2=int --arg a3=int --arg s0=int:-0x8000:0x7FFF --arg s1=int:-0x8000:0x7FFF --arg s2=choice:1,2 --arg s3=choice:1,2 \
+    --arg s4=int:-0x8000:0x7FFF --arg s6=int --arg s7=int --arg t8=int
+# the whole s16 range for x/z/stride, positive s16 w/h up to 0x7FFF (no trap anywhere in this range)
+cull_test_cells: -n 400 --seed 4 --stub-ret cull_rsp_test=1 --arg t3=ptr:0x60 --arg s5=ptr:0x20 \
+    --arg a1=int --arg a2=int --arg a3=int --arg s6=int --arg s7=int --arg t8=int \
+    --arg s0=int:-0x8000:0x7FFF --arg s1=int:-0x8000:0x7FFF --arg s4=int:-0x8000:0x7FFF \
+    --arg s2=choice:1,2,3,0x55,0x1234,0x7FFE,0x7FFF --arg s3=choice:1,2,3,0x55,0x1234,0x7FFE,0x7FFF
+# height range and box corners run for real (grid of s16 pairs, 8 Vtx at a2); the RSP task stays stubbed
+cull_test_cells: -n 300 --seed 3 --follow cull_grid_height_range,cull_box_corners --stub-ret cull_rsp_test=1 \
+    --arg t3=ptr:0x60 --arg s5=ptr:0x20 --arg a1=int --arg a2=ptr:0x80 --arg a3=int \
+    --arg s0=int:0:3 --arg s1=int:0:3 --arg s2=int:1:4 --arg s3=int:1:4 --arg s4=8 \
+    --arg s6=ptr:0x400 --mem @s6:0x400=halves:0,1,0x7FFF,0x8000,0xFFFF,0x1234 --arg s7=int --arg t8=int
+
+# lvl_copy_visible_groups (base a0, dst a1 -> a1 out, exclEnd v1, records [t8, t9)): three records of n = 2 words
+# (record size 0x1C), display lists at base+0x40 (start), +0x48 (alternate start), +0x70 (end) made of
+# command words 0xFD / 0xFA / others so the patch scans stay inside the buffers. lvl_find_tex_anim stubbed.
+lvl_copy_visible_groups: -n 400 --seed 0 --stub-ret lvl_find_tex_anim=rand \
+    --arg a0=ptr:0x100 --mem @a0+0x40:0x40=words:0xFD000000,0xFA000000,0x06000000,0x12345678 \
+    --arg a1=ptr:0x200 --mem @a1:0x200=words:0xFD000000,0xFA000000,0x01020304 \
+    --arg t8=ptr:0x60 --arg t9=rel:t8+0x1C*int:0:3 \
+    --mem @t8+0x0=0x40 --mem @t8+0x4=0x48 --mem @t8+0x8=0x70 --mem @t8+0xC=choice:1,2,3,4 --mem @t8+0x10=2 \
+    --mem @t8+0x14=choice:0,1,2,3,5 --mem @t8+0x18=choice:3,5,7,9 \
+    --mem @t8+0x1C=0x40 --mem @t8+0x20=0x48 --mem @t8+0x24=0x70 --mem @t8+0x28=choice:1,2,3,4 --mem @t8+0x2C=2 \
+    --mem @t8+0x30=choice:0,1,2,3,5 --mem @t8+0x34=choice:3,5,7,9 \
+    --mem @t8+0x38=0x40 --mem @t8+0x3C=0x48 --mem @t8+0x40=0x70 --mem @t8+0x44=choice:1,2,3,4 --mem @t8+0x48=2 \
+    --mem @t8+0x4C=choice:0,1,2,3,5 --mem @t8+0x50=choice:3,5,7,9 \
+    --mem gVisibleCells:6=halves:1,2,3,5,7,0x8000 --mem gVisibleCells+6:2=halves:0xFFFF \
+    --mem gCullDlGroupIds:8=halves:1,2,3,4,5 --arg v1=rel:gCullDlGroupIds+2*int:0:4 \
+    --mem gLevelTexAnimCur=choice:0,0x80123450 --mem gLevelTexAnimNext=choice:0,0x80123460 --mem gLevelTexAnimFade:1=bytes:0,1 --mem gLevelTexAnimAlpha:1=rand
+# no patch (lvl_find_tex_anim returns 0); empty filter list (first entry -1); same id in every record (alternate starts)
+lvl_copy_visible_groups: -n 100 --seed 1 --stub-ret lvl_find_tex_anim=0 \
+    --arg a0=ptr:0x100 --mem @a0+0x40:0x40=words:0xFD000000,0xFA000000,0x06000000 --arg a1=ptr:0x200 \
+    --arg t8=ptr:0x60 --arg t9=rel:t8+0x1C*int:0:3 \
+    --mem @t8+0x0=0x40 --mem @t8+0x4=0x48 --mem @t8+0x8=0x70 --mem @t8+0xC=choice:1,2 --mem @t8+0x10=2 --mem @t8+0x14=3 --mem @t8+0x18=5 \
+    --mem @t8+0x1C=0x40 --mem @t8+0x20=0x48 --mem @t8+0x24=0x70 --mem @t8+0x28=choice:1,2 --mem @t8+0x2C=2 --mem @t8+0x30=3 --mem @t8+0x34=5 \
+    --mem @t8+0x38=0x40 --mem @t8+0x3C=0x48 --mem @t8+0x40=0x70 --mem @t8+0x44=choice:1,2 --mem @t8+0x48=2 --mem @t8+0x4C=3 --mem @t8+0x50=5 \
+    --mem gVisibleCells:4=halves:3,5,0xFFFF --mem gVisibleCells+4:2=halves:0xFFFF --arg v1=sym:gCullDlGroupIds
+lvl_copy_visible_groups: -n 100 --seed 2 --stub-ret lvl_find_tex_anim=1 \
+    --arg a0=ptr:0x100 --mem @a0+0x40:0x40=words:0xFD000000,0xFA000000,0x06000000 --arg a1=ptr:0x200 \
+    --mem @a1:0x200=words:0xFD000000,0xFA000000 --arg t8=ptr:0x60 --arg t9=rel:t8+0x54 \
+    --mem @t8+0x0=0x40 --mem @t8+0x4=0x48 --mem @t8+0x8=0x70 --mem @t8+0xC=7 --mem @t8+0x10=2 --mem @t8+0x14=3 --mem @t8+0x18=5 \
+    --mem @t8+0x1C=0x40 --mem @t8+0x20=0x48 --mem @t8+0x24=0x70 --mem @t8+0x28=7 --mem @t8+0x2C=2 --mem @t8+0x30=3 --mem @t8+0x34=5 \
+    --mem @t8+0x38=0x40 --mem @t8+0x3C=0x48 --mem @t8+0x40=0x70 --mem @t8+0x44=choice:7,-2 --mem @t8+0x48=2 --mem @t8+0x4C=3 --mem @t8+0x50=5 \
+    --mem gVisibleCells:2=halves:3,0xFFFF --mem gVisibleCells+2:2=halves:0xFFFF --arg v1=sym:gCullDlGroupIds \
+    --mem gLevelTexAnimCur=choice:0,0x80123450 --mem gLevelTexAnimNext=choice:0,0x80123460 --mem gLevelTexAnimFade:1=bytes:0,1 --mem gLevelTexAnimAlpha:1=rand
+# lvl_find_tex_anim run for real: animation list at base+0x80 (base+0x2C / +0x30 = start / end), one record
+# {id, nFrames 2, frame 0/1, fade 0/1, alpha} with two frame words
+lvl_copy_visible_groups: -n 300 --seed 3 --follow lvl_find_tex_anim \
+    --arg a0=ptr:0x100 --mem @a0+0x40:0x40=words:0xFD000000,0xFA000000,0x06000000,0x12345678 \
+    --mem @a0+0x2C=0x80 --mem @a0+0x30=choice:0x80,0x90 --mem @a0+0x80=choice:1,2,3 --mem @a0+0x84:1=2 \
+    --mem @a0+0x85:1=bytes:0,1 --mem @a0+0x86:1=bytes:0,1 --mem @a0+0x87:1=rand --mem @a0+0x88=choice:0,0x80111110 --mem @a0+0x8C=choice:0,0x80222220 \
+    --arg a1=ptr:0x200 --mem @a1:0x200=words:0xFD000000,0xFA000000,0x01020304 \
+    --arg t8=ptr:0x60 --arg t9=rel:t8+0x1C*int:0:3 \
+    --mem @t8+0x0=0x40 --mem @t8+0x4=0x48 --mem @t8+0x8=0x70 --mem @t8+0xC=choice:1,2,3 --mem @t8+0x10=2 --mem @t8+0x14=choice:1,3 --mem @t8+0x18=5 \
+    --mem @t8+0x1C=0x40 --mem @t8+0x20=0x48 --mem @t8+0x24=0x70 --mem @t8+0x28=choice:1,2,3 --mem @t8+0x2C=2 --mem @t8+0x30=choice:1,3 --mem @t8+0x34=5 \
+    --mem @t8+0x38=0x40 --mem @t8+0x3C=0x48 --mem @t8+0x40=0x70 --mem @t8+0x44=choice:1,2,3 --mem @t8+0x48=2 --mem @t8+0x4C=choice:1,3 --mem @t8+0x50=5 \
+    --mem gVisibleCells:4=halves:3,5 --mem gVisibleCells+4:2=halves:0xFFFF \
+    --mem gCullDlGroupIds:4=halves:2,4 --arg v1=rel:gCullDlGroupIds+2*int:0:2 \
+    --mem gLevelTexAnimCur=int --mem gLevelTexAnimNext=int --mem gLevelTexAnimFade:1=rand --mem gLevelTexAnimAlpha:1=rand
+# [e1] cull_walk_grid(lvl, dataPtr, v, dataSize): pop a quad from gCullQuadTop (when empty: push the whole grid and
+# insertion-sort the visible cells [gCullCells, gCullCellsEnd) into gVisibleCells, -1 ended) and test it with
+# cull_test_cells. Stubbed: stack depth 0-4, 0-16 cells (duplicates, negatives); then always empty; then followed.
+cull_walk_grid: -n 300 --ret void --arg a0=ptr:0x60 --mem @a0:8=halves:1,2,3,8,10,0xFFFF --mem @a0+0x48=int:0:0x10000 \
+    --arg a1=int --arg a2=int --arg a3=int --mem gCullQuadStack:0x40=halves:0,1,2,3,0xFFFF \
+    --mem gCullQuadTop=rel:gCullQuadStack+8*int:0:4 --mem gCullCells:0x20=halves:0,1,2,3,5,9,0xFFFF,0x8000,0x7FFF \
+    --mem gCullCellsEnd=rel:gCullCells+2*int:0:16 --mem gVisibleCells:0xC8=rand
+cull_walk_grid: -n 300 --seed 1 --ret void --arg a0=ptr:0x60 --mem @a0:8=halves:1,2,3,8 --mem @a0+0x48=int:0:0x10000 \
+    --arg a1=int --arg a2=int --arg a3=int --mem gCullQuadStack:0x40=rand --mem gCullQuadTop=sym:gCullQuadStack \
+    --mem gCullCells:0x20=halves:0,1,1,2,7,0xFFFF,0x8000,0x7FFF --mem gCullCellsEnd=rel:gCullCells+2*int:0:16 \
+    --mem gVisibleCells:0xC8=rand
+cull_walk_grid: -n 50 --seed 2 --ret void --arg a0=ptr:0x60 --mem @a0+0x48=0x100 --arg a1=int --arg a2=int --arg a3=int \
+    --mem gCullQuadStack:0x40=rand --mem gCullQuadTop=sym:gCullQuadStack --mem gCullCellsEnd=sym:gCullCells --mem gVisibleCells:0xC8=rand
+# followed: 4 x 4 grid of s16 pairs at lvl + 0x100, cull_rsp_test (the RSP test) stubbed visible / random
+cull_walk_grid: -n 300 --seed 3 --ret void --follow cull_test_cells,cull_grid_height_range,cull_box_corners --stub-ret cull_rsp_test=rand \
+    --arg a0=ptr:0x200 --mem @a0:4=halves:4 --mem @a0+4:4=halves:1,0x20,0xFFFF --mem @a0+0x48=0x100 \
+    --mem @a0+0x100:0x40=halves:0,1,0x7FFF,0x8000,0xFFFF,0x1234 --arg a1=int --arg a2=ptr:0x80 --arg a3=int \
+    --mem gCullQuadStack*8:4/2=choice:0,1,2 --mem gCullQuadStack+2*8:4/2=choice:0,1,2 --mem gCullQuadStack+4*8:4/2=choice:1,2 --mem gCullQuadStack+6*8:4/2=choice:1,2 --mem gCullQuadTop=rel:gCullQuadStack+8*int:0:3 \
+    --mem gCullCells:0x20=halves:0,1,2,3,5,9 --mem gCullCellsEnd=rel:gCullCells+2*int:0:12 --mem gVisibleCells:0xC8=rand
+cull_walk_grid: -n 100 --seed 4 --ret void --follow cull_test_cells,cull_grid_height_range,cull_box_corners --stub-ret cull_rsp_test=1 \
+    --arg a0=ptr:0x200 --mem @a0:4=halves:4 --mem @a0+4:4=halves:1,0x20 --mem @a0+0x48=0x100 \
+    --mem @a0+0x100:0x40=halves:0,1,0x7FFF,0x8000,0xFFFF,0x1234 --arg a1=int --arg a2=ptr:0x80 --arg a3=int \
+    --mem gCullQuadStack:0x40=rand --mem gCullQuadTop=sym:gCullQuadStack --mem gCullCells:0x20=rand \
+    --mem gCullCellsEnd=rel:gCullCells+2*int:0:12 --mem gVisibleCells:0xC8=rand
+# lvl_build_visible_dl(lvl, dl, rec, recEnd, grp t8, grpEnd t9): fixed DL copy, then groups of visible records (cells
+# in the sorted list gVisibleCells) and of the variable-size records (n = 2 cells, 0x1C bytes), then lvl_copy_visible_groups.
+lvl_build_visible_dl: -n 300 --stub-ret lvl_copy_visible_groups=ptr:0x40 --arg a0=ptr:0x100 --mem @a0+0x88=0x40 \
+    --mem @a0+0x8C=rel:0x40+8*int:0:4 --arg a1=ptr:0x100 --arg a2=ptr:0x80 --arg a3=rel:a2+0x14*int:0:5 \
+    --mem @a2+0xC*0x14:5=choice:1,2,2,3 --mem @a2+0x10*0x14:5=choice:0,1,2,3,5,7 \
+    --arg t8=ptr:0x60 --arg t9=rel:t8+0x1C*int:0:3 --mem @t8+0xC*0x1C:3=choice:1,2,3,4 --mem @t8+0x10*0x1C:3=2 \
+    --mem @t8+0x14*0x1C:3=choice:0,1,2,3,5 --mem @t8+0x18*0x1C:3=choice:1,3,5,7,9 \
+    --mem gVisibleCells:6=halves:1,2,3,5,7,0x8000 --mem gVisibleCells+6:2=halves:0xFFFF --mem gCullDlGroupIds:0x10=rand
+# empty visible list (first entry -1); every cell listed
+lvl_build_visible_dl: -n 100 --seed 1 --stub-ret lvl_copy_visible_groups=ptr:0x40 --arg a0=ptr:0x100 --mem @a0+0x88=0x40 \
+    --mem @a0+0x8C=0x48 --arg a1=ptr:0x100 --arg a2=ptr:0x80 --arg a3=rel:a2+0x14*int:0:5 \
+    --mem @a2+0xC*0x14:5=choice:1,2 --mem @a2+0x10*0x14:5=choice:0,1 \
+    --arg t8=ptr:0x60 --arg t9=rel:t8+0x1C*int:0:3 --mem @t8+0xC*0x1C:3=choice:1,2 --mem @t8+0x10*0x1C:3=2 \
+    --mem @t8+0x14*0x1C:3=choice:0,1 --mem @t8+0x18*0x1C:3=choice:0,1 \
+    --mem gVisibleCells:6=halves:0xFFFF,0,1 --mem gVisibleCells+6:2=halves:0xFFFF --mem gCullDlGroupIds:0x10=rand
+# followed: display lists at lvl+0x40 (start) / +0x48 (alternate) / +0x70 (end), no animation record
+# (lvl_find_tex_anim returns 0), records as above
+lvl_build_visible_dl: -n 300 --seed 2 --follow lvl_find_tex_anim,lvl_copy_dl_tex_anim,lvl_copy_visible_groups --arg a0=ptr:0x100 \
+    --mem @a0+0x40:0x40=words:0xFD000000,0xFA000000,0x06000000,0x12345678 --mem @a0+0x2C=0x80 --mem @a0+0x30=0x80 \
+    --mem @a0+0x88=0xC0 --mem @a0+0x8C=rel:0xC0+8*int:0:4 --arg a1=ptr:0x400 --arg a2=ptr:0x80 \
+    --arg a3=rel:a2+0x14*int:0:5 --mem @a2*0x14:5=0x40 --mem @a2+4*0x14:5=0x48 --mem @a2+8*0x14:5=0x70 \
+    --mem @a2+0xC*0x14:5=choice:1,2,2,3 --mem @a2+0x10*0x14:5=choice:0,1,2,3,5,7 \
+    --arg t8=ptr:0x60 --arg t9=rel:t8+0x1C*int:0:3 --mem @t8*0x1C:3=0x40 --mem @t8+4*0x1C:3=0x48 --mem @t8+8*0x1C:3=0x70 \
+    --mem @t8+0xC*0x1C:3=choice:1,2,3,4 --mem @t8+0x10*0x1C:3=2 \
+    --mem @t8+0x14*0x1C:3=choice:0,1,2,3,5 --mem @t8+0x18*0x1C:3=choice:1,3,5,7,9 \
+    --mem gVisibleCells:6=halves:1,2,3,5,7,0x8000 --mem gVisibleCells+6:2=halves:0xFFFF --mem gCullDlGroupIds:0x10=rand
+# end-block
+# ---- phase D wave 3 (wt-f1) ----
+# lvl_build_visible_dls(dl0..dl3, gfx): four lvl_build_visible_dl passes over the level gLevelData's record / group ranges
+# (offsets at +0xA0.. / +0xB0..), then lvl_build_dl_calls over [+*0x7C, +*0x80) into gfx and lvl_step_tex_anims(lvl).
+# Stubbed with random offsets (incl. negative), then followed: the packed DLs one command each, empty animation
+# list, and (last run) lvl_build_visible_dl for real over empty ranges with a 0..4-command fixed list.
+lvl_build_visible_dls: -n 300 --heap 0x200 --mem gLevelData=rel:heap0 --mem @heap0+0x7C:8=words:0,0x40,0x100,-0x40,0x1F8 \
+    --mem @heap0+0xA0:0x24=words:0,0x40,0x100,-0x40,0x1F8 --arg a0=int --arg a1=int --arg a2=int --arg a3=int --arg stack0=int \
+    --sig lvl_build_dl_calls=a0,a1,a2,a3 --sig lvl_step_tex_anims=a0
+lvl_build_visible_dls: -n 300 --seed 1 --heap 0x200 --mem gLevelData=rel:heap0 --mem @heap0+0xA0:0x24=words:0x100,0x108,0x110 \
+    --mem @heap0+0x7C=0x100 --mem @heap0+0x80=rel:0x100+8*int:0:8 --mem @heap0+0x100:0x40=words:0xB8000000 \
+    --mem @heap0+0x2C=0x40 --mem @heap0+0x30=0x40 --arg a0=int --arg a1=int --arg a2=int --arg a3=int --arg stack0=ptr:0x60 \
+    --follow lvl_build_dl_calls,lvl_step_tex_anims
+lvl_build_visible_dls: -n 200 --seed 2 --heap 0x200 --mem gLevelData=rel:heap0 --mem @heap0+0xA0:0x24=words:0x1C0 \
+    --mem @heap0+0x88=0x180 --mem @heap0+0x8C=rel:0x180+8*int:0:4 \
+    --mem @heap0+0x7C=0x100 --mem @heap0+0x80=rel:0x100+8*int:0:8 --mem @heap0+0x100:0x40=words:0xB8000000 \
+    --mem @heap0+0x2C=0x40 --mem @heap0+0x30=0x40 --arg a0=ptr:0x60 --arg a1=ptr:0x60 --arg a2=ptr:0x60 --arg a3=ptr:0x60 \
+    --arg stack0=ptr:0x60 --mem gVisibleCells:2=halves:0xFFFF --mem gCullDlGroupIds:0x10=rand --follow-all
+# end-block

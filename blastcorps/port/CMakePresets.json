@@ -1,0 +1,57 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "x64-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "architecture": { "value": "x64", "strategy": "external" },
+      "toolset": { "value": "host=x64", "strategy": "external" },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "cl.exe",
+        "CMAKE_CXX_COMPILER": "cl.exe"
+      },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "vendor": {
+        "microsoft.com/VisualStudioSettings/CMake/1.0": { "hostOS": [ "Windows" ] }
+      }
+    },
+    {
+      "name": "x64-release",
+      "displayName": "x64 Release (bc.exe, bc_headless.exe)",
+      "description": "Optimised, with a PDB: the build that is played, shipped (target dist) and verified",
+      "inherits": "x64-base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "x64-debug",
+      "displayName": "x64 Debug",
+      "description": "No optimisation, the debug C runtime: for stepping through the game code",
+      "inherits": "x64-base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "x64-headless",
+      "displayName": "x64 Release, bc_headless.exe only",
+      "description": "No bc.exe: nothing is downloaded (no RT64, DXC, SDL2, git)",
+      "inherits": "x64-base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "BC_GAME": "OFF" }
+    },
+    {
+      "name": "x64-asan",
+      "displayName": "x64 Release + AddressSanitizer, bc_headless.exe only",
+      "description": "The host code (load layer, platform, audio) with /fsanitize=address: heap overruns, use after free and double frees stop with a report",
+      "inherits": "x64-base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "BC_GAME": "OFF", "BC_ASAN": "ON" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "x64-release", "configurePreset": "x64-release" },
+    { "name": "x64-debug", "configurePreset": "x64-debug" },
+    { "name": "x64-headless", "configurePreset": "x64-headless" },
+    { "name": "x64-asan", "configurePreset": "x64-asan" },
+    { "name": "dist", "configurePreset": "x64-release", "targets": [ "dist" ] }
+  ]
+}

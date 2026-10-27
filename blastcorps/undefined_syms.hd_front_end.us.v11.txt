@@ -1,0 +1,51 @@
+/* hand-maintained absolute symbols for the hd_front_end link (see undefined_syms.hd_code.us.v11.txt) */
+/* hd_code controller.c .bss (ul_controller.c), used by the EEPROM long read/write */
+__osEepromTimer = 0x803FF288;
+__osEepromTimerQ = 0x803FF2A8;
+__osEepromTimerMsg = 0x803FF2C0;
+/* 00000 (digger_loop.c) */
+gDiggerTitleJText = 0x80304954; /* .data initializer: hd_code u16 text */
+gDepthBufferPhys = 0x80358058; /* hd_code: depth buffer address */
+gStaticSegment = 0x8035806C; /* hd_code: segment 1 base */
+seg1RspInitDl = 0x01000010; /* segment 1 display lists */
+/* 0DE70: ROM addresses of the front-end scene blobs */
+romUsaStarScene = 0x006E8980;
+romNinLogoScene = 0x006EA850;
+romReflectLogoScene = 0x006EAB90;
+romPackedObjTable = 0x006EC4C0;
+/* 1A240 */
+romAttractPictures = 0x0068B550;
+romTrafficLights = 0x006A32B0;
+gAttractPicSounds = 0x8020E3E0;
+/* 07800: two adjacent ROM blobs */
+romBootBanner = 0x0048F5A0;
+romBootBannerEnd = 0x0048F970;
+romBootIcon = 0x0048F970;
+romBootIconEnd = 0x0048FA70;
+/* 06790: hd_code glyph lists */
+gPromoTitle1JText = 0x80303B78;
+gPromoTitle2JText = 0x80303B88;
+/* 07800 (stats.c): hd_code data */
+gNewBestJText = 0x80303B3C;
+gBestToDateJText = 0x80303B48;
+gBestStaysJText = 0x80303B58;
+gGuestBestJText = 0x80303B68;
+gStatsLevelName = 0x8036B980;
+nss = 0x8036EA70;
+seg1RdpInitDl = 0x01000038;
+gScheduler = 0x80315440; /* hd_code scheduler (0E7B0 fe_pak_start_thread) */
+/* EEPROM libultra by address: 0E7B0 calls them through these (by name, the NON_MATCHING build would call its relocated copies) */
+func_80204C10 = 0x80204C10; /* osEepromWrite */
+func_802050F0 = 0x802050F0; /* osEepromRead */
+func_802042D0 = 0x802042D0; /* osEepromLongWrite */
+func_80204410 = 0x80204410; /* osEepromLongRead */
+romFeBgPicture1 = 0x006AD3F0; /* compressed front-end pictures in ROM (196F0 fe_bg_load) */
+romFeBgPicture2 = 0x006BF2F0;
+romFeBgPicture3 = 0x006D3D30;
+gPanelPerspNorm = 0x8021591C; /* 01C40: perspNorm (splat left the lui/addiu raw) */
+gLvlselAcademyIconDl = 0x8020BC88; /* 09570: display list referenced only by a raw lui/addiu pair */
+gStarfieldPerspNorm = 0x80217288; /* 09570: perspNorm, raw lui/addiu pair */
+romWorldTexturesRaw = 0x0066C900; /* 09570 fe_lvlsel_build_globe_dl: worldtextures.raw in ROM (as in undefined_syms.hd_code) */
+seg2Base = 0x02000000; /* segment 2 base (as in undefined_syms.hd_code) */
+/* 11530: segment-1 display lists (as in hd_code) and hd_code globals splat left unpaired */
+gFlightAltitude = 0x8021A8EC;

@@ -1,0 +1,207 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 675cb82..50c483f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -356,6 +356,7 @@ set (SOURCES
+     "${PROJECT_SOURCE_DIR}/src/gbi/rt64_gbi_f3dpd.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gbi/rt64_gbi_f3dwave.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gbi/rt64_gbi_f3dzex2.cpp"
++    "${PROJECT_SOURCE_DIR}/src/gbi/rt64_gbi_l3d.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gbi/rt64_gbi_l3dex2.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gbi/rt64_gbi_rdp.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gbi/rt64_gbi_s2dex.cpp"
+diff --git a/src/gbi/rt64_gbi.cpp b/src/gbi/rt64_gbi.cpp
+index 93a1a96..8b93a24 100644
+--- a/src/gbi/rt64_gbi.cpp
++++ b/src/gbi/rt64_gbi.cpp
+@@ -20,6 +20,7 @@
+ #include "rt64_gbi_f3dex2.h"
+ #include "rt64_gbi_f3dwave.h"
+ #include "rt64_gbi_f3dzex2.h"
++#include "rt64_gbi_l3d.h"
+ #include "rt64_gbi_l3dex2.h"
+ #include "rt64_gbi_rdp.h"
+ #include "rt64_gbi_s2dex.h"
+@@ -149,7 +150,7 @@ namespace RT64 {
+     const GBIInstance   S2DEX2_FIFO_2_08          = { "S2DEX2.fifo 2.08",                          GBIUCode::S2DEX2,      { false,  false,  false,  false,  false } };
+     const GBIInstance   S2DEX2_XBUS_2_06          = { "S2DEX2.xbus 2.06",                          GBIUCode::S2DEX2,      { false,  false,  false,  false,  false } }; // Needs confirmation.
+     const GBIInstance   S2DEX2_XBUS_2_08          = { "S2DEX2.xbus 2.08",                          GBIUCode::S2DEX2,      { false,  false,  false,  false,  false } }; // Needs confirmation.
+-    const GBIInstance   L3D_BC                    = { "2.0D, 04-01-96 (L3D Blast Corps)",          GBIUCode::Unknown,     { false,  false,  false,  false,  false } }; // Needs confirmation.
++    const GBIInstance   L3D_BC                    = { "2.0D, 04-01-96 (L3D Blast Corps)",          GBIUCode::L3D,         { false,  false,  false,  false,  false } }; // Needs confirmation.
+     const GBIInstance   L3DEX_1_00                = { "L3DEX 1.00",                                GBIUCode::Unknown,     { false,  false,  false,  false,  false } }; // Needs confirmation.
+     const GBIInstance   L3DEX_1_21                = { "L3DEX 1.21",                                GBIUCode::Unknown,     { false,  false,  false,  false,  false } }; // Needs confirmation.
+     const GBIInstance   L3DEX_1_23                = { "L3DEX 1.23",                                GBIUCode::Unknown,     { false,  false,  false,  false,  false } }; // Needs confirmation.
+@@ -532,6 +533,9 @@ namespace RT64 {
+             case GBIUCode::L3DEX2:
+                 GBI_L3DEX2::setup(&gbi);
+                 break;
++            case GBIUCode::L3D:
++                GBI_L3D::setup(&gbi);
++                break;
+             default:
+                 assert(false && "Unknown UCode.");
+                 break;
+diff --git a/src/gbi/rt64_gbi.h b/src/gbi/rt64_gbi.h
+index 69c35d2..b31f54a 100644
+--- a/src/gbi/rt64_gbi.h
++++ b/src/gbi/rt64_gbi.h
+@@ -28,6 +28,7 @@ namespace RT64 {
+         S2DEX,
+         S2DEX2,
+         L3DEX2,
++        L3D,
+         Count
+     };
+ 
+diff --git a/src/gbi/rt64_gbi_l3d.cpp b/src/gbi/rt64_gbi_l3d.cpp
+new file mode 100644
+index 0000000..686129f
+--- /dev/null
++++ b/src/gbi/rt64_gbi_l3d.cpp
+@@ -0,0 +1,26 @@
++//
++// RT64
++//
++
++#include "rt64_gbi_l3d.h"
++
++#include "rt64_gbi_f3d.h"
++
++namespace RT64 {
++    namespace GBI_L3D {
++        // gSPLine3D / gSPLineW3D: w1 = flag << 24 | v0 * 10 << 16 | v1 * 10 << 8 | wd.
++        // The line is 1.5 pixels wide plus half a pixel per unit of wd.
++        void line3D(State *state, DisplayList **dl) {
++            const uint32_t v0 = (*dl)->p1(16, 8) / 10;
++            const uint32_t v1 = (*dl)->p1(8, 8) / 10;
++            const uint32_t wd = (*dl)->p1(0, 8);
++            state->rsp->drawLine(v0, v1, 1.5f + float(wd) * 0.5f);
++        }
++
++        void setup(GBI *gbi) {
++            GBI_F3D::setup(gbi);
++
++            gbi->map[L3D_G_LINE3D] = &line3D;
++        }
++    }
++};
+diff --git a/src/gbi/rt64_gbi_l3d.h b/src/gbi/rt64_gbi_l3d.h
+new file mode 100644
+index 0000000..4708185
+--- /dev/null
++++ b/src/gbi/rt64_gbi_l3d.h
+@@ -0,0 +1,18 @@
++//
++// RT64
++//
++
++#pragma once
++
++#include "rt64_gbi.h"
++
++// Fast3D line microcode (the 2.0D "L3D" build): F3D with G_LINE3D in place of the quad opcode.
++#define L3D_G_LINE3D 0xB5
++
++namespace RT64 {
++    namespace GBI_L3D {
++        void line3D(State *state, DisplayList **dl);
++
++        void setup(GBI *gbi);
++    };
++};
+diff --git a/src/hle/rt64_rsp.cpp b/src/hle/rt64_rsp.cpp
+index 1c86dbf..9be4e39 100644
+--- a/src/hle/rt64_rsp.cpp
++++ b/src/hle/rt64_rsp.cpp
+@@ -734,6 +734,79 @@ namespace RT64 {
+         }
+     }
+ 
++    void RSP::drawLine(uint32_t a, uint32_t b, float width) {
++        // Line microcode (Fast3D line build, L3DEX): the RSP draws a screen-space quad of the given width
++        // between the two loaded vertices. Done here with four copies of the vertices whose clip-space
++        // positions are moved perpendicular to the line on screen, then mapped back to object space.
++        const uint32_t First = RSP_MAX_VERTICES - 4;
++        if ((a >= First) || (b >= First) || (a == b)) {
++            return;
++        }
++
++        vertices[First + 0] = vertices[a];
++        vertices[First + 1] = vertices[a];
++        vertices[First + 2] = vertices[b];
++        vertices[First + 3] = vertices[b];
++        setVertexCommon<true, sizeof(Vertex)>(0, First, First + 4);
++
++        const int workloadCursor = state->ext.workloadQueue->writeCursor;
++        Workload &workload = state->ext.workloadQueue->workloads[workloadCursor];
++        auto &posFloats = workload.drawData.posFloats;
++        auto &posTransformed = workload.drawData.posTransformed;
++        auto &posScreen = workload.drawData.posScreen;
++        const interop::RSPViewport &viewport = viewportStack[viewportStackSize - 1];
++        float clip[2][4], screen[2][3], scale[3];
++        hlslpp::store(posTransformed[indices[First + 0]], clip[0]);
++        hlslpp::store(posTransformed[indices[First + 2]], clip[1]);
++        hlslpp::store(posScreen[indices[First + 0]], screen[0]);
++        hlslpp::store(posScreen[indices[First + 2]], screen[1]);
++        hlslpp::store(viewport.scale, scale);
++        if ((clip[0][3] <= 0.0f) || (clip[1][3] <= 0.0f) || (scale[0] == 0.0f) || (scale[1] == 0.0f)) {
++            return;
++        }
++
++        const float dx = screen[1][0] - screen[0][0];
++        const float dy = screen[1][1] - screen[0][1];
++        const float length = sqrtf(dx * dx + dy * dy);
++        if (length < 1e-6f) {
++            return;
++        }
++
++        const float nx = -dy / length * width * 0.5f;
++        const float ny = dx / length * width * 0.5f;
++        const hlslpp::float4x4 invMvp = hlslpp::inverse(modelViewProjMatrix);
++        for (uint32_t i = 0; i < 4; i++) {
++            const float *c = clip[i / 2];
++            const float side = (i & 1) ? -1.0f : 1.0f;
++            const hlslpp::float4 movedClip(c[0] + side * nx * c[3] / scale[0], c[1] - side * ny * c[3] / scale[1], c[2], c[3]);
++            const hlslpp::float4 objPos = hlslpp::mul(movedClip, invMvp);
++            float obj[4];
++            hlslpp::store(objPos, obj);
++            if (obj[3] == 0.0f) {
++                return;
++            }
++
++            const uint32_t globalIndex = indices[First + i];
++            posFloats[globalIndex * 3 + 0] = obj[0] / obj[3];
++            posFloats[globalIndex * 3 + 1] = obj[1] / obj[3];
++            posFloats[globalIndex * 3 + 2] = obj[2] / obj[3];
++            posTransformed[globalIndex] = movedClip;
++            posScreen[globalIndex] = (movedClip.xyz / hlslpp::float3(movedClip.w, -movedClip.w, movedClip.w)) * viewport.scale + viewport.translate;
++        }
++
++        // The quad's winding depends on the line's direction: draw it with culling off.
++        const uint32_t cullBits = geometryModeStack[geometryModeStackSize - 1] & cullBothMask;
++        if (cullBits != 0) {
++            clearGeometryMode(cullBits);
++        }
++
++        drawIndexedTri(First + 0, First + 1, First + 3);
++        drawIndexedTri(First + 0, First + 3, First + 2);
++        if (cullBits != 0) {
++            setGeometryMode(cullBits);
++        }
++    }
++
+     void RSP::modifyVertex(uint16_t dstIndex, uint16_t dstAttribute, uint32_t value) {
+         if (dstIndex >= RSP_MAX_VERTICES) {
+             assert(false && "Vertex index is not valid. DL is possibly corrupted.");
+diff --git a/src/hle/rt64_rsp.h b/src/hle/rt64_rsp.h
+index 35a91c2..660c7c9 100644
+--- a/src/hle/rt64_rsp.h
++++ b/src/hle/rt64_rsp.h
+@@ -371,6 +371,7 @@ namespace RT64 {
+         void setTextureImage(uint8_t fmt, uint8_t siz, uint16_t width, uint32_t segAddress);
+         void drawIndexedTri(uint32_t a, uint32_t b, uint32_t c, bool rawGlobalIndices);
+         void drawIndexedTri(uint32_t a, uint32_t b, uint32_t c);
++        void drawLine(uint32_t a, uint32_t b, float width);
+         void setViewportAlign(uint16_t ori, int16_t offx, int16_t offy);
+         void vertexTestZ(uint8_t vtxIndex);
+         void endVertexTestZ();

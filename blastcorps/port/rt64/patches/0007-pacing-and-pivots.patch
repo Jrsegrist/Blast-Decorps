@@ -1,0 +1,364 @@
+RT64 port patch 0007: present scheduling for high refresh rates and VRR, and
+pivots for the frame interpolation (Blast Corps port; MIT, as RT64).
+
+Pivots: RigidBody::lerp interpolates a transform's decomposition, with the
+model origin's world position moved along a straight line.  A part turning
+about an axle away from its model origin (the game's vehicle wheels) swings
+that origin round the axle, so in the in-between pictures the part left its
+axle.  TransformGroup::pivot (set by the host after matrixId,
+live_interp.cpp) names a point in the model space the transform turns
+about: both matrices are decomposed with their origin moved to it, the
+lerp's result moved back (RigidBody::lerpDecomposed is lerp's former body).
+At the end weights the result is the matrix itself; without a pivot nothing
+changes.
+
+RT64 paces the pictures between the game's with a timer that sleeps 1 / target s
+from the last present, and plume's D3D12 swap chain presents with a sync
+interval of 0 (present wait).  At a target equal to the display's rate with
+vsync on, the timer beats against the refreshes: a picture replaced before it
+was shown, the one before held two refreshes (the "8 / 25 ms" alternation); a
+late wake-up also delays every picture after it.  And the workload queue
+renders one in-between picture fewer (frameReduction) whenever it had to wait
+for the present thread at all.
+
+PresentQueue::scheduling (the host sets it; Legacy keeps everything as before):
+  - Locked: with vsync on (D3D12) and a target rate that divides the display's,
+    each picture is presented with a sync interval of display / target and no
+    timer: the frame-latency wait (latency 1) lets one picture queue, so the
+    display shows one per refresh (per N refreshes);
+  - otherwise (and always with Vrr) an even timer: each due time one period
+    after the last due time (not after the last present call, so a late
+    wake-up or a wait in the swap chain doesn't delay every picture after
+    it); a picture not ready by its due time is presented when it is and the
+    timer goes on from there (no burst to catch up);
+  - Vrr: the even timer with a sync interval of 1 when vsync is on (a variable
+    refresh display, G-Sync / FreeSync, shows each picture when it comes; the
+    host caps the target a little under the display's maximum), tearing
+    allowed when vsync is off (plume's own present).
+The vsync pacing of patch 0005 still comes first when it is on.  With any
+scheduling but Legacy, frameReduction counts only waits over half a picture
+(as 0005 does for its pacing).  For the host's frame-time report:
+PresentedInfo gets the target and original rates, the sync interval used and
+when the picture was drawn; counters of skipped presents and timer restarts
+(PresentQueue) and of in-between pictures reduced, skipped late or cut short
+and of all pictures rendered (WorkloadQueue).
+
+--- a/src/hle/rt64_present_queue.h
++++ b/src/hle/rt64_present_queue.h
+@@ -26,6 +26,23 @@
+             uint32_t hold;              // refreshes the picture before was to stay (0: RT64's timer pacing)
+             Timestamp submitTime;       // Present::submitTime
+             Timestamp presentTime;      // just before the swap chain's present
++            // (port patch 0007)
++            uint32_t targetRate = 0;    // the pictures' rate (0: RT64's interpolation off)
++            uint32_t viOriginalRate = 0;
++            uint32_t syncInterval = 0;  // the swap chain present's
++            Timestamp readyTime;        // when the picture was drawn (before any pacing wait)
++        };
++
++        // (port patch 0007) How pictures between the game's are scheduled when the vsync pacing (0005)
++        // doesn't apply: Legacy, RT64's timer (from the last present); Locked, at a target rate that
++        // divides the display's with vsync on (D3D12), on the display's refreshes (a sync interval of
++        // display / target, no timer), else an even timer (an absolute schedule); Vrr, the even timer
++        // always, with a sync interval of 1 when vsync is on (a variable-refresh display then shows each
++        // picture as it comes) and 0 with tearing allowed when it is off.
++        enum class Scheduling : uint32_t {
++            Legacy = 0,
++            Locked = 1,
++            Vrr = 2
+         };
+ 
+         struct External {
+@@ -90,6 +107,12 @@
+         uint32_t pacingStatsRefresh = 0;
+         int64_t pacingStatsQpc = 0;
+ 
++        // (port patch 0007)
++        std::atomic<uint32_t> scheduling = uint32_t(Scheduling::Legacy);
++        Timestamp scheduleNext;                       // the even timer's next due time
++        std::atomic<uint32_t> presentsSkipped = 0;    // presents skipped (another one was waiting)
++        std::atomic<uint32_t> scheduleResyncs = 0;    // the even timer started over (a picture came over a period late)
++
+         PresentQueue();
+         ~PresentQueue();
+         void reset();
+@@ -108,7 +131,8 @@
+         void waitForHold(uint32_t hold, Timestamp waitStart);
+         void noteStruggle();
+         bool dropToCatchUp(const Present &present, int32_t frameIndex, int32_t framesToPresent, uint32_t targetRate, bool interpolated);
+-        bool swapChainPresent(bool vsyncPaced, uint32_t swapChainIndex, RenderCommandSemaphore **waitSemaphores);
++        bool swapChainPresent(uint32_t syncInterval, uint32_t swapChainIndex, RenderCommandSemaphore **waitSemaphores);
++        bool refreshPaced() const;
+         void skipInterpolation();
+         void notifyPresentId(const Present &present);
+         void threadAdvanceBarrier();
+--- a/src/hle/rt64_present_queue.cpp
++++ b/src/hle/rt64_present_queue.cpp
+@@ -275,6 +275,7 @@
+         }
+         
+         bool firstOfPresent = true;   // (port patch 0005) no picture of this present shown yet
++        Timestamp readyTime;          // (port patch 0007) when the picture was drawn
+         for (int32_t i = 0; i < framesToPresent; i++) {
+             uint32_t frameCountersNextPresented = 0;
+             if ((framesToPresent > 1) && (usingMSAA || (i > 0))) {
+@@ -377,6 +378,8 @@
+                     ext.presentGraphicsWorker->commandQueue->executeCommandLists(&commandList, 1, &waitSemaphore, 1, &signalSemaphore, 1, ext.presentGraphicsWorker->commandFence.get());
+                     ext.presentGraphicsWorker->wait();
+                 }
++
++                readyTime = Timer::current();
+             }
+ 
+             if (lockedWorkloadMutex) {
+@@ -402,10 +405,45 @@
+                 // (port patch 0005) With vsync pacing the display's refreshes set the pace (holdFor).
+                 const uint32_t hold = holdFor(present, firstOfPresent, targetRate, interpolated);
+ 
++                // (port patch 0007) Scheduling (see Scheduling in the header). lockedInterval: the
++                // refreshes each picture stays when it is presented on the display's refreshes.
++                const Scheduling sched = Scheduling(scheduling.load());
++                const bool d3d12 = (ext.createdGraphicsAPI == UserConfiguration::GraphicsAPI::D3D12);
++                const bool vsyncOn = ext.swapChain->isVsyncEnabled();
++                const bool betweenRate = (targetRate > 0) && (targetRate > viOriginalRate);
++                const uint32_t displayRate = ext.appWindow->getRefreshRate();
++                uint32_t lockedInterval = 0;
++                if ((hold == 0) && (sched == Scheduling::Locked) && d3d12 && vsyncOn && betweenRate && (displayRate > 0) &&
++                    (targetRate <= displayRate) && ((displayRate % targetRate) == 0)) {
++                    lockedInterval = displayRate / targetRate;
++                }
++
+                 // Wait until the approximate time the next present should be at the current intended rate.
+-                if ((hold == 0) && (presentTimestamp != Timestamp()) && (targetRate > 0) && (targetRate > viOriginalRate)) {
++                if ((hold == 0) && (lockedInterval == 0) && betweenRate && (sched != Scheduling::Legacy)) {
++                    // (port patch 0007) An even timer: each due time one period after the last one, not
++                    // after the last present call (RT64's own: every late wake-up and every wait in the
++                    // swap chain delayed the pictures after it). A picture that isn't ready by its due
++                    // time is presented when it is and the timer goes on from there (no burst to catch up:
++                    // the pictures then wait for the next game frame, as RT64's do).
++                    const std::chrono::nanoseconds period(1'000'000'000 / targetRate);
++                    const Timestamp now = Timer::current();
++                    if ((scheduleNext == Timestamp()) || (now > scheduleNext + std::chrono::microseconds(500)) || (scheduleNext > now + 2 * period)) {
++                        if ((scheduleNext != Timestamp()) && (now > scheduleNext + period)) {
++                            scheduleResyncs++;
++                        }
++
++                        scheduleNext = now;
++                    }
++
++                    Timer::preciseSleepUntil(scheduleNext);
++                    scheduleNext += period;
++                }
++                else if ((hold == 0) && (presentTimestamp != Timestamp()) && betweenRate && (lockedInterval == 0)) {
+                     Timer::preciseSleepUntil(presentTimestamp + std::chrono::nanoseconds(1'000'000'000 / targetRate));
+                 }
++                else {
++                    scheduleNext = Timestamp();
++                }
+ 
+                 const Timestamp waitStart = Timer::current();
+                 if (presentWaitEnabled) {
+@@ -418,7 +456,12 @@
+ 
+                 RenderCommandSemaphore *waitSemaphore = drawSemaphores[swapChainIndex].get();
+                 presentTimestamp = Timer::current();
+-                swapChainValid = swapChainPresent(hold > 0, swapChainIndex, &waitSemaphore);
++                // (port patch 0007) the sync interval: 1 for the vsync pacing (0005) and for VRR with vsync
++                // on, lockedInterval when locked to the refreshes, else plume's (0; tearing allowed when
++                // vsync is off)
++                const uint32_t syncInterval = (hold > 0) ? 1 : (lockedInterval > 0) ? lockedInterval
++                    : ((sched == Scheduling::Vrr) && d3d12 && vsyncOn) ? 1 : 0;
++                swapChainValid = swapChainPresent(syncInterval, swapChainIndex, &waitSemaphore);
+                 presentProfiler.logAndRestart();
+ 
+                 if (firstOfPresent) {
+@@ -433,7 +476,8 @@
+                 }
+ 
+                 if (presentedHook != nullptr) {
+-                    presentedHook({ present.presentId, uint32_t(i), uint32_t(framesToPresent), hold, present.submitTime, presentTimestamp });
++                    presentedHook({ present.presentId, uint32_t(i), uint32_t(framesToPresent), hold, present.submitTime, presentTimestamp,
++                        targetRate, viOriginalRate, syncInterval, readyTime });
+                 }
+             }
+         }
+@@ -684,17 +728,23 @@
+         }
+     }
+ 
+-    bool PresentQueue::swapChainPresent(bool vsyncPaced, uint32_t swapChainIndex, RenderCommandSemaphore **waitSemaphores) {
++    bool PresentQueue::swapChainPresent(uint32_t syncInterval, uint32_t swapChainIndex, RenderCommandSemaphore **waitSemaphores) {
+ #   if defined(_WIN32)
+-        if (vsyncPaced && (ext.createdGraphicsAPI == UserConfiguration::GraphicsAPI::D3D12)) {
+-            // plume's D3D12SwapChain::present with a sync interval of 1 (vsync is on: no tearing).
++        if ((syncInterval > 0) && (ext.createdGraphicsAPI == UserConfiguration::GraphicsAPI::D3D12)) {
++            // plume's D3D12SwapChain::present with this sync interval (vsync is on: no tearing).
+             plume::D3D12SwapChain *d3d12SwapChain = static_cast<plume::D3D12SwapChain *>(ext.swapChain);
+-            return SUCCEEDED(d3d12SwapChain->d3d->Present(1, 0));
++            return SUCCEEDED(d3d12SwapChain->d3d->Present(std::min(syncInterval, 4U), 0));
+         }
+ #   endif
+         return ext.swapChain->present(swapChainIndex, waitSemaphores, 1);
+     }
+ 
++    // (port patch 0007) The present thread lets go of the interpolated targets on the display's refreshes or
++    // on an even timer: a short wait for one there is normal (the workload queue's frameReduction).
++    bool PresentQueue::refreshPaced() const {
++        return vsyncPacingActive() || (scheduling.load() != uint32_t(Scheduling::Legacy));
++    }
++
+     void PresentQueue::skipInterpolation() {
+         {
+             std::unique_lock<std::mutex> interpolatedLock(ext.sharedResources->interpolatedMutex);
+@@ -800,6 +850,7 @@
+                 }
+ 
+                 if (skipPresent) {
++                    presentsSkipped++;   // (port patch 0007)
+                     skipInterpolation();
+                     notifyPresentId(present);
+                 }
+--- a/src/hle/rt64_workload_queue.h
++++ b/src/hle/rt64_workload_queue.h
+@@ -101,6 +101,12 @@
+         uint32_t prevFrameIndex = uint32_t(gameFrames.size()) - 1;
+         uint32_t curFrameIndex = 0;
+ 
++        // (port patch 0007) In-between pictures not rendered, for the host's frame-time report.
++        std::atomic<uint32_t> framesReduced = 0;      // frameReduction: the present thread held a target too long
++        std::atomic<uint32_t> framesSkippedLate = 0;  // rendering fell behind the game frame's time window
++        std::atomic<uint32_t> framesCut = 0;          // a newer workload was waiting
++        std::atomic<uint32_t> picturesRendered = 0;   // pictures rendered (all)
++
+         WorkloadQueue();
+         ~WorkloadQueue();
+         void reset();
+--- a/src/hle/rt64_workload_queue.cpp
++++ b/src/hle/rt64_workload_queue.cpp
+@@ -1008,6 +1008,7 @@
+                         displayTicks += workload.viOriginalRate;
+                         displayFrames--;
+                         frameReduction = false;
++                        framesReduced++;   // (port patch 0007)
+                     }
+ 
+                     assert((logicalTicks > displayTicks) && "Logical ticks must always remain bigger than the display ticks.");
+@@ -1073,6 +1074,7 @@
+                         if ((currentTimeMicro > expectedTimeMicro) || ((currentTimeMicro + measuredFrameMicro) > adjustedTimeWindowMicro)) {
+                             displayTicks += workload.viOriginalRate;
+                             skippedFrames = true;
++                            framesSkippedLate++;   // (port patch 0007)
+                             continue;
+                         }
+                     }
+@@ -1094,7 +1096,8 @@
+                                 // (port patch 0005) With vsync pacing the present thread lets go of a target
+                                 // on the display's refresh: a short wait for it is normal there, and only a
+                                 // wait of over half a display frame reduces the frames rendered.
+-                                const bool vsyncPaced = ext.presentQueue->vsyncPacingActive();
++                                // (port patch 0007: also when locked to the refreshes or on the even timer)
++                                const bool vsyncPaced = ext.presentQueue->refreshPaced();
+                                 const Timestamp waitStart = Timer::current();
+                                 bool hadToWait = false;
+                                 std::unique_lock<std::mutex> interpolatedLock(ext.sharedResources->interpolatedMutex);
+@@ -1153,6 +1156,7 @@
+ 
+                         // Add the amount of display ticks that correspond to the remaining frames.
+                         if (skipWorkloadNow) {
++                            framesCut += displayFrames - (frame + 1);   // (port patch 0007)
+                             displayTicks += workload.viOriginalRate * (displayFrames - (frame + 1));
+                         }
+ 
+@@ -1160,6 +1164,7 @@
+                     }
+ 
+                     framesRendered++;
++                    picturesRendered++;   // (port patch 0007)
+                 }
+ 
+                 // Set the skipped parameter on the frame counter if the workload wasn't skipped but some of its frames were.
+--- a/src/hle/rt64_transform_group.h
++++ b/src/hle/rt64_transform_group.h
+@@ -24,5 +24,11 @@
+         uint8_t ordering = G_EX_ORDER_AUTO;
+         uint8_t aspectMode = G_EX_ASPECT_AUTO;
+         uint8_t editable = G_EX_EDIT_NONE;
++
++        // (port patch 0007) A point in the transform's model space the interpolation turns about: its
++        // world position is interpolated instead of the model origin's (a part turning about an axle
++        // away from its origin, such as a wheel, then stays on the axle in between). The host sets it.
++        bool usePivot = false;
++        float pivot[3] = { 0.0f, 0.0f, 0.0f };
+     };
+ };
+\ No newline at end of file
+--- a/src/hle/rt64_rigid_body.h
++++ b/src/hle/rt64_rigid_body.h
+@@ -19,6 +19,9 @@
+         bool lerpSkew = false;
+         bool lerpPerspective = false;
+         bool lerpDecompose = true;
++        // (port patch 0007) TransformGroup::pivot of the current transform.
++        bool usePivot = false;
++        hlslpp::float3 pivot = { 0.0f, 0.0f, 0.0f };
+ 
+         // Default constructor.
+         RigidBody();
+@@ -38,5 +41,9 @@
+         // Lerps between the previous and current transform with the given weight and recomposes the result into a matrix.
+         // Falls back to the provided matrix if decomposition has failed for either transform.
+         hlslpp::float4x4 lerp(float weight, const hlslpp::float4x4& fallbackPrev, const hlslpp::float4x4& fallbackCur, bool slerp) const;
++
++        // (port patch 0007) The lerp of two decompositions (lerp's body).
++        hlslpp::float4x4 lerpDecomposed(const DecomposedTransform &prevTransform, const DecomposedTransform &curTransform, float weight, bool slerp) const;
++
+     };
+ };
+\ No newline at end of file
+--- a/src/hle/rt64_rigid_body.cpp
++++ b/src/hle/rt64_rigid_body.cpp
+@@ -93,9 +93,23 @@
+             return lerpMatrixComponents(fallbackPrev, fallbackCur, lerpTranslation, lerpRotation, lerpPerspective, weight);
+         }
+ 
+-        const DecomposedTransform &prevTransform = transforms[transformIndex ^ 1];
++        // (port patch 0007) About a pivot: both matrices with their origin moved to the pivot (its world
++        // position is what moves along a straight line), interpolated, then moved back. At the end weights
++        // the result is the matrix itself.
++        if (usePivot) {
++            const hlslpp::float4x4 toPivot = matrixTranslation(pivot);
++            const DecomposedTransform prevPivot(hlslpp::mul(toPivot, fallbackPrev));
++            const DecomposedTransform curPivot(hlslpp::mul(toPivot, fallbackCur));
++            if (prevPivot.valid && curPivot.valid) {
++                return hlslpp::mul(matrixTranslation(-pivot), lerpDecomposed(prevPivot, curPivot, weight, slerp));
++            }
++        }
++
++        return lerpDecomposed(transforms[transformIndex ^ 1], transforms[transformIndex], weight, slerp);
++    }
++
++    hlslpp::float4x4 RigidBody::lerpDecomposed(const DecomposedTransform &prevTransform, const DecomposedTransform &curTransform, float weight, bool slerp) const {
+         DecomposedTransform prevTransformCopy = prevTransform;
+-        const DecomposedTransform &curTransform = transforms[transformIndex];
+         DecomposedTransform lerpedTransform;
+         
+         // When the coordinate system is flipped between transforms due to a different sign in the determinant, we bias the rotation and scale of the
+--- a/src/hle/rt64_game_frame.cpp
++++ b/src/hle/rt64_game_frame.cpp
+@@ -723,6 +723,8 @@
+         curTransformMap.rigidBody.updateAngular(prevTransform, curTransform, curGroup.rotationInterpolation, curGroup.scaleInterpolation, curGroup.skewInterpolation);
+         curTransformMap.rigidBody.updatePerspective(prevTransform, curTransform, curGroup.perspectiveInterpolation);
+         curTransformMap.rigidBody.updateDecomposition(curTransform, curGroup.decompose);
++        curTransformMap.rigidBody.usePivot = curGroup.usePivot;   // (port patch 0007)
++        curTransformMap.rigidBody.pivot = hlslpp::float3(curGroup.pivot[0], curGroup.pivot[1], curGroup.pivot[2]);
+         curTransformMap.prevTransformIndex = prevTransformIndex;
+         curTransformMap.mapped = true;
+         curWorkloadMap.prevTransformsMapped[prevTransformIndex] = true;
+@@ -992,6 +994,7 @@
+                     curTransformMap.rigidBody.updateLinear(prevMatrix, curMatrix);
+                     curTransformMap.rigidBody.updateAngular(prevMatrix, curMatrix);
+                     curTransformMap.rigidBody.updateDecomposition(curMatrix);
++                    curTransformMap.rigidBody.usePivot = false;   // (port patch 0007)
+                     curTransformMap.prevTransformIndex = candidate.prevTransformIndex;
+                     curTransformMap.mapped = true;
+                     prevTransformMapped[candidate.prevTransformIndex] = true;

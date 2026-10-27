@@ -1,0 +1,26 @@
+# Lines tools_port/provenance_check.py may find in both this repository and the
+# upstream tree because they hold facts or a format other projects define, not
+# anyone's prose or code.  One rule per line, tab-separated:
+#   FILE-GLOB	REGEX (searched in the line)	REASON
+#   @source	UPSTREAM-GLOB	REASON     (a match only with lines of these upstream
+#                                      files: copies of other people's code there)
+
+# ---- other people's code the upstream tree carried (not upstream's own work) ----
+@source	blastcorps/include/2.0I/**	the Nintendo SDK's headers in the upstream tree (ultralib has the same SDK text)
+@source	tools/ido5.3_recomp/**	the IDO static recompilation in the upstream tree (n64decomp's, not upstream's)
+@source	tools/src/stb/**	stb_image_write.h in the upstream tree (Sean Barrett's, public domain)
+
+# ---- formats other projects define ----
+**	^\s*\+?#\s*include\s+[<"][\w./]+[>"]\s*$	an #include of a standard, SDK or project header (the C preprocessor's syntax)
+**	^#!/usr/bin/env python3$	the standard Python script first line
+**	^\. \.env/bin/activate$	the standard command that enters a Python venv
+.gitmodules	^\s*(\[submodule "[\w/.-]+"\]|path = [\w/.-]+|url = https://github\.com/[\w/.-]+)\s*$	git's submodule syntax with each submodule's path and its project's own URL
+blastcorps/*.yaml	^\s*(basename|src_path|symbol_addrs_path|undefined_funcs_auto_path|undefined_syms_auto_path|target_path|base_path|compiler): [\w./]+\s*$	a splat option (splat's key) naming this project's files
+blastcorps/*.yaml	^\s*- (\[0x[0-9A-Fa-f]+, (asm|c|bin|linker|data|\.rodata|\.data|\.bss), [\w/.]+\]|name: \w+)\s*$	a splat segment entry: a ROM offset and a file name in splat's syntax (a fact of the ROM)
+blastcorps/tools_port/romsplit.py	^\s*"  (find_file_boundaries|create_detected_syms): yes",\s*$	splat's options in the yaml romsplit.py writes (splat's keys)
+blastcorps/diff_settings.py	^def apply\(config, args\):$	the function asm-differ calls in diff_settings.py (asm-differ's interface)
+**	^\s*VERSION\s*:?=\s*["']?us\.v1[01]["']?\s*$	the name of the reference ROM version
+**	^\s*\w+\s*:?=\s*"?mips-linux-gnu-"?\s*$	the MIPS binutils' name prefix (a tool's name)
+
+# ---- one-statement idioms this project's code has independently (the upstream files are other programs) ----
+**	^\s*(if len\(sys\.argv\) [<>!]=? 2:|if line\.startswith\("(#|# ---|\[)"\):|\*raw = malloc\(size\);|while \(length > 0\) \{|return None, None)\s*$	a common one-statement idiom (an argument count, a comment or section test, an allocation, a loop, a two-value return)

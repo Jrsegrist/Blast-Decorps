@@ -1,0 +1,531 @@
+RT64 port patch 0005: vsync pacing (Blast Corps port; MIT, as RT64).
+
+With vsync on, RT64's present thread handed the swap chain a picture every
+1 / targetRate s on its own timer, and plume's D3D12 swap chain presents with
+a sync interval of 0 (present wait): the display shows whichever picture is
+newest at each refresh.  At a target rate equal to the display's the timer
+beat against the refreshes and the present thread's lag crept up until the
+workload queue rendered one picture instead of two for some frames (measured
+with DXGI frame statistics on a 60 Hz display: 6-18 % of the shown intervals
+two refreshes instead of one at 60; in `original`, 16-40 % of the 30 fps
+frames held 1 or 3 refreshes instead of 2).
+
+With this patch (PresentQueue::holdFor, waitForHold, dropToCatchUp,
+noteStruggle, swapChainPresent), with vsync on:
+  - (D3D12 only: Vulkan's FIFO swap chain never drops a picture and keeps
+    RT64's pacing) every picture is presented with a sync interval of 1:
+    never dropped by the display; no timer;
+  - the picture before stays for the refreshes the timeline gives it:
+    in-between (interpolated) pictures 1 refresh at the display's rate, N at
+    1/N of it (other target rates: RT64's timer, as before); a game picture
+    the refreshes between its submission and the next one's, less its
+    in-between pictures' (Present::submitTime: the host's retrace due time,
+    State::presentDueTime, else the time it was queued).  A hold over one
+    refresh waits for the middle of the refresh before the due one, counted
+    from when the picture before was really shown (DXGI frame statistics), so
+    the phase of the game's retraces against the display's doesn't matter;
+    clock drift changes a hold only at 3/4 of a refresh;
+  - latency: an in-between picture that would queue behind another and show
+    a refresh later than the lowest such latency of the last seconds is
+    dropped once; a wait that
+    stayed a refresh too long for 30 pictures is shortened once;
+  - the workload queue reduces the in-between pictures it renders
+    (frameReduction) only when it waited over half a display frame for the
+    present thread to let go of a target (with vsync pacing the present
+    thread lets go of it on a refresh: any wait used to trigger it, making
+    every third game frame one picture short);
+  - when the PC can't keep up (six drops or presents over five refreshes
+    after queueing within 2 s), RT64's own pacing for 5 s.
+The host can turn it off (PresentQueue::vsyncPacing) and watch every present
+(presentedHook).  RT64's interpolation weights and the game's timing are
+untouched; without vsync pacing everything is as before.
+
+diff --git a/src/hle/rt64_present.h b/src/hle/rt64_present.h
+index e1889e5..1ceb152 100644
+--- a/src/hle/rt64_present.h
++++ b/src/hle/rt64_present.h
+@@ -4,6 +4,7 @@
+ 
+ #pragma once
+ 
++#include "common/rt64_timer.h"
+ #include "gui/rt64_debugger_inspector.h"
+ 
+ #include "rt64_framebuffer_manager.h"
+@@ -23,5 +24,10 @@ namespace RT64 {
+         bool paused = false;
+         uint64_t presentId = 0;
+         uint64_t workloadId = 0;
++
++        // (port patch 0005) When the present was submitted (State::advancePresent): the vsync pacing
++        // holds each picture for the display refreshes between two submissions.
++        Timestamp submitTime;
++        Timestamp queuedTime;   // when it was really queued
+     };
+ };
+\ No newline at end of file
+diff --git a/src/hle/rt64_present_queue.cpp b/src/hle/rt64_present_queue.cpp
+index 7de5b69..37420d1 100644
+--- a/src/hle/rt64_present_queue.cpp
++++ b/src/hle/rt64_present_queue.cpp
+@@ -4,11 +4,18 @@
+ 
+ #include "rt64_present_queue.h"
+ 
++#include <algorithm>
++#include <cmath>
++
+ #include "common/rt64_thread.h"
+ #include "rhi/rt64_render_hooks.h"
+ 
+ #include "rt64_workload_queue.h"
+ 
++#if defined(_WIN32)
++#   include "plume_d3d12.h"
++#endif
++
+ namespace RT64 {
+     // PresentQueue
+ 
+@@ -267,6 +274,7 @@ namespace RT64 {
+             }
+         }
+         
++        bool firstOfPresent = true;   // (port patch 0005) no picture of this present shown yet
+         for (int32_t i = 0; i < framesToPresent; i++) {
+             uint32_t frameCountersNextPresented = 0;
+             if ((framesToPresent > 1) && (usingMSAA || (i > 0))) {
+@@ -299,7 +307,8 @@ namespace RT64 {
+             }
+ 
+             uint32_t swapChainIndex = 0;
+-            const bool presentFrame = (i < framesToPresent) && swapChainValid;
++            const bool interpolated = (framesToPresent > 1) || ((targetRate > 0) && (viOriginalRate > 0) && (targetRate > viOriginalRate));
++            const bool presentFrame = (i < framesToPresent) && swapChainValid && !dropToCatchUp(present, i, framesToPresent, targetRate, interpolated);
+             if (presentFrame) {
+                 swapChainValid = ext.swapChain->acquireTexture(acquiredSemaphore.get(), &swapChainIndex);
+             }
+@@ -390,21 +399,300 @@ namespace RT64 {
+             }
+ 
+             if (presentFrame && swapChainValid) {
++                // (port patch 0005) With vsync pacing the display's refreshes set the pace (holdFor).
++                const uint32_t hold = holdFor(present, firstOfPresent, targetRate, interpolated);
++
+                 // Wait until the approximate time the next present should be at the current intended rate.
+-                if ((presentTimestamp != Timestamp()) && (targetRate > 0) && (targetRate > viOriginalRate)) {
++                if ((hold == 0) && (presentTimestamp != Timestamp()) && (targetRate > 0) && (targetRate > viOriginalRate)) {
+                     Timer::preciseSleepUntil(presentTimestamp + std::chrono::nanoseconds(1'000'000'000 / targetRate));
+                 }
+ 
++                const Timestamp waitStart = Timer::current();
+                 if (presentWaitEnabled) {
+                     ext.swapChain->wait();
+                 }
+ 
++                if (hold > 1) {
++                    waitForHold(hold, waitStart);
++                }
++
+                 RenderCommandSemaphore *waitSemaphore = drawSemaphores[swapChainIndex].get();
+                 presentTimestamp = Timer::current();
+-                swapChainValid = ext.swapChain->present(swapChainIndex, &waitSemaphore, 1);
++                swapChainValid = swapChainPresent(hold > 0, swapChainIndex, &waitSemaphore);
+                 presentProfiler.logAndRestart();
++
++                if (firstOfPresent) {
++                    pacingLastSubmit = present.submitTime;
++                    pacingLastFrames = 0;
++                    firstOfPresent = false;
++                }
++
++                pacingLastFrames++;
++                if ((hold > 0) && (std::chrono::duration<double>(presentTimestamp - present.queuedTime).count() > 5.0 * refreshPeriod())) {
++                    noteStruggle();
++                }
++
++                if (presentedHook != nullptr) {
++                    presentedHook({ present.presentId, uint32_t(i), uint32_t(framesToPresent), hold, present.submitTime, presentTimestamp });
++                }
++            }
++        }
++    }
++
++    // (port patch 0005) Vsync pacing.
++    //
++    // RT64 hands the swap chain a picture every 1 / targetRate s on its own timer (preciseSleepUntil in
++    // threadPresent), and plume's D3D12 swap chain presents with a sync interval of 0 even with vsync
++    // on (present wait): the display shows whichever picture is newest at each refresh. A timer
++    // running at the display's own rate beats against the refreshes: when its phase sits near a
++    // refresh, some refreshes get two pictures (one never shown) and the next none.
++    //
++    // With vsync pacing every picture is presented with a sync interval of 1 (D3D12; Vulkan's FIFO
++    // swap chain is the same): it is shown from the refresh after the present, after the pictures
++    // queued before it, and never dropped. The frame-latency wait before each present keeps one
++    // picture queued. How many refreshes the picture before stays (holdFor):
++    //  - an in-between picture (a frame rate above the game's own) one refresh when the target rate
++    //    is the display's, N when it is 1/N of it;
++    //  - a game picture the display refreshes between its submission and the next one's (the game's
++    //    retraces: 2 in play, 1 or 2 in the front end; less the refreshes its in-between pictures
++    //    took). For a hold of N > 1 the present waits until the middle of the refresh before the
++    //    one it is to be shown at, counted from when the picture before was shown (waitForHold):
++    //    half a refresh of slack either way, so the hold doesn't depend on the phase of the game's
++    //    retraces against the display's. A picture that comes late is presented at once and only
++    //    shows a refresh later, which the next holds keep (one refresh more latency, no stutter).
++    //    The holds follow the submissions' timeline: a drift between the game's clock and the
++    //    display's (or a rate that isn't a whole number of refreshes) changes a hold by one only when
++    //    the timeline is 3/4 of a refresh off, not at every jitter of the submissions.
++    // When the present thread is behind (another present is waiting), nothing is held. When an
++    // in-between picture would reach the display more than two refreshes after its submission (the
++    // present thread fell behind and the queue keeps it there), it is dropped once (D3D12,
++    // dropToCatchUp): the picture before stays one refresh longer, and the latency is back to normal.
++    //
++    // 0 where this doesn't apply (vsync or the pacing off, an unknown display rate, in-between
++    // pictures at a rate that doesn't divide the display's): RT64's own pacing then, as before.
++    uint32_t PresentQueue::holdFor(const Present &present, bool firstOfPresent, uint32_t targetRate, bool interpolated) {
++        const uint32_t step = pacingStep(targetRate, interpolated);
++        if (step == 0) {
++            pacingPhase = 0.0;
++            return 0;
++        }
++
++        uint32_t hold = step;
++        if (firstOfPresent) {
++            const double sinceLast = std::chrono::duration<double>(present.submitTime - pacingLastSubmit).count();
++            if ((pacingLastFrames == 0) || (sinceLast <= 0.0) || (sinceLast > 0.25)) {
++                hold = 1;
++                pacingPhase = 0.0;
++            }
++            else {
++                const double ideal = sinceLast / refreshPeriod() - double(pacingLastFrames - 1) * double(pacingLastStep);
++                long rounded = std::max(1L, std::lround(ideal));
++                pacingPhase = std::clamp(pacingPhase + ideal - double(rounded), -2.0, 2.0);
++                if (pacingPhase > 0.75) {
++                    rounded++;
++                    pacingPhase -= 1.0;
++                }
++                else if ((pacingPhase < -0.75) && (rounded > 1)) {
++                    rounded--;
++                    pacingPhase += 1.0;
++                }
++
++                hold = uint32_t(std::min(rounded, 15L));
+             }
+         }
++
++        pacingLastStep = step;
++
++        {
++            const std::scoped_lock lock(cursorMutex);
++            if (writeCursor != threadCursor) {
++                hold = 1;
++            }
++        }
++
++        return hold;
++    }
++
++    // D3D12 only: Vulkan's FIFO swap chain never drops a picture, and RT64's timer feeding it was measured
++    // regular (present intervals sd < 0.1 ms at 60 on 60 Hz), so it keeps RT64's pacing.
++    bool PresentQueue::vsyncPacingActive() const {
++        return vsyncPacing && ext.swapChain->isVsyncEnabled() && (ext.createdGraphicsAPI == UserConfiguration::GraphicsAPI::D3D12);
++    }
++
++    // Refreshes per picture when vsync pacing applies (1 for game pictures; display rate / target
++    // rate for in-between pictures), 0 when it doesn't.
++    uint32_t PresentQueue::pacingStep(uint32_t targetRate, bool interpolated) const {
++        const uint32_t displayRate = ext.appWindow->getRefreshRate();
++        if (!vsyncPacingActive() || (displayRate == 0) || (Timer::current() < pacingFallbackUntil)) {
++            return 0;
++        }
++
++        if (!interpolated) {
++            return 1;
++        }
++
++        if ((targetRate == 0) || (targetRate > displayRate) || ((displayRate % targetRate) != 0)) {
++            return 0;
++        }
++
++        return displayRate / targetRate;
++    }
++
++    double PresentQueue::refreshPeriod() const {
++        return (pacingPeriod > 0.0) ? pacingPeriod : (1.0 / double(std::max(ext.appWindow->getRefreshRate(), 1U)));
++    }
++
++    // D3D12: DXGI's frame statistics. shownAgo: seconds since the picture on screen was first shown;
++    // queued: pictures presented but not shown yet. Also measures the refresh period (pacingPeriod).
++    bool PresentQueue::pacingStats(double &shownAgo, uint32_t &queued) {
++#   if defined(_WIN32)
++        if (ext.createdGraphicsAPI != UserConfiguration::GraphicsAPI::D3D12) {
++            return false;
++        }
++
++        IDXGISwapChain3 *dxgi = static_cast<plume::D3D12SwapChain *>(ext.swapChain)->d3d;
++        DXGI_FRAME_STATISTICS stats = {};
++        UINT lastCount = 0;
++        LARGE_INTEGER qpcNow, qpcFreq;
++        QueryPerformanceCounter(&qpcNow);
++        QueryPerformanceFrequency(&qpcFreq);
++        if (FAILED(dxgi->GetFrameStatistics(&stats)) || FAILED(dxgi->GetLastPresentCount(&lastCount)) || (stats.PresentCount > lastCount)) {
++            return false;
++        }
++
++        // The refresh period from statistics a second or more apart.
++        const double nominal = 1.0 / double(std::max(ext.appWindow->getRefreshRate(), 1U));
++        if ((pacingStatsRefresh != 0) && (stats.SyncRefreshCount > pacingStatsRefresh + 60)) {
++            const double measured = double(stats.SyncQPCTime.QuadPart - pacingStatsQpc) / double(qpcFreq.QuadPart) / double(stats.SyncRefreshCount - pacingStatsRefresh);
++            pacingPeriod = (std::fabs(measured - nominal) < nominal * 0.05) ? measured : 0.0;
++            pacingStatsRefresh = 0;
++        }
++
++        if (pacingStatsRefresh == 0) {
++            pacingStatsRefresh = stats.SyncRefreshCount;
++            pacingStatsQpc = stats.SyncQPCTime.QuadPart;
++        }
++
++        const double syncAgo = double(qpcNow.QuadPart - stats.SyncQPCTime.QuadPart) / double(qpcFreq.QuadPart);
++        shownAgo = syncAgo + double(stats.SyncRefreshCount - stats.PresentRefreshCount) * refreshPeriod();
++        queued = lastCount - stats.PresentCount;
++        return true;
++#   else
++        return false;
++#   endif
++    }
++
++    // Until the middle of the (hold - 1)th refresh after the one the picture before was first shown
++    // at (D3D12: frame statistics; otherwise: when the frame-latency wait returned, if it waited).
++    void PresentQueue::waitForHold(uint32_t hold, Timestamp waitStart) {
++        const Timestamp now = Timer::current();
++        double shownAgo = 0.0;
++        uint32_t queued = 0;
++        if (pacingStats(shownAgo, queued)) {
++            // The statistics can still be those of the refresh before (just after the wait): a picture
++            // still queued shows a refresh after the one on screen.
++            shownAgo -= double(queued) * refreshPeriod();
++        }
++        else {
++            if (std::chrono::duration<double>(now - waitStart).count() <= 0.001) {
++                return;
++            }
++
++            shownAgo = 0.0;
++        }
++
++        // A wait of more than a refresh (and a quarter: the most it is when the latency is as low as it
++        // can be is half a refresh) is latency kept from an earlier delay: shorten it by whole refreshes
++        // (the picture before stays that much shorter, once).
++        const double period = refreshPeriod();
++        double untilDue = (double(hold) - 0.5) * period - shownAgo;
++        if (untilDue > 1.25 * period) {
++            // (Only when it lasted for 30 pictures: not in a burst of late submissions.)
++            if (++pacingExcess >= 30) {
++                untilDue -= std::floor((untilDue - 0.25 * period) / period) * period;
++                pacingTrims++;
++                pacingExcess = 0;
++            }
++        }
++        else {
++            pacingExcess = 0;
++        }
++
++        if ((untilDue > 0.0) && (untilDue < 0.25)) {
++            Timer::preciseSleepUntil(now + std::chrono::nanoseconds(int64_t(untilDue * 1e9)));
++        }
++    }
++
++    // An in-between picture that would wait behind a queued one and reach the display a refresh later
++    // (after it was queued) than the lowest such latency of the last seconds: dropped (vsync pacing at
++    // one refresh per picture). (Nothing queued: presented now, it shows as soon as it can.)
++    bool PresentQueue::dropToCatchUp(const Present &present, int32_t frameIndex, int32_t framesToPresent, uint32_t targetRate, bool interpolated) {
++        if ((frameIndex + 1 >= framesToPresent) || (pacingStep(targetRate, interpolated) != 1)) {
++            return false;
++        }
++
++        double shownAgo = 0.0;
++        uint32_t queued = 0;
++        if (!pacingStats(shownAgo, queued)) {
++            return false;
++        }
++
++        // The refresh this picture would be shown at if presented now (+1 ms to draw it).
++        const double period = refreshPeriod();
++        double showIn = double(queued + 1) * period - shownAgo;
++        if (showIn < 0.001) {
++            showIn = std::ceil((0.001 + shownAgo) / period) * period - shownAgo;
++        }
++
++        // (From when it was queued: dropping can't make up for a game thread that was late itself.)
++        const Timestamp now = Timer::current();
++        const double submittedAgo = std::chrono::duration<double>(now - present.queuedTime).count();
++        const double latency = submittedAgo + showIn;
++
++        // The lowest latency of the last 10 to 20 seconds: what this display mode (windowed, or
++        // fullscreen with its own flip queue) gives; a picture a refresh above it is behind.
++        if ((pacingLatencyWindowStart == Timestamp()) || (now - pacingLatencyWindowStart > std::chrono::seconds(10))) {
++            pacingLatencyPrevMin = pacingLatencyMin;
++            pacingLatencyMin = 1e9;
++            pacingLatencyWindowStart = now;
++        }
++
++        pacingLatencyMin = std::min(pacingLatencyMin, latency);
++        const double baseline = std::min(pacingLatencyMin, pacingLatencyPrevMin);
++        if ((queued > 0) && (latency > baseline + period + 0.002) && (latency > 2.0 * period)) {
++            pacingDrops++;
++            noteStruggle();
++            return true;
++        }
++
++        return false;
++    }
++
++    // When the present thread can't keep up with the display (a busy GPU or CPU: six pictures dropped or
++    // presented over five refreshes after they were queued, within two seconds; a game thread that was
++    // late itself, e.g. loading, doesn't count), vsync pacing only makes it worse (every picture waits
++    // for its own refresh): RT64's own pacing for the next five seconds.
++    void PresentQueue::noteStruggle() {
++        const Timestamp now = Timer::current();
++        pacingStruggles[pacingStruggleIndex] = now;
++        pacingStruggleIndex = (pacingStruggleIndex + 1) % pacingStruggles.size();
++        const Timestamp oldest = pacingStruggles[pacingStruggleIndex];
++        if ((oldest != Timestamp()) && (now - oldest < std::chrono::seconds(2))) {
++            pacingFallbackUntil = now + std::chrono::seconds(5);
++            pacingFallbacks++;
++            pacingStruggles.fill(Timestamp());
++        }
++    }
++
++    bool PresentQueue::swapChainPresent(bool vsyncPaced, uint32_t swapChainIndex, RenderCommandSemaphore **waitSemaphores) {
++#   if defined(_WIN32)
++        if (vsyncPaced && (ext.createdGraphicsAPI == UserConfiguration::GraphicsAPI::D3D12)) {
++            // plume's D3D12SwapChain::present with a sync interval of 1 (vsync is on: no tearing).
++            plume::D3D12SwapChain *d3d12SwapChain = static_cast<plume::D3D12SwapChain *>(ext.swapChain);
++            return SUCCEEDED(d3d12SwapChain->d3d->Present(1, 0));
++        }
++#   endif
++        return ext.swapChain->present(swapChainIndex, waitSemaphores, 1);
+     }
+ 
+     void PresentQueue::skipInterpolation() {
+diff --git a/src/hle/rt64_present_queue.h b/src/hle/rt64_present_queue.h
+index e08b02c..801be4c 100644
+--- a/src/hle/rt64_present_queue.h
++++ b/src/hle/rt64_present_queue.h
+@@ -18,6 +18,16 @@ namespace RT64 {
+     struct WorkloadQueue;
+ 
+     struct PresentQueue {
++        // (port patch 0005) What the host's presentedHook gets after every swap chain present.
++        struct PresentedInfo {
++            uint64_t presentId;
++            uint32_t frameIndex;        // which of the present's pictures (interpolated ones first)
++            uint32_t frameCount;
++            uint32_t hold;              // refreshes the picture before was to stay (0: RT64's timer pacing)
++            Timestamp submitTime;       // Present::submitTime
++            Timestamp presentTime;      // just before the swap chain's present
++        };
++
+         struct External {
+             ApplicationWindow *appWindow = nullptr;
+             RenderDevice *device = nullptr;
+@@ -58,6 +68,28 @@ namespace RT64 {
+         VIHistory viHistory;
+         bool presentWaitEnabled = false;
+ 
++        // (port patch 0005) Vsync pacing: with vsync on, pictures are handed to the swap chain on the
++        // display's refreshes instead of RT64's timer (see holdFor). The host may turn it off
++        // (vsyncPacing = false: RT64's own pacing) and may watch every present (presentedHook).
++        std::atomic<bool> vsyncPacing = true;
++        void (*presentedHook)(const PresentedInfo &info) = nullptr;
++        Timestamp pacingLastSubmit;
++        uint32_t pacingLastFrames = 0;
++        uint32_t pacingLastStep = 1;
++        double pacingPhase = 0.0;           // refreshes the holds are behind (+) or ahead of the submissions
++        double pacingPeriod = 0.0;          // the display's refresh period, measured (s)
++        std::atomic<uint32_t> pacingDrops = 0;   // in-between pictures dropped to catch up
++        std::atomic<uint32_t> pacingTrims = 0;   // holds shortened to bring the latency down
++        double pacingLatencyMin = 1e9, pacingLatencyPrevMin = 1e9;   // dropToCatchUp's baseline (s)
++        Timestamp pacingLatencyWindowStart;
++        uint32_t pacingExcess = 0;              // pictures in a row that waited over a refresh too long
++        std::array<Timestamp, 6> pacingStruggles = {};
++        uint32_t pacingStruggleIndex = 0;
++        Timestamp pacingFallbackUntil;           // RT64's own pacing until then (noteStruggle)
++        std::atomic<uint32_t> pacingFallbacks = 0;
++        uint32_t pacingStatsRefresh = 0;
++        int64_t pacingStatsQpc = 0;
++
+         PresentQueue();
+         ~PresentQueue();
+         void reset();
+@@ -68,6 +100,15 @@ namespace RT64 {
+         void waitForPresentId(uint64_t waitId);
+         void setup(const External &ext);
+         void threadPresent(const Present &present, bool &swapChainValid);
++        uint32_t holdFor(const Present &present, bool firstOfPresent, uint32_t targetRate, bool interpolated);
++        bool vsyncPacingActive() const;
++        uint32_t pacingStep(uint32_t targetRate, bool interpolated) const;
++        double refreshPeriod() const;
++        bool pacingStats(double &shownAgo, uint32_t &queued);
++        void waitForHold(uint32_t hold, Timestamp waitStart);
++        void noteStruggle();
++        bool dropToCatchUp(const Present &present, int32_t frameIndex, int32_t framesToPresent, uint32_t targetRate, bool interpolated);
++        bool swapChainPresent(bool vsyncPaced, uint32_t swapChainIndex, RenderCommandSemaphore **waitSemaphores);
+         void skipInterpolation();
+         void notifyPresentId(const Present &present);
+         void threadAdvanceBarrier();
+diff --git a/src/hle/rt64_state.cpp b/src/hle/rt64_state.cpp
+index 2970e71..8dfa11c 100644
+--- a/src/hle/rt64_state.cpp
++++ b/src/hle/rt64_state.cpp
+@@ -2668,6 +2668,8 @@ namespace RT64 {
+         present.paused = paused;
+         present.debuggerFramebuffer.address = debuggerInspector.renderer.framebufferAddress;
+         present.debuggerFramebuffer.view = (debuggerInspector.renderer.framebufferIndex >= 0);
++        present.queuedTime = Timer::current();
++        present.submitTime = (presentDueTime != Timestamp()) ? presentDueTime : present.queuedTime;
+     }
+ 
+     void State::dpInterrupt() {
+diff --git a/src/hle/rt64_state.h b/src/hle/rt64_state.h
+index 7a8c13b..10b31f3 100644
+--- a/src/hle/rt64_state.h
++++ b/src/hle/rt64_state.h
+@@ -118,6 +118,10 @@ namespace RT64 {
+         bool configurationSaveQueued = false;
+         uint64_t workloadId = 0;
+         uint64_t presentId = 0;
++
++        // (port patch 0005) When the host's retrace that calls updateScreen was due (its ideal time, not
++        // when it came): becomes the submission time of the presents it queues. Unset: the current time.
++        Timestamp presentDueTime;
+         uint32_t ditherRandomSeed = 0;
+         uint32_t renderFlagSampleCount = 0;
+         External ext;
+diff --git a/src/hle/rt64_workload_queue.cpp b/src/hle/rt64_workload_queue.cpp
+index 5a331aa..20622f1 100644
+--- a/src/hle/rt64_workload_queue.cpp
++++ b/src/hle/rt64_workload_queue.cpp
+@@ -1091,11 +1091,21 @@ namespace RT64 {
+ 
+                             if (useDifferentCounters && (prevFrameCounters.available > 0) && (targetIndex < prevFrameCounters.available)) {
+                                 // Wait until the target has finished presenting if the alternate frame counter (used by the present queue) is making use of this target.
++                                // (port patch 0005) With vsync pacing the present thread lets go of a target
++                                // on the display's refresh: a short wait for it is normal there, and only a
++                                // wait of over half a display frame reduces the frames rendered.
++                                const bool vsyncPaced = ext.presentQueue->vsyncPacingActive();
++                                const Timestamp waitStart = Timer::current();
++                                bool hadToWait = false;
+                                 std::unique_lock<std::mutex> interpolatedLock(ext.sharedResources->interpolatedMutex);
+                                 ext.sharedResources->interpolatedCondition.wait(interpolatedLock, [&]() {
+-                                    frameReduction = frameReduction || (prevFrameCounters.presented <= targetIndex);
++                                    hadToWait = hadToWait || (prevFrameCounters.presented <= targetIndex);
+                                     return prevFrameCounters.presented > targetIndex;
+                                 });
++
++                                if (hadToWait && (!vsyncPaced || (std::chrono::duration<double>(Timer::current() - waitStart).count() > 0.5 / double(workloadConfig.targetRate)))) {
++                                    frameReduction = true;
++                                }
+                             }
+ 
+                             targetIndex++;

@@ -1,0 +1,173 @@
+# 679E0: (de)serialize a 0xA6-byte block plus three words (0xB2 bytes, unaligned).
+
+# veh_serialize_state(dst, src, words) returns 0xB2. dst at any alignment, after src's
+# 0xA6 bytes in the same block (no overlap); words word-aligned.
+veh_serialize_state: -n 200 --arg a1=ptr:0x200 --arg a2=ptr:0x10 --arg a0=rel:heap0+0x100+int:0:7
+veh_serialize_state: -n 50 --seed 1 --arg a1=ptr:0x200 --arg a2=ptr:0x10 --arg a0=rel:heap0+0x100+choice:0,1,2,3 \
+    --mem @a2:12=words:0,0xFFFFFFFF,0x80000000,0x7FFFFFFF,0x000000FF,0xFF000000
+
+# veh_deserialize_state(src, dst, words): src at any alignment, words word-aligned
+veh_deserialize_state: -n 200 --ret void --arg a1=ptr:0x200 --arg a2=ptr:0x10 --arg a0=rel:heap0+0x100+int:0:7
+veh_deserialize_state: -n 50 --seed 1 --ret void --arg a1=ptr:0x200 --arg a2=ptr:0x10 --arg a0=rel:heap0+0x100+choice:0,1,2,3 \
+    --mem @a0:0xB2=bytes:0,0xFF,0x80,0x7F,1
+
+# math_atan (non-ABI: x in v1, result in fp): interpolate gAtanTable[x>>8 clamped to 0x3FF] by x&0xFF
+math_atan: -n 300 --arg a0=int
+math_atan: -n 300 --seed 1 --arg a0=choice:0,0xFF,0x100,0x3FEFF,0x3FF00,0x3FFFF,0x40000,0x400FF,0x7FFFFFFF,0x80000000,-1
+math_atan: -n 300 --seed 2 --arg v1=int:0:0x40000
+# math_atan_c: math_atan(x); callee stubbed (mapped), then followed
+math_atan_c: -n 200 --arg a0=int
+math_atan_c: -n 300 --seed 1 --follow math_atan --arg a0=int
+math_atan_c: -n 100 --seed 2 --follow math_atan --arg a0=choice:0,0x3FF00,0x3FFFF,0x40000,-1
+
+# mtx_to_n64 (non-ABI: m in s2): s32 16.16 matrix to Mtx layout (int halves, then fraction halves), in place
+mtx_to_n64: -n 200 --arg a0=ptr:0x40
+mtx_to_n64: -n 50 --seed 1 --arg s2=ptr:0x40 --mem @s2:0x40=halves:0,0xFFFF,0x8000,0x7FFF,1
+
+# mtx_translate / mtx_scale (non-ABI: x t0, y t1, z t2, m t3): translation / scale matrix
+mtx_translate: -n 200 --arg a0=int --arg a1=int --arg a2=int --arg a3=ptr:0x40
+mtx_translate: -n 50 --seed 1 --arg t0=choice:0,-1,0x10000,0x80000000 --arg t1=0 --arg t2=0x7FFFFFFF --arg t3=ptr:0x40
+mtx_scale: -n 200 --arg a0=int --arg a1=int --arg a2=int --arg a3=ptr:0x40
+mtx_scale: -n 50 --seed 1 --arg t0=choice:0,-1,0x10000,0x80000000 --arg t1=0 --arg t2=0x7FFFFFFF --arg t3=ptr:0x40
+
+# mtx_mul (non-ABI: b in a0, m in s2): m = m * b, 16.16, s64 sums >> 16 through gMtxMulTemp
+mtx_mul: -n 300 --arg a0=ptr:0x40 --arg a1=ptr:0x40 --mem gMtxMulTemp:0x40=rand
+mtx_mul: -n 100 --seed 1 --arg a0=ptr:0x40 --arg a1=ptr:0x40 --mem gMtxMulTemp:0x40=rand \
+    --mem @a0:0x40=words:0,1,-1,0x10000,-0x10000,0x7FFFFFFF,0x80000000,0x8000 --mem @a1:0x40=words:0,1,-1,0x10000,-0x10000,0x7FFFFFFF,0x80000000,0xFFFF
+# b == m (squaring in place)
+mtx_mul: -n 50 --seed 2 --arg a0=ptr:0x40 --arg a1=rel:a0 --mem gMtxMulTemp:0x40=rand
+
+# ground_in_triangle(px, pz, x0, z0, x1, z1, x2, z2): o32 wrapper of ground_tri_contains (point in triangle) -> v0.
+# Its FP side results (and the f24 the asm passes through) are dropped: only the 8 real arguments are compared.
+ground_in_triangle: -n 300 --sig ground_tri_contains=a0,a1,a2,a3,stack0,stack1,stack2,stack3 --arg a0=int --arg a1=int --arg a2=int --arg a3=int --arg sp+0x10=int --arg sp+0x14=int --arg sp+0x18=int --arg sp+0x1C=int
+# followed: small coordinates (the asm's sums and differences trap on overflow), inside and outside
+ground_in_triangle: -n 400 --seed 1 --follow ground_tri_contains --arg a0=choice:0,10,-10,100,-100,1000,-1000,5000 --arg a1=choice:0,10,-10,100,-100,1000,-1000,5000 --arg a2=choice:0,10,-10,100,-100,1000,-1000,5000 --arg a3=choice:0,10,-10,100,-100,1000,-1000,5000 --arg sp+0x10=choice:0,10,-10,100,-100,1000,-1000,5000 --arg sp+0x14=choice:0,10,-10,100,-100,1000,-1000,5000 --arg sp+0x18=choice:0,10,-10,100,-100,1000,-1000,5000 --arg sp+0x1C=choice:0,10,-10,100,-100,1000,-1000,5000
+
+# obj_blast_around_carrier(radius): blast-damage (obj_blast_damage) every gObjects record (0..6 in use, byte 0xEA == 0)
+# closer than radius << 5 to the player (math_dist3). Stubbed distance 1000 vs limits around it (<<5 overflow too).
+obj_blast_around_carrier: -n 300 --ret void --arg a0=choice:0,31,32,33,-1,0x3FFFFFF,0x4000000,100 --mem gObjects:0x5E8=rand \
+    --mem gObjects+0xEA*0xFC:6/1=choice:0,0,1,0x80 --mem gObjectsEnd=rel:gObjects+0xFC*int:0:6 \
+    --mem gCarrierX=int --mem gCarrierY=int --mem gCarrierZ=int --stub-ret math_dist3=1000
+# real distances (positions in game range: math_dist3's asm traps on overflow)
+obj_blast_around_carrier: -n 300 --seed 1 --ret void --arg a0=int:0:2000 --mem gObjects:0x5E8=rand \
+    --mem gObjects+0xEA*0xFC:6/1=choice:0,0,1 --mem gObjects+0x10*0xFC:6=int:-30000:30000 \
+    --mem gObjects+0x14*0xFC:6=int:-30000:30000 --mem gObjects+0x18*0xFC:6=int:-30000:30000 \
+    --mem gObjectsEnd=rel:gObjects+0xFC*int:0:6 --mem gCarrierX=int:-30000:30000 --mem gCarrierY=int:-30000:30000 \
+    --mem gCarrierZ=int:-30000:30000 --follow math_dist3
+# whole call tree (obj_blast_damage walks the same records; some random records fault identically in both)
+obj_blast_around_carrier: -n 100 --seed 2 --ret void --arg a0=int:0:2000 --mem gObjects:0x5E8=rand \
+    --mem gObjects+0xEA*0xFC:6/1=choice:0,0,1 --mem gObjects+0x10*0xFC:6=int:-30000:30000 \
+    --mem gObjects+0x14*0xFC:6=int:-30000:30000 --mem gObjects+0x18*0xFC:6=int:-30000:30000 \
+    --mem gObjectsEnd=rel:gObjects+0xFC*int:0:6 --mem gCarrierX=int:-30000:30000 --mem gCarrierY=int:-30000:30000 \
+    --mem gCarrierZ=int:-30000:30000 --follow-all
+# empty list
+obj_blast_around_carrier: -n 20 --seed 3 --ret void --arg a0=int --mem gObjectsEnd=sym:gObjects
+
+# fx_spawn_node_hit(x, y, z): fx_spawn spawn of gFxDefNodeHit at (x, y, z) << 16 (callee stubbed, then followed)
+fx_spawn_node_hit: -n 300 --ret void --arg a0=int --arg a1=int --arg a2=int
+fx_spawn_node_hit: -n 100 --seed 1 --ret void --arg a0=choice:0,-1,0x7FFF,0x8000,0xFFFF,0x10000 --arg a1=choice:0,-1,0x7FFF,0x8000 --arg a2=choice:0,-1,0xFFFF,0x10000
+fx_spawn_node_hit: -n 200 --seed 2 --ret void --follow fx_spawn --arg a0=int --arg a1=int --arg a2=int \
+    --mem gEffects:0x3C0=rand --mem gEffects+0x33*0x3C:16/1=bytes:0,1*3 --mem gFxTileSlots:16=bytes:0*2,1 \
+    --mem gFxSpawnTag:1=rand --sig tex_queue_palette=a0,a1
+
+# fx_spawn_at / fx_spawn_at_late(x, y, z, kind, data): spawn gFxDefsByKind[kind] (28 entries) at (x, y, z) << 11, tag 0 / 1
+fx_spawn_at: -n 300 --ret void --arg a0=int --arg a1=int --arg a2=int --arg a3=int:0:0x20 --arg sp+0x10=int
+fx_spawn_at: -n 100 --seed 1 --ret void --arg a0=choice:0,-1,0xFFFFF,0x100000 --arg a1=choice:0,-1,0x7FFF --arg a2=choice:0,-1,0x200000 --arg a3=choice:0,1,0x13 --arg sp+0x10=choice:0,-1,400000
+fx_spawn_at: -n 200 --seed 2 --ret void --follow fx_spawn --arg a0=int --arg a1=int --arg a2=int --arg a3=int:0:27 --arg sp+0x10=int \
+    --mem gEffects:0x3C0=rand --mem gEffects+0x33*0x3C:16/1=bytes:0,1*3 --mem gFxTileSlots:16=bytes:0*2,1 \
+    --mem gFxSpawnTag:1=rand --sig tex_queue_palette=a0,a1
+fx_spawn_at_late: -n 300 --ret void --arg a0=int --arg a1=int --arg a2=int --arg a3=int:0:0x20 --arg sp+0x10=int
+fx_spawn_at_late: -n 100 --seed 1 --ret void --arg a0=choice:0,-1,0xFFFFF,0x100000 --arg a1=choice:0,-1,0x7FFF --arg a2=choice:0,-1,0x200000 --arg a3=choice:0,1,0x13 --arg sp+0x10=choice:0,-1,1000000
+fx_spawn_at_late: -n 200 --seed 2 --ret void --follow fx_spawn --arg a0=int --arg a1=int --arg a2=int --arg a3=int:0:27 --arg sp+0x10=int \
+    --mem gEffects:0x3C0=rand --mem gEffects+0x33*0x3C:16/1=bytes:0,1*3 --mem gFxTileSlots:16=bytes:0*2,1 \
+    --mem gFxSpawnTag:1=rand --sig tex_queue_palette=a0,a1
+
+# veh_wrap_position (px v0, py v1, pz a0): level 0x17 position wrap into the box, flag gCamSnap, spawn kind 0x13
+veh_wrap_position: -n 400 --seed 0 --heap 0x10 --arg v0=rel:heap0 --arg v1=rel:heap0+4 --arg a0=rel:heap0+8 \
+    --mem levelno=choice:0x17*4,0x16,0x18,0 --mem gCamSnap:1=bytes:0*3,1,0x80 \
+    --mem @heap0=choice:0x15180,0x15181,0x15182,0x2580,0x2581,0x2582,0,-1,0x7FFFFFFF,0x80000000,0x10000 \
+    --mem @heap0+8=choice:0x13880,0x13881,0x13882,0x3E80,0x3E81,0x3E82,0,-1,0x7FFFFFFF,0x80000000,0x10000 \
+    --mem @heap0+4=int --sig fx_spawn_at_late=a0,a1,a2,a3,stack0
+# in-range positions (only the flag decides the spawn)
+veh_wrap_position: -n 200 --seed 1 --heap 0x10 --arg v0=rel:heap0 --arg v1=rel:heap0+4 --arg a0=rel:heap0+8 \
+    --mem levelno=0x17 --mem gCamSnap:1=bytes:0,1 --mem @heap0=int:0x2581:0x15180 --mem @heap0+8=int:0x3E81:0x13880 \
+    --mem @heap0+4=int --sig fx_spawn_at_late=a0,a1,a2,a3,stack0
+# spawn run for real (fx_spawn_at_late -> fx_spawn stubbed)
+veh_wrap_position: -n 100 --seed 2 --heap 0x10 --arg v0=rel:heap0 --arg v1=rel:heap0+4 --arg a0=rel:heap0+8 \
+    --mem levelno=0x17 --mem gCamSnap:1=bytes:0,1 --mem @heap0=int:0:0x20000 --mem @heap0+8=int:0:0x20000 \
+    --mem @heap0+4=int --follow fx_spawn_at_late
+
+# mtx_rotate_y / mtx_rotate_z / mtx_rotate_x (angle t0, m t3): rotation matrices about y / z / x
+mtx_rotate_y: -n 200 --seed 0 --arg t0=int --arg t3=ptr:0x40 --mem @t3:0x40=rand
+mtx_rotate_y: -n 300 --seed 1 --arg t0=choice:0,0x400,0x800,0xC00,0xFFF,0x1000,-1,0x7FFFFFFF,0x80000000,0x123 --arg t3=ptr:0x40 \
+    --mem @t3:0x40=rand --follow math_cos,math_sin,math_cosf,math_sinf
+mtx_rotate_z: -n 200 --seed 0 --arg t0=int --arg t3=ptr:0x40 --mem @t3:0x40=rand
+mtx_rotate_z: -n 300 --seed 1 --arg t0=choice:0,0x400,0x800,0xC00,0xFFF,0x1000,-1,0x7FFFFFFF,0x80000000,0x123 --arg t3=ptr:0x40 \
+    --mem @t3:0x40=rand --follow math_cos,math_sin,math_cosf,math_sinf
+mtx_rotate_x: -n 200 --seed 0 --arg t0=int --arg t3=ptr:0x40 --mem @t3:0x40=rand
+mtx_rotate_x: -n 300 --seed 1 --arg t0=choice:0,0x400,0x800,0xC00,0xFFF,0x1000,-1,0x7FFFFFFF,0x80000000,0x123 --arg t3=ptr:0x40 \
+    --mem @t3:0x40=rand --follow math_cos,math_sin,math_cosf,math_sinf
+
+# math_rotate_xz (x a1, z a2, angle a3 -> t0, t1): 2-D rotation; cos/sin stubbed with 16.16 values 0..0x10000 (a stub's
+# 32-bit result reaches the asm's 64-bit dmult zero-extended, so negative ones only come from the followed runs), then followed
+math_rotate_xz: -n 300 --seed 0 --arg a1=int:-0x20000000:0x20000000 --arg a2=int:-0x20000000:0x20000000 --arg a3=int \
+    --stub-ret math_cos=int:0:0x10000 --stub-ret math_sin=int:0:0x10000
+math_rotate_xz: -n 100 --seed 1 --arg a1=choice:0,1,-1,0xFFFF,0x10000,-0x10000,0x1FFFFFFF,-0x20000000 \
+    --arg a2=choice:0,1,-1,0xFFFF,0x10000,-0x10000,0x1FFFFFFF,-0x20000000 --arg a3=int \
+    --stub-ret math_cos=choice:0,0x10000,1,0xFFFF,0xB505 --stub-ret math_sin=choice:0,0x10000,1,0xFFFF,0xB505
+math_rotate_xz: -n 200 --seed 2 --arg a1=int:-0x20000000:0x20000000 --arg a2=int:-0x20000000:0x20000000 --arg a3=int \
+    --follow math_cos,math_sin,math_cosf,math_sinf
+# math_rotate_xz_inv (x a0, z a2, angle a3 -> a3, t1)
+math_rotate_xz_inv: -n 300 --seed 0 --arg a0=int:-0x20000000:0x20000000 --arg a2=int:-0x20000000:0x20000000 --arg a3=int \
+    --stub-ret math_cos=int:0:0x10000 --stub-ret math_sin=int:0:0x10000
+math_rotate_xz_inv: -n 100 --seed 1 --arg a0=choice:0,1,-1,0xFFFF,0x10000,-0x10000,0x1FFFFFFF,-0x20000000 \
+    --arg a2=choice:0,1,-1,0xFFFF,0x10000,-0x10000,0x1FFFFFFF,-0x20000000 --arg a3=int \
+    --stub-ret math_cos=choice:0,0x10000,1,0xFFFF,0xB505 --stub-ret math_sin=choice:0,0x10000,1,0xFFFF,0xB505
+math_rotate_xz_inv: -n 200 --seed 2 --arg a0=int:-0x20000000:0x20000000 --arg a2=int:-0x20000000:0x20000000 --arg a3=int \
+    --follow math_cos,math_sin,math_cosf,math_sinf
+# math_rotate_xx (x a0, angle a3 -> t0, a3); |x| <= 0x4000 keeps p * s >> 16 in 32 bits
+math_rotate_xx: -n 300 --seed 0 --arg a0=int:-0x4000:0x4000 --arg a3=int \
+    --stub-ret math_cos=int:0:0x10000 --stub-ret math_sin=int:0:0x10000
+math_rotate_xx: -n 100 --seed 1 --arg a0=choice:0,1,-1,0xFFF,0x1000,-0x1000,0x4000,-0x4000 --arg a3=int \
+    --stub-ret math_cos=choice:0,0x10000,1,0xFFFF,0xB505 --stub-ret math_sin=choice:0,0x10000,1,0xFFFF,0xB505
+math_rotate_xx: -n 200 --seed 2 --arg a0=int:-0x4000:0x4000 --arg a3=int \
+    --follow math_cos,math_sin,math_cosf,math_sinf
+# boundary angles and coordinates with the real cos/sin
+math_rotate_xz: -n 200 --seed 3 --arg a1=choice:0,1,-1,0xFFFF,0x10000,-0x10000,0x1FFFFFFF,-0x20000000 \
+    --arg a2=choice:0,1,-1,0xFFFF,0x10000,-0x10000,0x1FFFFFFF,-0x20000000 --arg a3=choice:0,0x400,0x800,0xC00,0x200,0xFFF,0x1000,-1 \
+    --follow math_cos,math_sin,math_cosf,math_sinf
+math_rotate_xz_inv: -n 200 --seed 3 --arg a0=choice:0,1,-1,0xFFFF,0x10000,-0x10000,0x1FFFFFFF,-0x20000000 \
+    --arg a2=choice:0,1,-1,0xFFFF,0x10000,-0x10000,0x1FFFFFFF,-0x20000000 --arg a3=choice:0,0x400,0x800,0xC00,0x200,0xFFF,0x1000,-1 \
+    --follow math_cos,math_sin,math_cosf,math_sinf
+math_rotate_xx: -n 200 --seed 3 --arg a0=choice:0,1,-1,0xFFF,0x1000,-0x1000,0x4000,-0x4000 \
+    --arg a3=choice:0,0x400,0x800,0xC00,0x200,0xFFF,0x1000,-1 --follow math_cos,math_sin,math_cosf,math_sinf
+
+# veh_check_wrap (px v0, py v1, pz a0): trampoline to veh_wrap_position; stubbed, then followed with the wrap boundaries
+veh_check_wrap: -n 200 --seed 0 --arg v0=int --arg v1=int --arg a0=int
+veh_check_wrap: -n 200 --seed 1 --heap 0x10 --arg v0=rel:heap0 --arg v1=rel:heap0+4 --arg a0=rel:heap0+8 \
+    --mem @heap0:12=words:0,0x2580,0x2581,0x3E80,0x3E81,0x13880,0x13881,0x15180,0x15181,-1 --mem levelno=choice:0x17,0x17,0x16 \
+    --mem gCamSnap:1=bytes:0,0,1 --follow veh_wrap_position
+
+# veh_maze_object_hits (a0, a1, v0, v1, t0, vehicle t8, record gp): game mode 0x40 only; reset, collision pass, then the
+# 0..4 hit objects (heap0..heap3) in the gObjHits list are moved to x = z = 0xBB80
+veh_maze_object_hits: -n 300 --seed 0 --heap 0x50 --heap 0x50 --heap 0x50 --heap 0x50 \
+    --arg a0=int --arg a1=int --arg v0=int --arg v1=int --arg t0=int --arg t8=choice:0,5,0xFF --arg gp=int \
+    --mem gLevelKind=choice:0x40*3,0,0x41 --mem gObjHits=rel:heap0 --mem gObjHits+8=rel:heap1 \
+    --mem gObjHits+0x10=rel:heap2 --mem gObjHits+0x18=rel:heap3 --mem gObjHitsEnd=rel:gObjHits+8*int:0:4 \
+    --mem gPowerPillTimer:2=choice:0,1,0x8000 --mem gFailTrigger:1=rand --mem gSfxBank=int --sig snd_play=a0,a1,a2
+# always a non-empty list and sound; positions around 0xBB80 and the wrap points
+veh_maze_object_hits: -n 200 --seed 1 --heap 0x50 --heap 0x50 --heap 0x50 --heap 0x50 \
+    --arg a0=int --arg a1=int --arg v0=int --arg v1=int --arg t0=int --arg t8=choice:0,5,0xFF --arg gp=int \
+    --mem gLevelKind=0x40 --mem gObjHits=rel:heap0 --mem gObjHits+8=rel:heap1 \
+    --mem gObjHits+0x10=rel:heap2 --mem gObjHits+0x18=rel:heap3 --mem gObjHitsEnd=rel:gObjHits+8*int:1:4 \
+    --mem @heap0+0x10*0x60:4=choice:0,0xBB80,0xBB81,-1,0x7FFFFFFF,0x80000000 --mem @heap0+0x18*0x60:4=choice:0,0xBB80,0xBB7F,-1,0x80000000 \
+    --mem gPowerPillTimer:2=choice:1,0xFFFF --mem gFailTrigger:1=rand --mem gSfxBank=int --sig snd_play=a0,a1,a2
+# the reset and the collision pass run for real (vehicle 5's sphere in one slot, no objects)
+veh_maze_object_hits: -n 200 --seed 2 --heap 0x50 --heap 0x50 --heap 0x50 --heap 0x50 --heap 0x100 \
+    --arg a0=int --arg a1=int --arg v0=int --arg v1=int --arg t0=int --arg t8=5 --arg gp=rel:heap4 \
+    --mem gLevelKind=0x40 --mem gObjHits=rel:heap0 --mem gObjHits+8=rel:heap1 \
+    --mem gObjHits+0x10=rel:heap2 --mem gObjHits+0x18=rel:heap3 --mem gObjHitsEnd=rel:gObjHits+8*int:0:4 \
+    --mem gPowerPillTimer:2=choice:0,1 --mem gFailTrigger:1=rand --mem gSfxBank=int --sig snd_play=a0,a1,a2 \
+    --mem gVehBoundSpheres:0xF0=onehot:0x14@0x10/1:5:rand --mem gVehBoundSpheres+0x11*0x14:12/1=0 --mem gFramesInMode=choice:0,1 \
+    --mem gObjHitPartDown:1=rand --mem gObjHit:1=rand --mem gObjHitImmunePart:1=rand --mem gObjRockLatch:1=rand \
+    --sig veh_prev_contacts_clear= --sig veh_contacts_clear= --sig veh_contacts_save= --follow veh_collision_setup,obj_collide_vehicle,obj_hits_clear

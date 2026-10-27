@@ -1,0 +1,13 @@
+# Pass 2: level load / spawn chain registers (once per level load)
+R = ["fp", "t6", "t7", "s0", "s1", "s2", "s3", "s4", "a3", "t3", "t0", "ra"]
+F = [12, 14, 20, 22, 24, 26]
+SP = {0x802AE370: "AE370", 0x802AFC60: "AFC60", 0x802B0DA0: "B0DA0", 0x802B29C0: "B29C0", 0x802B4100: "B4100",
+      0x802B5900: "B5900", 0x802BAD80: "BAD80", 0x802BBA60: "BBA60", 0x802B7340: "B7340", 0x802C5120: "C5120",
+      0x802C9B90: "C9B90", 0x802C80D0: "C80D0", 0x802CB720: "CB720", 0x802CC920: "CC920", 0x802CF6A0: "CF6A0",
+      0x802D07E0: "D07E0",
+      0x802A303C: "A303C", 0x802A1C20: "A1C20", 0x802A350C: "A350C", 0x802A3198: "A3198", 0x802A1674: "A1674",
+      0x802A3F80: "A3F80", 0x802A1D54: "A1D54", 0x802B9C50: "B9C50", 0x802A30DC: "A30DC", 0x802A3134: "A3134"}
+BPS = {a: (l, R, F) for a, l in SP.items()}
+MEM = [(0x802E8BDC, 4), (0x802E8BEC, 4), (0x80364456, 1)]
+VIS = 60 * 60 * 8
+DEFMAX = 10 ** 9

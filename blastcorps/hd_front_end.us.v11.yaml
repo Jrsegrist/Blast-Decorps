@@ -1,0 +1,85 @@
+# splat's split of the front end, an overlay of hd_code (text and data)
+options:
+  basename: hd_front_end.us.v11
+  target_path: hd_front_end.us.v11.bin          # the inflated segment (top-level `make extract`)
+  base_path: .
+  src_path: src.us.v11
+  compiler: IDO
+  # symbol_addrs.hd_front_end.us.v11.txt + hd_code's names (tools_port/segsyms.py),
+  # written by `make extract`, so calls into hd_code use hd_code's names
+  symbol_addrs_path: symbol_addrs_auto.hd_front_end.us.v11.txt
+  undefined_funcs_auto_path: undefined_funcs_auto.hd_front_end.us.v11.txt
+  undefined_syms_auto_path: undefined_syms_auto.hd_front_end.us.v11.txt
+  find_file_boundaries: true
+  create_detected_syms: true
+segments:
+  # The front end is inflated once by hd_code hd_load_front_end (46C20.c) to
+  # 0x801E7000: osInvalDCache(0x801E7000, 0x37D00), then the gzip inflate of
+  # ROM 0x7E3AD0 (text) / 0x7F63A1 (data) to that address. 307 of the 917 jal
+  # words in the text land inside it at this base, all on function starts.
+  # .bss runs from 0x80210E90 to 0x8021ED00 (= init's vram).
+  # File boundaries: splat find_file_boundaries (16-aligned, nop-padded ends),
+  # plus libultra object starts (16-aligned function starts).
+  - name: hd_front_end
+    type: code
+    start: 0x0
+    vram: 0x801E7000
+    subsegments:
+    - [0x00000, c, hd_front_end/00000]
+    - [0x01C40, c, hd_front_end/01C40]
+    - [0x06790, c, hd_front_end/06790]
+    - [0x07390, c, hd_front_end/07390]
+    - [0x07800, c, hd_front_end/07800]
+    - [0x09570, c, hd_front_end/09570]
+    - [0x0C450, c, hd_front_end/0C450] # node scene; own .rodata (16-aligned) proves the file boundary
+    - [0x0DE70, c, hd_front_end/0DE70]
+    - [0x0E7B0, c, hd_front_end/0E7B0] # pfsHandler.c (Controller Pak / EEPROM save thread)
+    - [0x10850, c, hd_front_end/10850] # bestTimes.c
+    - [0x11530, c, hd_front_end/11530]
+    - [0x17990, c, hd_front_end/17990]
+    - [0x196F0, c, hd_front_end/196F0]
+    - [0x1A240, c, hd_front_end/1A240]
+    - [0x1AE80, c, hd_front_end/1AE80] # game code (one IDO function)
+    - [0x1B100, c, hd_front_end/1B100] # hand-written asm: sd $ra frames, $gp, calls hd_code non-ABI functions
+    - [0x1B730, c, hd_front_end/ul_pfsfreeblocks]  # src/io/pfsfreeblocks.c
+    - [0x1B880, c, hd_front_end/ul_conteepprobe] # src/io/conteepprobe.c (old SDK)
+    - [0x1B8F0, c, hd_front_end/ul_pfschecker]  # src/io/pfschecker.c
+    - [0x1C350, c, hd_front_end/ul_pfsinitpak] # src/io/pfsinitpak.c (old SDK; + __osPfsGetStatus)
+    - [0x1C510, c, hd_front_end/ul_pfsallocatefile] # src/io/pfsallocatefile.c
+    - [0x1CCC0, c, hd_front_end/ul_pfsdeletefile] # src/io/pfsdeletefile.c (old SDK)
+    - [0x1D2D0, c, hd_front_end/ul_conteeplongwrite] # src/io/conteeplongwrite.c (old SDK)
+    - [0x1D410, c, hd_front_end/ul_conteeplongread] # src/io/conteeplongread.c (old SDK)
+    - [0x1D550, c, hd_front_end/ul_pfssearchfile]  # src/io/pfssearchfile.c
+    - [0x1D710, c, hd_front_end/ul_pfsreadwritefile] # src/io/pfsreadwritefile.c (old SDK)
+    - [0x1DC10, c, hd_front_end/ul_conteepwrite] # src/io/conteepwrite.c (old SDK; osEepromWrite, __osEepStatus)
+    - [0x1E0F0, c, hd_front_end/ul_conteepread] # src/io/conteepread.c (old SDK; defines __osEepPifRam)
+    - [0x1E3F0, c, hd_front_end/ul_pfsfilestate]  # src/io/pfsfilestate.c
+    - [0x1E6E0, c, hd_front_end/ul_crc]  # src/io/crc.c
+    - [0x1E860, c, hd_front_end/ul_contpfs]  # src/io/contpfs.c
+    - [0x1F5C0, c, hd_front_end/ul_contramread] # src/io/contramread.c (old SDK, pre-2.0J form)
+    - [0x1F970, c, hd_front_end/ul_contramwrite] # src/io/contramwrite.c (old SDK, pre-2.0J form)
+    - [0x1FD20, c, hd_front_end/ul_pfsisplug] # src/io/pfsisplug.c (old SDK: __osPfsRequestData clears PIF RAM)
+    - [0x20090, bin, hd_front_end/20090] # RSP microcode (IMEM text; hd_code rsp_init_ucode_table DMAs gL3dText)
+    - [0x21040, linker, data]
+    - [0x21040, .data, hd_front_end/00000]
+    - [0x211C0, .data, hd_front_end/01C40] # player.c .data (0x802081C0)
+    - [0x214B0, .data, hd_front_end/06790]
+    - [0x214D0, .data, hd_front_end/07800] # stats.c
+    - [0x214F0, bin, hd_front_end/hd_front_end_data_214F0]
+    - [0x26810, .data, hd_front_end/11530] # 0x8020D810: level table, lights
+    - [0x273E0, bin, hd_front_end/hd_front_end_data_273E0]
+    - [0x27440, .rodata, hd_front_end/00000]
+    - [0x274D0, .rodata, hd_front_end/01C40] # player.c .rodata (0x8020E4D0)
+    - [0x27D40, .rodata, hd_front_end/06790]
+    - [0x27DB0, .rodata, hd_front_end/07800] # stats.c
+    - [0x27FC0, .rodata, hd_front_end/09570] # constants and a jump table only
+    - [0x28090, .rodata, hd_front_end/0C450] # doubles only
+    - [0x280B0, .rodata, hd_front_end/0E7B0]
+    - [0x28480, bin, hd_front_end/hd_front_end_data_28480] # menu text (strings of the menu table at 0x8020C070)
+    - [0x28F20, .rodata, hd_front_end/10850]
+    - [0x28F80, .rodata, hd_front_end/11530] # 0x8020FF80: level names, then 11530's strings/doubles
+    - [0x29550, .rodata, hd_front_end/17990]
+    - [0x29620, .rodata, hd_front_end/196F0]
+    - [0x29670, .rodata, hd_front_end/1AE80]
+    - [0x29690, bin, hd_front_end/hd_front_end_data_29690]
+  - [0x29E90]

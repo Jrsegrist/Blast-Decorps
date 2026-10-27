@@ -1,0 +1,29 @@
+# Third-party code the build and the decomp tools use, each at a pinned commit
+# (README.md, "Acknowledgements").
+
+# libultra and libaudio, decompiled: the SDK headers and the ul_* objects
+[submodule "lib/ultralib"]
+	path = lib/ultralib
+	url = https://github.com/decompals/ultralib.git
+
+# splat (pinned at e9da957, Dec 2021: the yaml format the segment files use)
+[submodule "tools/splat"]
+	path = tools/splat
+	url = https://github.com/ethteck/splat.git
+[submodule "tools/asm-processor"]
+	path = tools/asm-processor
+	url = https://github.com/simonlindholm/asm-processor.git
+
+# for decompiling and matching functions
+[submodule "tools/asm-differ"]
+	path = tools/asm-differ
+	url = https://github.com/simonlindholm/asm-differ.git
+[submodule "tools/mips_to_c"]
+	path = tools/mips_to_c
+	url = https://github.com/matt-kempster/mips_to_c.git
+[submodule "tools/permuter"]
+	path = tools/permuter
+	url = https://github.com/simonlindholm/decomp-permuter.git
+[submodule "tools/decomp-workbench"]
+	path = tools/decomp-workbench
+	url = https://github.com/akratch/n64-decomp-workbench.git

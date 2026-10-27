@@ -1,0 +1,262 @@
+# 60F60: heap blocks and records (tex_reset_decode_queue, fx_finish_all, fx_reset,
+# fx_alloc_texture_caches, fx_age_texture_caches, fx_begin_dls)
+
+# tex_reset_decode_queue: two cursors reset to &gTexDecodeQueue (no inputs)
+tex_reset_decode_queue: -n 50 --ret void --mem gTexDecodeQueueTail=int --mem gTexDecodeQueueHead=int
+
+# fx_finish_all: 16 records of 0x3C; word 0 points at a def (heap) whose u16 at +0xE is a count,
+# byte 0x33 is the active flag (low byte of the pool words: 0x00/0x20/0x40/0xF0)
+fx_finish_all: -n 300 --ret void --mem gEffects:0x3C0=words:0x80B00000,0x80B00020,0x80B00040,0x80B000F0 --mem 0x80B00000:0x100=rand
+# count extremes: 0 (last = 0xFF), 1, 0x100 (wraps to 0xFF), 0xFFFF, 0x8000
+fx_finish_all: -n 200 --seed 1 --ret void --mem gEffects:0x3C0=words:0x80B00000,0x80B00020,0x80B00040,0x80B000F0 --mem 0x80B00000:0x100=halves:0,1,0x100,0x101,0xFFFF,0x8000
+# only one record active (first/last/middle), the rest inactive
+fx_finish_all: -n 200 --seed 2 --ret void --mem gEffects:0x3C0=onehot:0x3C@0x33/1:1,0xFF:words:0x80B00000,0x80B00100 --mem 0x80B00000:0x200=rand
+
+# fx_reset: clears range/count, 16 active flags and gFxTileSlots[16] (no inputs)
+fx_reset: -n 50 --ret void --mem gEffects:0x3C0=rand --mem gFxTileSlots:16=rand --mem gFxTexCaches=int --mem gFxTexCachesEnd=int --mem gFxTexCachesFree:2=int:0:0xFFFF
+
+# fx_alloc_texture_caches: carve 0x1010-byte blocks from the heap pointer up to gFxHeapEndKind20 (flag 0x20) or
+# gFxHeapEnd; start a multiple of 4 below, at, or above the end (negative span -> 0 blocks).
+# Only a0 of the printf calls is compared: the asm's first call passes the caller's a1 through.
+# The count passed in a1 to the second call is checked via gFxTexCachesFree.
+fx_alloc_texture_caches: -n 300 --ret void --sig debug_printf=a0 --mem gLevelKind=choice:0,0x20,0x21,-1,0xDF,0x20000 --mem gHeapPtr=rel:gFxHeapEndKind20+-0x1010*int:0:20+choice:0,-4,4,-0x100C,0x1010,0x1000
+# exact multiples (span = k * 0x1010), and starts relative to the higher end gFxHeapEnd
+fx_alloc_texture_caches: -n 200 --seed 1 --ret void --sig debug_printf=a0 --mem gLevelKind=choice:0,0x20 --mem gHeapPtr=rel:gFxHeapEnd+-0x1010*int:0:30
+# start above the end: count 0
+fx_alloc_texture_caches: -n 100 --seed 2 --ret void --sig debug_printf=a0 --mem gLevelKind=choice:0,0x20 --mem gHeapPtr=rel:gFxHeapEnd+choice:0,4,0x1010,0x10000
+
+# fx_age_texture_caches: age the in-use blocks of [gFxTexCaches, gFxTexCachesEnd); 4 blocks of 0x1010 at heap,
+# end = 0..4 blocks; inUse / age (0x3C -> freed at 0x3D) per block; count with 0x7FFF / 0xFFFF
+fx_age_texture_caches: -n 300 --ret void --mem gFxTexCaches=rel:heap --mem gFxTexCachesEnd=rel:heap+0x1010*int:0:4 --mem gFxTexCachesFree:2=halves:0,5,0x7FFF,0xFFFF,0x8000 --mem 0x80B01000=choice:0,1,-1 --mem 0x80B01004:2=halves:0,1,0x3B,0x3C,0x3D,0x7FFF,0xFFFF --mem 0x80B02010=choice:0,1,-1 --mem 0x80B02014:2=halves:0,1,0x3B,0x3C,0x3D,0x7FFF,0xFFFF --mem 0x80B03020=choice:0,1,-1 --mem 0x80B03024:2=halves:0,1,0x3B,0x3C,0x3D,0x7FFF,0xFFFF --mem 0x80B04030=choice:0,1,-1 --mem 0x80B04034:2=halves:0,1,0x3B,0x3C,0x3D,0x7FFF,0xFFFF
+# all four in use and at the threshold (all freed), then all just below it (none freed)
+fx_age_texture_caches: -n 50 --seed 1 --ret void --mem gFxTexCaches=rel:heap --mem gFxTexCachesEnd=rel:heap+0x4040 --mem gFxTexCachesFree:2=int:0:0xFFFF --mem 0x80B01000=1 --mem 0x80B01004:2=halves:0x3C --mem 0x80B02010=1 --mem 0x80B02014:2=halves:0x3C --mem 0x80B03020=1 --mem 0x80B03024:2=halves:0x3C --mem 0x80B04030=1 --mem 0x80B04034:2=halves:0x3C
+fx_age_texture_caches: -n 50 --seed 2 --ret void --mem gFxTexCaches=rel:heap --mem gFxTexCachesEnd=rel:heap+0x4040 --mem gFxTexCachesFree:2=int:0:0xFFFF --mem 0x80B01000=1 --mem 0x80B01004:2=halves:0x3B --mem 0x80B02010=1 --mem 0x80B02014:2=halves:0x3B --mem 0x80B03020=1 --mem 0x80B03024:2=halves:0x3B --mem 0x80B04030=1 --mem 0x80B04034:2=halves:0x3B
+# empty range
+fx_age_texture_caches: -n 20 --seed 3 --ret void --mem gFxTexCaches=rel:heap --mem gFxTexCachesEnd=rel:heap --mem gFxTexCachesFree:2=int:0:0xFFFF
+
+# fx_begin_dls: two display-list cursors through gfx_begin_textured (stubbed)
+fx_begin_dls: -n 200 --ret void --sig gfx_begin_textured=a0 --mem gFxDlCursorA=int --mem gFxDlCursorB=int
+
+# tex_decode_next: tex_decode(cursor gTexDecodeQueueHead), then cursor += 0x10. The asm relies on
+# tex_decode preserving a0 AND v1 (a stub clobbers v1 and the reference faults), so the
+# callee chain is run for real (--follow-all). Record at heap0: src = heap0+0x800, even size
+# 0..0x3E (ld/sd copy of size&~7, then halves), type 0..6 (decoders) or none, t4 word.
+# Decoder input halves: literals, and back-references with even offsets (odd ones fault on lhu).
+# The table word (+0xC, read by types 4 and 5) must point at real table memory, not `int`: a
+# random int can land in .hd_code_data on a code-pointer table (jump tables, callbacks), whose
+# words legitimately differ between the builds (0x802Dxxxx vs the relocated 0x8089xxxx), so
+# the decoded colours differ although both decoders are right (seen as 9 bytes at heap+0x804).
+tex_decode_next: -n 300 --ret void --follow-all --mem gTexDecodeQueueHead=ptr:0x1000 --mem @heap0=rel:heap0+0x800 \
+    --mem @heap0+4=choice:0,2,6,8,0xA,0x10,0x16,0x20,0x3E --mem @heap0+8=choice:0,1,2,3,4,5,6,7,-1,0x100 --mem @heap0+0xC=ptr:0x1000 \
+    --mem @heap0+0x800:0x40=halves:0x1234,0x0042,0x7FFF,0x8041,0x8443,0x8C5F,0x0000 --mem gTexDecodeScratch:0x40=rand
+# types 4 and 5 with random literal tokens (table index up to 0x7FF / 0xFF) over a random table,
+# and tables at any even offset inside a random 0x2000 block (rand halves: odd back-refs fault)
+tex_decode_next: -n 400 --seed 3 --ret void --follow-all --mem gTexDecodeQueueHead=ptr:0x1000 --mem @heap0=rel:heap0+0x800 \
+    --mem @heap0+4=choice:2,8,0x10,0x20,0x3E --mem @heap0+8=choice:4,5 --mem @heap0+0xC=ptr:0x1000 \
+    --mem @heap0+0x800:0x40=halves:0,1,0xF,0x10,0xFF,0x100,0x7FF0,0x7FFF,0x4321,0x8041,0x8443 --mem gTexDecodeScratch:0x40=rand
+tex_decode_next: -n 400 --seed 4 --ret void --follow-all --heap 0x2000 --mem gTexDecodeQueueHead=rel:heap0 --mem @heap0=rel:heap0+0x800 \
+    --mem @heap0+4=choice:2,4,6,8,0x10 --mem @heap0+8=choice:4,5 --mem @heap0+0xC=rel:heap0+0x900+2*int:0:0x300 \
+    --mem @heap0+0x800:0x40=rand --mem gTexDecodeScratch:0x40=rand
+# no decoder (types outside 0..6): only the copy into gTexDecodeScratch and the cursor step
+tex_decode_next: -n 100 --seed 1 --ret void --follow-all --mem gTexDecodeQueueHead=ptr:0x1000 --mem @heap0=rel:heap0+0x800 \
+    --mem @heap0+4=choice:0,2,6,8,0x3E --mem @heap0+8=choice:7,-1,0x100 --mem @heap0+0xC=int \
+    --mem @heap0+0x800:0x40=rand --mem gTexDecodeScratch:0x40=rand
+
+# tex_decode_next with tex_decode stubbed: conventions.txt says it preserves a0 and v1, so the stub
+# leaves them and the asm reference no longer faults (cursor a valid pointer: addi traps on overflow)
+tex_decode_next: -n 100 --seed 2 --ret void --sig tex_decode=a0 --mem gTexDecodeQueueHead=rel:heap+0x10*int:0:100
+
+# tex_queue_decode (non-ABI: s1, s2, s3, fp): append four words at the cursor gTexDecodeQueueTail, cursor += 0x10
+tex_queue_decode: -n 200 --ret void --mem gTexDecodeQueueTail=rel:heap+0x10*int:0:8 --heap 0x100 --arg a0=int --arg a1=int --arg a2=int --arg a3=int
+tex_queue_decode: -n 50 --seed 1 --ret void --heap 0x40 --mem gTexDecodeQueueTail=rel:heap0 --arg s1=choice:0,-1,0x80000000 --arg s2=0 --arg s3=-1 --arg fp=0x7FFFFFFF
+
+# Decoders of tex_decode (non-ABI: src a0, size a1, dst a3 -> advanced dst in a3, table t4).
+# dst = heap0+0x1000 (back-references reach up to 0x7FC bytes back), src = heap1. Token pools:
+# literals, and back-references whose offset field is even (odd byte offsets fault on lhu/lw):
+# 0x8041 (2 back, 1 unit), 0x8443 (0x22, 3), 0x8C5F (0x62, 31), 0xFFC1 (0x3FE, 1), 0x8000 (0 units).
+tex_decode_type6: -n 300 --heap 0x2000 --heap 0x40 --arg a0=rel:heap1 --arg a3=rel:heap0+0x1000 --arg a1=choice:0,2,4,0x10,0x20,0x3E,0x40 \
+    --mem @heap1:0x40=halves:0x1234,0x0042,0x7FFF,0x0000,0x00FF,0x7F00,0x5A5A,0x0F0F,0x8041,0x8443,0x8C5F,0xFFC1,0x8000
+tex_decode_type6: -n 100 --seed 1 --heap 0x2000 --heap 0x40 --arg a0=rel:heap1 --arg a3=rel:heap0+0x1000 --arg a1=choice:0,2,0x40 \
+    --mem @heap1:0x40=halves:0x8000,0x8C5F,0xFFDF,0x8041
+tex_decode_type3: -n 300 --heap 0x2000 --heap 0x40 --arg a0=rel:heap1 --arg a3=rel:heap0+0x1000 --arg a1=choice:0,2,4,0x10,0x20,0x3E,0x40 \
+    --mem @heap1:0x40=halves:0x1234,0x0042,0x7FFF,0x0000,0x00FF,0x7F00,0x5A5A,0x0F0F,0x8041,0x8443,0x8C5F,0xFFC1,0x8000
+tex_decode_type3: -n 100 --seed 1 --heap 0x2000 --heap 0x40 --arg a0=rel:heap1 --arg a3=rel:heap0+0x1000 --arg a1=choice:0,2,0x40 \
+    --mem @heap1:0x40=halves:0x7FFF,0x0080,0x8080,0x00FF
+tex_decode_type1: -n 300 --heap 0x2000 --heap 0x40 --arg a0=rel:heap1 --arg a3=rel:heap0+0x1000 --arg a1=choice:0,2,4,0x10,0x20,0x3E,0x40 \
+    --mem @heap1:0x40=halves:0x1234,0x0042,0x7FFF,0x0000,0x00FF,0x7F00,0x5A5A,0x0F0F,0x8041,0x8443,0x8C5F,0xFFC1,0x8000
+tex_decode_type1: -n 100 --seed 1 --heap 0x2000 --heap 0x40 --arg a0=rel:heap1 --arg a3=rel:heap0+0x1000 --arg a1=choice:0,2,0x40 \
+    --mem @heap1:0x40=halves:0x7FFF,0x003F,0x0040,0x7FC0,0xFFC1
+tex_decode_type2: -n 300 --heap 0x2000 --heap 0x40 --arg a0=rel:heap1 --arg a3=rel:heap0+0x1000 --arg a1=choice:0,2,4,0x10,0x20,0x3E,0x40 \
+    --mem @heap1:0x40=halves:0x1234,0x0042,0x7FFF,0x0000,0x00FF,0x7F00,0x5A5A,0x0F0F,0x8041,0x8443,0x8C5F,0xFFC1,0x8000
+tex_decode_type2: -n 100 --seed 1 --heap 0x2000 --heap 0x40 --arg a0=rel:heap1 --arg a3=rel:heap0+0x1000 --arg a1=choice:0,2,0x40 \
+    --mem @heap1:0x40=halves:0x7FFF,0x7800,0x0780,0x0078,0x0007,0xFFC1,0x8000
+tex_decode_type4: -n 300 --heap 0x2000 --heap 0x40 --heap 0x100 --arg a0=rel:heap1 --arg a3=rel:heap0+0x1000 --arg t4=rel:heap2 \
+    --arg a1=choice:0,2,4,0x10,0x20,0x3E,0x40 \
+    --mem @heap1:0x40=halves:0x1234,0x0042,0x7FFF,0x0000,0x00FF,0x7F00,0x5A5A,0x0F0F,0x8041,0x8443,0x8C5F,0xFFC1,0x8000 \
+    --mem @heap2:0x100=halves:0,1,0x7FFF,0x8000,0xFFFF,0x1234
+tex_decode_type4: -n 100 --seed 1 --heap 0x2000 --heap 0x40 --heap 0x100 --arg a0=rel:heap1 --arg a3=rel:heap0+0x1000 --arg t4=rel:heap2 \
+    --arg a1=choice:0,2,0x40 --mem @heap1:0x40=halves:0x7FFF,0x0000,0x0101,0x7EFE,0xFFC1 --mem @heap2:0x100=halves:0xFFFF,0x8000
+tex_decode_type5: -n 300 --heap 0x2000 --heap 0x40 --heap 0x1000 --arg a0=rel:heap1 --arg a3=rel:heap0+0x1000 --arg t4=rel:heap2 \
+    --arg a1=choice:0,2,4,0x10,0x20,0x3E,0x40 \
+    --mem @heap1:0x40=halves:0x1234,0x0042,0x7FFF,0x0000,0x00FF,0x7F00,0x5A5A,0x0F0F,0x8041,0x8443,0x8C5F,0xFFC1,0x8000 \
+    --mem @heap2:0x1000=halves:0,1,0x7FFF,0x8000,0xFFFF,0x7C00,0x03E0,0x001F,0x1234
+tex_decode_type5: -n 100 --seed 1 --heap 0x2000 --heap 0x40 --heap 0x1000 --arg a0=rel:heap1 --arg a3=rel:heap0+0x1000 --arg t4=rel:heap2 \
+    --arg a1=choice:0,2,0x40 --mem @heap1:0x40=halves:0x7FFF,0x0000,0x000F,0x7FF0,0xFFC1 --mem @heap2:0x1000=halves:0xFFFF,0x8000
+# type 0: len >> 3 doublewords; len not a multiple of 8 drops the tail
+tex_decode_type0: -n 300 --heap 0x200 --heap 0x200 --arg a0=rel:heap1 --arg a3=rel:heap0 --arg a1=choice:0,1,7,8,9,0x10,0x3F,0x100,0x1F8,0x1FF
+
+# tex_decode(req): copy the packed data to gTexDecodeScratch, run the type's decoder back into data.
+# Request at heap0, data at heap0+0x800, u16 table (types 4/5) at heap1. Decoders stubbed (mapped;
+# result = stub a3 - data) and followed.
+tex_decode: -n 300 --heap 0x1000 --heap 0x1000 --arg a0=rel:heap0 --mem @heap0=rel:heap0+0x800 \
+    --mem @heap0+4=choice:0,2,6,8,0xA,0x10,0x16,0x20,0x3E --mem @heap0+8=choice:0,1,2,3,4,5,6,7,-1,0x100 --mem @heap0+0xC=rel:heap1 \
+    --mem @heap0+0x800:0x40=halves:0x1234,0x0042,0x7FFF,0x8041,0x8443,0x8C5F,0x0000 --mem gTexDecodeScratch:0x40=rand
+tex_decode: -n 300 --seed 1 --follow-all --heap 0x1000 --heap 0x1000 --arg a0=rel:heap0 --mem @heap0=rel:heap0+0x800 \
+    --mem @heap0+4=choice:0,2,6,8,0xA,0x10,0x16,0x20,0x3E --mem @heap0+8=choice:0,1,2,3,4,5,6,7,-1,0x100 --mem @heap0+0xC=rel:heap1 \
+    --mem @heap0+0x800:0x40=halves:0x1234,0x0042,0x7FFF,0x8041,0x8443,0x8C5F,0x0000 --mem gTexDecodeScratch:0x40=rand
+tex_decode: -n 100 --seed 2 --follow-all --heap 0x1000 --heap 0x1000 --arg a0=rel:heap0 --mem @heap0=rel:heap0+0x800 \
+    --mem @heap0+4=choice:0,0x3E,0x40 --mem @heap0+8=choice:0,4,5 --mem @heap0+0xC=rel:heap1 \
+    --mem @heap0+0x800:0x40=halves:0x7FFF,0x8000,0xFFC1 --mem gTexDecodeScratch:0x40=rand
+
+# fx_count_active: count of active (byte 0x33 != 0) records of gEffects (non-ABI: result in t0)
+fx_count_active: -n 200 --mem gEffects:0x3C0=rand
+fx_count_active: -n 100 --seed 1 --mem gEffects:0x3C0=onehot:0x3C@0x33/1:1,0xFF,0x80:zero
+fx_count_active: -n 50 --seed 2 --mem gEffects:0x3C0=onehot:0x3C@0x33/1:0:bytes:1,0xFF
+
+# fx_fill_quad (non-ABI: w v1, Vtx* t1, col t7, x s2, y s3, h s5): quad of 4 Vtx, coordinates truncated to s16.
+# y + h is a trapping `add` in the asm: keep it from overflowing.
+fx_fill_quad: -n 300 --arg a0=int --arg a1=ptr:0x40 --arg a2=ptr:0x10 --arg a3=int --arg s3=int:-0x1000000:0x1000000 --arg s5=int:-0x1000000:0x1000000
+fx_fill_quad: -n 100 --seed 1 --arg a0=choice:0,-1,0x7FFF,0x8000,0x10000 --arg a1=ptr:0x40 --arg a2=ptr:0x10 \
+    --arg a3=choice:0,-1,0x7FFF,0x8000 --arg s3=choice:0,-1,0x7FFF,0x8000 --arg s5=choice:0,-1,0x7FFF,0x8000,0x800
+
+# fx_get_dl_cursor (non-ABI: obj t4 -> t2): &gFxDlCursorB if obj[0x3B] else &gFxDlCursorA
+fx_get_dl_cursor: -n 100 --arg a0=ptr:0x40 --mem @a0+0x3B:1=choice:0,1,0x80,0xFF
+
+# ---- phase D (wave 1, wt-d4) ----
+# fx_draw_quad (obj t4, vtx t1, timg s1, fmtsiz t8, width v1, height s5, zbuf gp): *cursor =
+# gfx_draw_textured_quad(*cursor, ...), cursor = fx_get_dl_cursor(obj). gfx_draw_textured_quad's fmtsiz is compared at its
+# declared s16 width (the asm passes the whole register, the C prototype narrows it).
+fx_draw_quad: -n 300 --seed 0 --follow fx_get_dl_cursor --stub-ret gfx_draw_textured_quad=rand \
+    --conv 'gfx_draw_textured_quad: in a0=a0,a1=a1,a2=a2,a3=a3:2,stack0=stack0,stack1=stack1,stack2=stack2 ; out v0=ret' \
+    --arg t4=ptr:0x40 --mem @t4+0x3B:1=bytes:0,1,0xFF --arg t1=int --arg s1=int --arg t8=int --arg v1=int \
+    --arg s5=int --arg gp=int --mem gFxDlCursorA=int --mem gFxDlCursorB=int
+# callee stubbed: cursor from --stub-ret
+fx_draw_quad: -n 100 --seed 1 --stub-ret fx_get_dl_cursor=0x803EB784 --stub-ret gfx_draw_textured_quad=rand \
+    --conv 'gfx_draw_textured_quad: in a0=a0,a1=a1,a2=a2,a3=a3:2,stack0=stack0,stack1=stack1,stack2=stack2 ; out v0=ret' \
+    --arg t4=int --arg t1=int --arg s1=int --arg t8=choice:0,1,0x7FFF,0x8000,0xFFFF,-1 --arg v1=int --arg s5=int \
+    --arg gp=int --mem gFxDlCursorA=int --mem gFxDlCursorB=int
+
+# fx_spawn: set up a gEffects record. def (t0) = {s16 id, u8 w, u8 h}; type t2 (1 = from
+# veh_find_point when t5 != 0, else bytes x/y); 16-byte slot map gFxTileSlots; 16 records, active byte +0x33.
+fx_spawn: -n 400 --seed 0 --stub-ret veh_find_point.a0=ptr:0x20 \
+    --arg t0=ptr:0x10 --mem @t0:2=halves:5,0,0xFFFF,0x8000,0x7FFF --mem @t0+2:1=bytes:0,1,2,3 --mem @t0+3:1=bytes:0,1,2,3 \
+    --mem gEffects:0x3C0=rand --mem gEffects+0x33*0x3C:16/1=bytes:0,1*3,0xFF \
+    --mem gFxTileSlots:16=bytes:0*2,1,0xFF --mem gFxSpawnTag:1=rand --mem gFxTexCachesFree:2=rand \
+    --arg a3=int --arg t1=int --arg t2=choice:0,1*2,2,0xFF --arg t3=int --arg t4=int --arg t5=choice:0,1,5 \
+    --arg t6=int --arg t7=int --arg s0=int --arg s1=int --arg s2=int --arg s3=int --arg s4=int --arg s5=int
+# exactly one free record (first / last / middle), map with exactly enough or one too few free slots
+fx_spawn: -n 300 --seed 1 --stub-ret veh_find_point.a0=ptr:0x20 \
+    --arg t0=ptr:0x10 --mem @t0:2=halves:5,0xFFFF --mem @t0+2:1=bytes:1,2 --mem @t0+3:1=bytes:1,2 \
+    --mem gEffects:0x3C0=rand --mem gEffects:0x3C0=onehot:0x3C@0x33/1:0:bytes:1,0xFF \
+    --mem gFxTileSlots:16=onehot:1/1:0:bytes:1 --mem gFxTileSlots+3:1=bytes:0,1 --mem gFxTileSlots+15:1=bytes:0,1 \
+    --mem gFxSpawnTag:1=rand --arg a3=int --arg t1=int --arg t2=choice:0,1 --arg t3=int --arg t4=int \
+    --arg t5=choice:0,1 --arg t6=int --arg t7=int --arg s0=int --arg s1=int --arg s2=int --arg s3=int --arg s4=int --arg s5=int
+# no free record at all; and a full slot map
+fx_spawn: -n 50 --seed 2 --arg t0=ptr:0x10 --mem gEffects+0x33*0x3C:16/1=bytes:1,0xFF --arg a3=int \
+    --mem gFxSpawnTag:1=rand --arg t1=int --arg t2=choice:0,1 --arg t6=int --arg s1=int
+fx_spawn: -n 50 --seed 3 --arg t0=ptr:0x10 --mem @t0+2:1=bytes:1,2 --mem @t0+3:1=bytes:1,3 \
+    --mem gEffects:0x3C0=rand --mem gEffects+0x33*0x3C:16/1=bytes:0,1 --mem gFxTileSlots:16=bytes:1,0xFF \
+    --arg a3=int --mem gFxSpawnTag:1=rand --arg t1=int --arg t2=choice:0,1 --arg t6=int --arg s1=int
+# def with zero area (no slots: a3 passes through), id -1 (no tex_queue_palette call)
+fx_spawn: -n 100 --seed 4 --stub-ret veh_find_point.a0=ptr:0x20 --arg t0=ptr:0x10 \
+    --mem @t0:2=halves:0xFFFF,3 --mem @t0+2:1=bytes:0,4 --mem @t0+3:1=bytes:0 \
+    --mem gEffects:0x3C0=rand --mem gEffects+0x33*0x3C:16/1=bytes:0,1 --mem gFxTileSlots:16=bytes:0,1 \
+    --arg a3=int --mem gFxSpawnTag:1=rand --arg t1=int --arg t2=choice:0,1 --arg t3=int --arg t4=int --arg t5=choice:0,7 \
+    --arg t6=int --arg t7=int --arg s0=int --arg s1=int --arg s2=int --arg s3=int --arg s4=int --arg s5=int
+# type 1 with the position record found by veh_find_point for real (ids 1..3 in gVehPoints records 0..2)
+fx_spawn: -n 200 --seed 5 --follow veh_find_point --arg t0=ptr:0x10 \
+    --mem @t0:2=halves:5,0xFFFF --mem @t0+2:1=bytes:1,2 --mem @t0+3:1=bytes:1,2 \
+    --mem gEffects:0x3C0=rand --mem gEffects+0x33*0x3C:16/1=bytes:0,1 --mem gFxTileSlots:16=bytes:0,1 \
+    --mem gVehPoints:0x80=rand --mem gVehPoints+0xC:1=1 --mem gVehPoints+0x1C:1=2 --mem gVehPoints+0x2C:1=3 \
+    --arg a3=int --mem gFxSpawnTag:1=rand --arg t1=int --arg t2=1 --arg t3=int:1:3 --arg t4=int:1:3 --arg t5=choice:1,-1 \
+    --arg t6=int --arg t7=int --arg s0=int --arg s1=int --arg s2=int --arg s3=int --arg s4=int --arg s5=int
+# [e1] fx_get_texture (rec t4, idx a0, base t3, list t9 in/out, param fp): heap block already holding (def, byte),
+# else a new block when gFxTexCachesFree != 0 and def is listed in gFxCachedDefs, else base + (*idx << 12); the next u16 id
+# from the list is loaded into it (tex_queue_load_impl). heap0 = 5 blocks (the 5th always free), heap1 = rec, heap2 = list.
+fx_get_texture: -n 300 --heap 0x5050 --heap 0x40 --heap 0x10 --heap 0x10 \
+    --mem @heap0+0x1000*0x1010:5=words:0,0x100,0x200,0x300 --mem @heap0+0x1004*0x1010:5/2=rand \
+    --mem @heap0+0x1006*0x1010:5/1=choice:0,1 --mem @heap0+0x5040=0 \
+    --mem gFxTexCaches=rel:heap0 --mem gFxTexCachesEnd=rel:heap0+0x1010*int:0:4 --mem gFxTexCachesFree:2=choice:0,1,2,0x7FFF,0xFFFF \
+    --mem gFxCachedDefs:16=words:0x100,0x200,0x300,0x400,0 --mem gFxCachedDefs+16=0 \
+    --arg t4=rel:heap1 --mem @heap1=choice:0,0x100,0x200,0x300,0x400 --mem @heap1+0x32:1=choice:0,1 \
+    --arg a0=rel:heap2 --arg t3=int --arg t9=rel:heap3 --arg fp=int
+# the new-block path: nothing in use matches (inUse 0 / other defs), def listed
+fx_get_texture: -n 200 --seed 1 --heap 0x5050 --heap 0x40 --heap 0x10 --heap 0x10 \
+    --mem @heap0+0x1000*0x1010:5=words:0,0x500 --mem @heap0+0x1004*0x1010:5/2=rand --mem @heap0+0x5040=0 \
+    --mem gFxTexCaches=rel:heap0 --mem gFxTexCachesEnd=rel:heap0+0x1010*int:0:4 --mem gFxTexCachesFree:2=choice:1,2,0x8000 \
+    --mem gFxCachedDefs:16=onehot:4:0x100:words:0x200,0x300 --mem gFxCachedDefs+16=0 \
+    --arg t4=rel:heap1 --mem @heap1=0x100 --mem @heap1+0x32:1=choice:0,1 \
+    --arg a0=rel:heap2 --arg t3=int --arg t9=rel:heap3 --arg fp=int
+# followed loader (tex_queue_load_impl) on the table set-up of its own checks
+fx_get_texture: -n 200 --seed 2 --follow tex_queue_load_impl --heap 0x5050 --heap 0x40 --heap 0x10 --heap 0x10 --heap 0x200=words:0,0x10,0x100,0x1000,0x7FF0 \
+    --mem gTexTable=rel:heap4 --mem nextdma=int:0:10 \
+    --mem @heap0+0x1000*0x1010:5=words:0,0x100,0x200 --mem @heap0+0x1006*0x1010:5/1=choice:0,1 --mem @heap0+0x5040=0 \
+    --mem gFxTexCaches=rel:heap0 --mem gFxTexCachesEnd=rel:heap0+0x1010*int:0:4 --mem gFxTexCachesFree:2=choice:0,1,2 \
+    --mem gFxCachedDefs:16=words:0x100,0x200,0 --mem gFxCachedDefs+16=0 \
+    --arg t4=rel:heap1 --mem @heap1=choice:0x100,0x200,0x300 --mem @heap1+0x32:1=choice:0,1 \
+    --arg a0=rel:heap2 --arg t3=int --arg t9=rel:heap3 --mem @heap3:16=halves:0,1,5,30 --arg fp=int \
+    --sig osInvalDCache=a0,a1 --sig osPiStartDma=a0,a1,a2,a3,stack0,stack1,stack2
+# end-block
+
+# fx_build_matrix (matrix t0 = heap0, record t4 = heap1): billboard matrix. Display-list cursors at heap2/heap3;
+# fx_get_dl_cursor and the distance run for real (the stubbed distance can't match dy, which the asm's neg relies on);
+# type-1 records take their position from gCamEyeX (veh_find_point's record stubbed to it)
+fx_build_matrix: -n 300 --seed 0 --heap 0x40 --heap 0x40 --heap 0x40 --heap 0x40 --arg t0=rel:heap0 --arg t4=rel:heap1 \
+    --mem gFxDlCursorA=rel:heap2 --mem gFxDlCursorB=rel:heap3 --mem @heap1+0x3B:1=bytes:0,1 --mem @heap1+0x34:1=bytes:0,1,2 \
+    --mem @heap1+0x36:1=bytes:0,1,5,0xFF --mem @heap1+0x2C=choice:0x7FFFFFFF,-0x80000000,0 \
+    --mem gCamEyeX=int --mem gCamEyeY=int --mem gCamEyeZ=int --mem gCamYaw:2=rand \
+    --stub-ret math_asin=int:0:0x4000 --stub-ret veh_find_point.a0=sym:gCamEyeX --follow fx_get_dl_cursor,math_dist3
+# distance 0 (taken as 1): type-1 record at the player position, coordinates 0 / 1 / 0x800
+fx_build_matrix: -n 200 --seed 1 --heap 0x40 --heap 0x40 --heap 0x40 --heap 0x40 --arg t0=rel:heap0 --arg t4=rel:heap1 \
+    --mem gFxDlCursorA=rel:heap2 --mem gFxDlCursorB=rel:heap3 --mem @heap1+0x3B:1=bytes:0,1 --mem @heap1+0x34:1=1 \
+    --mem gCamEyeX=choice:0,1,0x800 --mem gCamEyeY=choice:0,1,0x800 --mem gCamEyeZ=choice:0,1,0x800 --mem gCamYaw:2=rand \
+    --stub-ret math_asin=int:0:0x4000 --stub-ret veh_find_point.a0=sym:gCamEyeX --follow fx_get_dl_cursor,math_dist3
+# the floor test at equality (y and floor from -1, 0, 1), step byte 0xFF wrapping
+fx_build_matrix: -n 200 --seed 2 --heap 0x40 --heap 0x40 --heap 0x40 --heap 0x40 --arg t0=rel:heap0 --arg t4=rel:heap1 \
+    --mem gFxDlCursorA=rel:heap2 --mem gFxDlCursorB=rel:heap3 --mem @heap1+0x3B:1=bytes:0,1 --mem @heap1+0x34:1=bytes:0,2 \
+    --mem @heap1+0x36:1=bytes:0,1,0xFF --mem @heap1+0x0C=choice:-1,0,1 --mem @heap1+0x2C=choice:-1,0,1 --mem @heap1+0x18=choice:-1,0,1,0x7FFF \
+    --mem gCamEyeX=int --mem gCamEyeY=int --mem gCamEyeZ=int --mem gCamYaw:2=rand \
+    --stub-ret math_asin=int:0:0x4000 --follow fx_get_dl_cursor,math_dist3
+# everything followed: arcsine, scale / rotation / translation matrices, products and the Mtx conversion
+fx_build_matrix: -n 200 --seed 3 --heap 0x40 --heap 0x40 --heap 0x40 --heap 0x40 --arg t0=rel:heap0 --arg t4=rel:heap1 \
+    --mem gFxDlCursorA=rel:heap2 --mem gFxDlCursorB=rel:heap3 --mem @heap1+0x3B:1=bytes:0,1 --mem @heap1+0x34:1=bytes:0,2 \
+    --mem @heap1+0x36:1=bytes:0,1,2 --mem @heap1+4=int:0:0x20000 --mem @heap1+8:0x24=words:0,1,0x800,-0x800,0x10000,-0x10000,0x400000 \
+    --mem gCamEyeX=int:0:0x4000000 --mem gCamEyeY=int:0:0x4000000 --mem gCamEyeZ=int:0:0x4000000 --mem gCamYaw:2=int:0:0xFFF \
+    --follow fx_get_dl_cursor,math_dist3,math_asin,mtx_scale,mtx_rotate_x,mtx_mul,mtx_rotate_y,mtx_translate,mtx_to_n64,math_cos,math_sin,math_cosf,math_sinf
+
+# fx_draw_all(): draws the 16 gEffects billboard records; two definitions (heap0, heap1) of 0..3 x 0..3 quads
+fx_draw_all: -n 300 --seed 0 --heap 0x40 --heap 0x40 --mem gBufferIndex:1=bytes:0,1 \
+    --mem gEffects:0x3C0=bytes:0,1,2,3,7,15 --mem gEffects*0x3C:16=rel:heap0+0x50*int:0:1 \
+    --mem gEffects+0x33*0x3C:16/1=bytes:0,1,1 --mem gEffects+0x32*0x3C:16/1=bytes:0,1,2 \
+    --mem @heap0+2:1=bytes:0,1,2,3 --mem @heap0+3:1=bytes:0,1,2,3 --mem @heap0+0xA:2=choice:1,8,0x40,0xFFFF --mem @heap0+0xC:2=choice:1,8,0x40 \
+    --mem @heap0+0xE:2=choice:1,2,3,0 \
+    --mem @heap1+2:1=bytes:0,1,2,3 --mem @heap1+3:1=bytes:0,1,2,3 --mem @heap1+0xA:2=choice:1,8,0x40 --mem @heap1+0xC:2=choice:1,8,0x40,0xFFFF \
+    --mem @heap1+0xE:2=choice:1,2,3 --mem gFxTileSlots:16=bytes:0,1 --sig fx_begin_dls= --sig fx_age_texture_caches= --follow fx_get_dl_cursor
+# every record active and mostly on its last frame (slots freed)
+fx_draw_all: -n 200 --seed 1 --heap 0x40 --heap 0x40 --mem gBufferIndex:1=bytes:0,1 \
+    --mem gEffects:0x3C0=bytes:0,1,2,3,7,15 --mem gEffects*0x3C:16=rel:heap0+0x50*int:0:1 \
+    --mem gEffects+0x33*0x3C:16/1=1 --mem gEffects+0x32*0x3C:16/1=bytes:0,1 \
+    --mem @heap0+2:1=bytes:0,1,2,3 --mem @heap0+3:1=bytes:0,1,2,3 --mem @heap0+0xA:2=choice:1,8,0x40,0xFFFF --mem @heap0+0xC:2=choice:1,8,0x40 \
+    --mem @heap0+0xE:2=1 \
+    --mem @heap1+2:1=bytes:0,1,2,3 --mem @heap1+3:1=bytes:0,1,2,3 --mem @heap1+0xA:2=choice:1,8,0x40 --mem @heap1+0xC:2=choice:1,8,0x40,0xFFFF \
+    --mem @heap1+0xE:2=choice:1,2 --mem gFxTileSlots:16=bytes:0,1 --sig fx_begin_dls= --sig fx_age_texture_caches= --follow fx_get_dl_cursor
+# quads, texture lookup (no heap blocks: fallback buffers) and the ageing run for real
+fx_draw_all: -n 200 --seed 2 --heap 0x40 --heap 0x40 --mem gBufferIndex:1=bytes:0,1 \
+    --mem gEffects:0x3C0=bytes:0,1,2,3,7,15 --mem gEffects*0x3C:16=rel:heap0+0x50*int:0:1 \
+    --mem gEffects+0x33*0x3C:16/1=bytes:0,1,1 --mem gEffects+0x32*0x3C:16/1=bytes:0,1,2 \
+    --mem @heap0+2:1=bytes:0,1,2,3 --mem @heap0+3:1=bytes:0,1,2,3 --mem @heap0+0xA:2=choice:1,8,0x40,0xFFFF --mem @heap0+0xC:2=choice:1,8,0x40 \
+    --mem @heap0+0xE:2=choice:1,2,3,0 \
+    --mem @heap1+2:1=bytes:0,1,2,3 --mem @heap1+3:1=bytes:0,1,2,3 --mem @heap1+0xA:2=choice:1,8,0x40 --mem @heap1+0xC:2=choice:1,8,0x40,0xFFFF \
+    --mem @heap1+0xE:2=choice:1,2,3 --mem gFxTileSlots:16=bytes:0,1 --sig fx_begin_dls= --sig fx_age_texture_caches= \
+    --mem gFxTexCaches=rel:heap0 --mem gFxTexCachesEnd=rel:heap0 --mem gFxTexCachesFree:2=0 \
+    --follow fx_get_dl_cursor,fx_fill_quad,fx_age_texture_caches,fx_get_texture --sig gfx_begin_textured=a0 --sig tex_queue_load_impl=a0,a1,a2

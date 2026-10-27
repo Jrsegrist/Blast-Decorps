@@ -1,0 +1,5 @@
+/* Addresses init uses outside itself (a linker symbol file). */
+.L802447C0 = 0x802447C0; /* hd_code's entry point: the jump at the end of init's boot */
+osRomBase = 0x80000308;
+cplens = 0x80222754;
+cpdist = 0x802227B4;

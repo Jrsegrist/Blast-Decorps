@@ -1,0 +1,153 @@
+# 6B4A0 (vehicle module) port checks
+# sideswipe_set_physics: gGravity = gLevelGravity * 4.0f; gBounceThreshold/Damping = 40, 3 (same shape as 69BB0 driver_set_physics)
+sideswipe_set_physics: -n 300 --seed 0 --ret void --mem gLevelGravity:4=floats:-100000:100000
+sideswipe_set_physics: -n 200 --seed 1 --ret void \
+    --mem gLevelGravity:4=words:0,0x80000000,0x3F800000,0x7F800000,0xFF800000,0x7FC00000,0x00000001,0x7F7FFFFF,0xC2C80000
+
+# sideswipe_save_state: return veh_serialize_state(a0, gSideswipeState, gSideswipePos) (serialize vehicle state; v0 passed through)
+sideswipe_save_state: -n 300 --seed 0 --ret int --sig veh_serialize_state=a0,a1,a2 --stub-ret veh_serialize_state=rand \
+    --arg a0=choice:0,1,-1,0x80000000,0x7FFFFFFF,0x80B00000,0x80B00003,0x803FFFFF
+sideswipe_save_state: -n 50 --seed 1 --ret int --sig veh_serialize_state=a0,a1,a2 --stub-ret veh_serialize_state=0xB2 --arg a0=choice:0,0x80B00000
+# end to end with the callee run for real (asm vs its C rewrite): unaligned dst, random state
+sideswipe_save_state: -n 100 --seed 2 --ret int --follow veh_serialize_state --arg a0=choice:0x80B00000,0x80B00001,0x80B00002,0x80B00003,0x80B00005 --mem 0x80B00000:0x100=rand \
+    --mem gSideswipeState:0xA6=rand --mem gSideswipePos:12=rand
+# sideswipe_load_state: veh_deserialize_state(a0, gSideswipeState, gSideswipePos) (restore vehicle state)
+sideswipe_load_state: -n 300 --seed 0 --ret void --sig veh_deserialize_state=a0,a1,a2 \
+    --arg a0=choice:0,1,-1,0x80000000,0x7FFFFFFF,0x80B00000,0x80B00003,0x803FFFFF
+sideswipe_load_state: -n 100 --seed 1 --ret void --follow veh_deserialize_state --arg a0=choice:0x80B00000,0x80B00001,0x80B00002,0x80B00003,0x80B00005 --mem 0x80B00000:0x100=rand \
+    --mem gSideswipeState:0xA6=rand --mem gSideswipePos:12=rand
+
+# sideswipe_steer_rate: s3 (-> v0) = round_nearest(speed(+0x76) / (bytes +0x96/7/8 any == 1 ? 6.0 : gSideswipeSteerRateDiv)); $gp = gSideswipeState
+sideswipe_steer_rate: -n 300 --seed 0 --arg gp=sym:gSideswipeState --mem gSideswipeState+0x96:3=bytes:0,1,2,0xFF*3 \
+    --mem gSideswipeState+0x76:2=int:0:0xFFFF
+# other divisors (ties at .5 with 2.0/4.0/0.5), the 6.0 path with ties at speed = 3 mod 6, negative speeds
+sideswipe_steer_rate: -n 300 --seed 1 --arg gp=sym:gSideswipeState --mem gSideswipeState+0x96:3=bytes:0*3,1,2*3 \
+    --mem gSideswipeSteerRateDiv=words:0x40000000,0x40800000,0x3F000000,0x40C00000 \
+    --mem gSideswipeState+0x76:2=halves:0,1,2,3,5,6,9,15,0x7FFF,0x8000,0xFFFD,0xFFF7,0xFFFF,0xFFFE
+sideswipe_steer_rate: -n 300 --seed 2 --arg gp=sym:gSideswipeState --mem gSideswipeState+0x96:3=bytes:0,1,2 \
+    --mem gSideswipeSteerRateDiv:4=floats:0.25:40 --mem gSideswipeState+0x76:2=int:0:0xFFFF
+
+# ---- phase D (wave 1, wt-d4) ----
+# sideswipe_exit_check: exit check; 0 if a byte +0x96/7/8 of gSideswipeState is 1, else 5 if channel 5 of gSideswipeAnim
+# has field 0x10 == 1 (the asm returns its leftover v0 = 5), else 1. Channel 5's record is at +0x78.
+sideswipe_exit_check: -n 300 --seed 0 --ret int --follow anim_get_state --mem gSideswipeState+0x96:3=bytes:0,1,2,0xFF*3 \
+    --mem gSideswipeAnim+0x78:0x18=rand --mem gSideswipeAnim+0x88:1=bytes:0,1*2,2,0xFF,0x81
+sideswipe_exit_check: -n 100 --seed 1 --ret int --follow anim_get_state --mem gSideswipeState+0x96:3=onehot:1/1:1:bytes:0,2,0xFF \
+    --mem gSideswipeAnim+0x78:0x18=rand
+# stubbed: the channel's field 0x10 comes from --stub-ret (first output)
+sideswipe_exit_check: -n 50 --seed 2 --ret int --stub-ret anim_get_state=1 --mem gSideswipeState+0x96:3=bytes:0,2,0xFF*3,1
+sideswipe_exit_check: -n 50 --seed 3 --ret int --stub-ret anim_get_state=0 --mem gSideswipeState+0x96:3=bytes:0,2,0xFF*3,1
+sideswipe_exit_check: -n 50 --seed 4 --ret int --stub-ret anim_get_state=rand --mem gSideswipeState+0x96:3=bytes:0,2,0xFF
+
+# sideswipe_check_ram_hit: channel 5 of gSideswipeAnim active and veh_contacts_has(4) or (5) nonzero -> field 0x11 = 1,
+# restart (anim_play), gShakeTime = 10, gShakeSize = 600; a3 out = the channel's (u16) field 0xC
+sideswipe_check_ram_hit: -n 300 --seed 0 --follow anim_get_state --stub-ret veh_contacts_has=rand \
+    --mem gSideswipeAnim+0x78:0x18=rand --mem gSideswipeAnim+0x88:1=bytes:0*2,1,0xFF,0x80 \
+    --mem gShakeTime:1=rand --mem gShakeSize=int
+sideswipe_check_ram_hit: -n 100 --seed 1 --follow anim_get_state --stub-ret veh_contacts_has=0 \
+    --mem gSideswipeAnim+0x78:0x18=rand --mem gSideswipeAnim+0x88:1=bytes:0,1 --mem gShakeTime:1=rand --mem gShakeSize=int
+sideswipe_check_ram_hit: -n 100 --seed 2 --follow anim_get_state --stub-ret veh_contacts_has=1 \
+    --mem gSideswipeAnim+0x78:0x18=rand --mem gSideswipeAnim+0x88:1=bytes:0,1 --mem gShakeTime:1=rand --mem gShakeSize=int
+# whole chain run for real: veh_contacts_has (77E20) looks for its value in the bytes gContacts..*gContactsEnd
+sideswipe_check_ram_hit: -n 200 --seed 3 --follow-all --mem gContacts:12=bytes:0,3,4,5,6,0xFF \
+    --mem gContactsEnd=rel:gContacts+int:0:12 \
+    --mem gSideswipeAnim+0x78:0x18=rand --mem gSideswipeAnim+0x88:1=bytes:0,1 --mem gShakeTime:1=rand --mem gShakeSize=int
+# stubbed getter (first output = field 0x10)
+sideswipe_check_ram_hit: -n 100 --seed 4 --stub-ret anim_get_state=1 --stub-ret veh_contacts_has=rand --mem gShakeTime:1=rand --mem gShakeSize=int
+sideswipe_check_ram_hit: -n 50 --seed 5 --stub-ret anim_get_state=0 --stub-ret veh_contacts_has=rand --mem gShakeTime:1=rand --mem gShakeSize=int
+
+# zone lookup wrapper (id 1 at gSideswipePos): veh_zone_alpha stubbed (scan registers mapped through r)
+sideswipe_zone_alpha: -n 200 --mem gSideswipePos:12=rand
+sideswipe_zone_alpha: -n 300 --seed 1 --follow veh_zone_alpha,math_dist3 --mem gSideswipePos=int:-100:100 --mem gSideswipePos+4=int:-100:100 \
+    --mem gSideswipePos+8=int:-100:100 --mem gAlphaZonesEnd=rel:gAlphaZones+0x24*int:0:4 --mem gAlphaZones:0x90=rand \
+    --mem gAlphaZones*0x24:4=int:-100:100 --mem gAlphaZones+4*0x24:4=int:-100:100 --mem gAlphaZones+8*0x24:4=int:-100:100 \
+    --mem gAlphaZones+0xC*0x24:4=choice:1,10,50,100,200,1000 --mem gAlphaZones+0x10*0x24:4/1=choice:0,1,1,2 \
+    --mem gAlphaZones+0x12*0x24:4/1=choice:0,1,1,1 --mem gAlphaZones+0x13*0x24:4/1=choice:0,1,2,3 \
+    --mem gAlphaZones+0x14*0x24:4/1=choice:0,0,5,0xFF --mem gAlphaZones+0x15*0x24:4/1=choice:1,1,0x30 \
+    --mem gAlphaZones+0x16*0x24:4/1=choice:1,0x31 --mem gAlphaZones+0x17*0x24:4/1=choice:1,0x32 \
+    --mem gDefaultVehAlpha:1=choice:0,1,0x80,0xFF,0x40 --mem gVehicles+0x5C*0x74:3=choice:0x100,0x200 \
+    --mem gVehicles+0x1B8=1 --mem gVehicles+0x60*0x74:4=int
+
+# ---- phase D (wave 3, wt-f6) ----
+# sideswipe_enter: enter vehicle 1: gSideswipeState[0x99] = 0; channel setters on gSideswipeAnim (1, 2, 5, 3, 2), the gSideswipeTexAnim
+# entry's setters, gCamDistance / gCamHeightBase = 3400, 300, veh_start_engine_sound(&gSideswipeAnim, 0x36). $gp change: `clobbers gp`.
+sideswipe_enter: -n 100 --seed 0 --ret void --sig veh_start_engine_sound=a0,a1 \
+    --mem gSideswipeState+0x99:1=bytes:1,0xFF --mem gCamDistance:2=rand --mem gCamHeightBase:2=rand
+# setters run for real (gSideswipeTexAnim key in exactly one gTexAnims entry); veh_start_engine_sound stubbed
+sideswipe_enter: -n 200 --seed 1 --ret void --sig veh_start_engine_sound=a0,a1 \
+    --follow anim_play,anim_set_speed,anim_set_reverse,anim_set_loop_mode,anim_tex_play,anim_tex_set_speed,anim_tex_set_reverse,anim_tex_set_loop_mode,anim_tex_find \
+    --mem gSideswipeState+0x99:1=rand --mem gCamDistance:2=rand --mem gCamHeightBase:2=rand \
+    --mem gSideswipeAnim:0x90=rand --mem gTexAnims:0x180=onehot:0x18:0x802C2390:rand
+# sideswipe_leave: leave vehicle 1: speed (+0x76) = 0, veh_sync_buffers(gSideswipeMtxA, gSideswipeMtxB, 0x800), veh_stop_engine_sounds()
+sideswipe_leave: -n 100 --seed 0 --ret void --sig veh_sync_buffers=a0,a1,a2 --sig veh_stop_engine_sounds= \
+    --mem gSideswipeState+0x76:2=rand --mem gSideswipeMtxA=int --mem gSideswipeMtxB=int
+sideswipe_leave: -n 30 --seed 1 --ret void --follow veh_sync_buffers --sig veh_stop_engine_sounds= --heap 0x800 --heap 0x800 \
+    --mem gSideswipeState+0x76:2=rand --mem gSideswipeMtxA=rel:heap0 --mem gSideswipeMtxB=rel:heap1
+# sideswipe_update_anims: vehicle 1 per-frame update ($gp = gSideswipeState). Channel 2 <- angle gCamYaw thirds; horn (cooldown
+# gSideswipeRamCooldown, channel 5 state, buttons gHeldL/gHeldR, uses gSideswipeRamCharges, sound 0x37); level gSideswipeSteerAnim (+-5 / towards
+# 50) -> channel 3; speed direction and |speed| / 14 -> channel 1 and veh_set_engine_level. Getter stubbed (field 0x10 from
+# --stub-ret), then the setters/getter followed.
+sideswipe_update_anims: -n 400 --seed 0 --ret void --arg gp=sym:gSideswipeState --stub-ret anim_get_state=choice:0,1,2,-1 \
+    --sig snd_play=a0,a1:2,a2 --mem gSfxBank=int --mem gCamYaw:2=int:0:0xFFFF \
+    --mem gSideswipeRamCooldown:1=bytes:0*3,1,10,0xFF --mem gSideswipeRamCharges:2=halves:0,1,2,0x8000,0xFFFF \
+    --mem gHeldL:1=bytes:0*2,1,0xFF --mem gHeldR:1=bytes:0*2,1 \
+    --mem gHeldLeft:1=bytes:0*2,1 --mem gHeldRight:1=bytes:0*2,1 \
+    --mem gSideswipeSteerAnim:1=bytes:0,4,5,6,0x2D,0x2E,0x31,0x32,0x33,0x36,0x37,0x5F,0x60,0x64,0x65,0xFF \
+    --mem gSideswipeState+0x76:2=halves:0,1,13,14,15,27,28,0xFFFF,0xFFF2,0xFFF1,0x8000,0x7FFF,0x1234
+# angle boundaries: wrap at 0x800 (sum 0x1000), thirds at 0x555 / 0xAAA / 0xFFF; gSideswipeYawThirdWidth varied
+sideswipe_update_anims: -n 300 --seed 1 --ret void --arg gp=sym:gSideswipeState --stub-ret anim_get_state=choice:0,1 \
+    --sig snd_play=a0,a1:2,a2 --mem gSfxBank=int \
+    --mem gCamYaw:2=halves:0,0x7FE,0x7FF,0x800,0x801,0xD54,0xD55,0xD56,0x2A9,0x2AA,0x2AB,0xFFFF,0xFFFE,0x8000,0x77FF \
+    --mem gSideswipeYawThirdWidth:4=choice:0x44AAA000,0x3F800000,0x42C80000 --mem gSideswipeRamCooldown:1=bytes:0,1 \
+    --mem gSideswipeRamCharges:2=halves:0,1 --mem gHeldL:1=bytes:0,1 --mem gHeldR:1=bytes:0,1 \
+    --mem gHeldLeft:1=bytes:0,1 --mem gHeldRight:1=bytes:0,1 --mem gSideswipeSteerAnim:1=int:0:0xFF --mem gSideswipeState+0x76:2=int:0:0xFFFF
+# horn path forced: cooldown 0, uses left, a button held, channel 5 not running (stub 0/2) or running (1)
+sideswipe_update_anims: -n 100 --seed 2 --ret void --arg gp=sym:gSideswipeState --stub-ret anim_get_state=choice:0,1,2 \
+    --sig snd_play=a0,a1:2,a2 --mem gSfxBank=int --mem gCamYaw:2=int:0:0xFFFF --mem gSideswipeRamCooldown:1=0 \
+    --mem gSideswipeRamCharges:2=halves:1,5,0xFFFF,0x8000 --mem gHeldL:1=bytes:0,1 --mem gHeldR:1=1 \
+    --mem gHeldLeft:1=bytes:0,1 --mem gHeldRight:1=bytes:0,1 --mem gSideswipeSteerAnim:1=int:0:0xFF --mem gSideswipeState+0x76:2=int:0:0xFFFF
+# setters and getter run for real on a random channel table (channel 5's field 0x10 at +0x88)
+sideswipe_update_anims: -n 300 --seed 3 --ret void --arg gp=sym:gSideswipeState \
+    --follow anim_get_state,anim_play,anim_set_frame,anim_set_speed,anim_set_reverse \
+    --sig snd_play=a0,a1:2,a2 --mem gSfxBank=int --mem gSideswipeAnim:0xC0=rand --mem gSideswipeAnim+0x88:1=bytes:0,1*2,2,0xFF \
+    --mem gCamYaw:2=int:0:0xFFFF --mem gSideswipeRamCooldown:1=bytes:0*3,1,0xFF --mem gSideswipeRamCharges:2=halves:0,1,0xFFFF \
+    --mem gHeldL:1=bytes:0,1 --mem gHeldR:1=bytes:0,1 --mem gHeldLeft:1=bytes:0*2,1 --mem gHeldRight:1=bytes:0*2,1 \
+    --mem gSideswipeSteerAnim:1=int:0:0xFF --mem gSideswipeState+0x76:2=int:0:0xFFFF
+# --- (wt-v1) vehicle 1 driver ---
+sideswipe_build_model: -n 200 --arg gp=sym:gSideswipeState --heap 0x400 --heap 0x800 --heap 0x800 --mem D_803EDBF4=rel:heap0 --mem gSideswipeMtxA=rel:heap1 --mem gSideswipeMtxB=rel:heap2 \
+    --mem @heap0=0x100 --mem @heap0+4=0x140 --mem @heap0+8=0x180 --mem @heap0+0x18=0x200 --mem @heap0+0x204=choice:0,0x40,0x7C0 --mem gBufferIndex:1=choice:0,1 \
+    --mem gSideswipePos:12=rand --mem gSideswipeState:0xA6=rand --sig 'veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2,*stack3+0xC,*stack3+0x14'
+sideswipe_build_model: -n 100 --seed 1 --arg gp=sym:gSideswipeState --heap 0x400 --heap 0x800 --heap 0x800 --mem D_803EDBF4=rel:heap0 --mem gSideswipeMtxA=rel:heap1 --mem gSideswipeMtxB=rel:heap2 \
+    --mem @heap0=0x140 --mem @heap0+4=0x140 --mem @heap0+8=0x150 --mem @heap0+0x14E:2=0 --mem @heap0+0x18=0x200 --mem @heap0+0x204=choice:0,0x40,0x7C0 \
+    --mem gBufferIndex:1=choice:0,1 --mem gSideswipePos:12=words:0,1,-1,0x1234,-0x4321,0xFFFF --mem gSideswipeState:0xA6=rand \
+    --mem gVehBoundSpheres+0x10:1=1 --mem gVehPartSpheres+0x12:1=1 --mem gVehPoints=0xFFFFFFFF --follow-all
+sideswipe_reground: -n 300 --arg fp=int --mem gSideswipePos:24=rand --sig 'veh_reground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5'
+sideswipe_reground: -n 200 --seed 1 --arg fp=int --heap 0x400 --heap 0x800 --heap 0x800 --mem gSideswipePos:12=rand --mem D_803EDBF4=rel:heap0 --mem gSideswipeMtxA=rel:heap1 \
+    --mem gSideswipeMtxB=rel:heap2 --mem @heap0=0x100 --mem @heap0+4=0x140 --mem @heap0+8=0x180 --mem @heap0+0x18=0x200 --mem @heap0+0x204=choice:0,0x40,0x7C0 \
+    --mem gBufferIndex:1=choice:0,1 --follow sideswipe_build_model --sig 'veh_reground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5' \
+    --sig 'veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2,*stack3+0xC,*stack3+0x14'
+sideswipe_update: -n 300 --mem gSideswipePos:24=rand --mem gSideswipeState:0xA6=rand --mem gSideswipeState+0x9A:1=choice:0,1,0x80 --mem gSideswipeDeflecting:1=choice:0,1,0xFF \
+    --mem gBufferIndex:1=choice:0,1 --mem gCollBlocked:1=choice:0,1 --mem gSideswipeDeflectHeading:2=rand --mem gCollVehicleAnim=rand --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand \
+    --mem gBounceSound:1=rand --sig sideswipe_build_model= --sig sideswipe_update_anims= --sig sideswipe_set_physics= --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= \
+    --sig 'veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12'
+sideswipe_update: -n 200 --seed 2 --mem gSideswipePos:24=rand --mem gSideswipeState:0xA6=rand --mem gSideswipeState+0x4E:2=halves:0,0x7FF,0x800,0x801,0xFFF,0x1000,0xFFFF \
+    --mem gCollBlocked:1=1 --mem gSideswipeDeflecting:1=choice:0,1 --mem gBufferIndex:1=choice:0,1 --stub-ret veh_free_arc_mid=choice:0,0x7FF,0x800,0xFFF,0x1000 \
+    --mem gSideswipeDeflectHeading:2=rand --mem gCollVehicleAnim=rand --sig sideswipe_build_model= --sig sideswipe_update_anims= --sig sideswipe_set_physics= --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= \
+    --sig 'veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12'
+sideswipe_update: -n 200 --seed 3 --heap 0x400 --heap 0x800 --heap 0x800 --mem gSideswipePos:12=rand --mem gSideswipeState:0xA6=rand --mem gSideswipeState+0x9A:1=choice:0,1 \
+    --mem D_803EDBF4=rel:heap0 --mem gSideswipeMtxA=rel:heap1 --mem gSideswipeMtxB=rel:heap2 --mem @heap0=0x100 --mem @heap0+4=0x140 --mem @heap0+8=0x180 \
+    --mem @heap0+0x18=0x200 --mem @heap0+0x204=choice:0,0x40,0x7C0 --mem gBufferIndex:1=choice:0,1 --mem gCollBlocked:1=choice:0,1 --mem gSideswipeDeflecting:1=choice:0,1 \
+    --mem gLevelGravity=rand --mem gBounceThreshold:2=rand --mem gCollVehicleAnim=rand --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand \
+    --follow sideswipe_build_model,sideswipe_set_physics,sideswipe_steer_rate,sideswipe_zone_alpha --sig 'veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2' \
+    --sig 'veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12' \
+    --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= --sig sideswipe_update_anims= --sig veh_zone_alpha=a0,a1,a2,a3 --sig 'veh_points_transform=a0,a1,a2,a3,*stack0,*stack0+0x4,*stack0+0x8,*stack0+0xC,*stack0+0x10'
+sideswipe_spawn: -n 200 --heap 0x400 --heap 0x1000 --arg s2=rel:heap0 --mem @heap0+4=choice:0x100,0x140 --mem @heap0+8=0x180 --mem @heap0+0x18=0x200 \
+    --mem @heap0+0x204=choice:0,0x40,0x7C0 --mem gHeapPtr=rel:heap1 --mem gSideswipeState:0xA6=rand --mem gSideswipePos:0x20=rand --mem gHaveSideswipe:1=rand \
+    --sig sideswipe_update= --sig 'veh_init_ground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5'
+sideswipe_spawn: -n 200 --seed 1 --heap 0x400 --heap 0x1000 --arg s2=rel:heap0 --mem @heap0=0x100 --mem @heap0+4=choice:0x100,0x140 --mem @heap0+8=0x180 \
+    --mem @heap0+0x18=0x200 --mem @heap0+0x204=choice:0,0x40,0x7C0 --mem gHeapPtr=rel:heap1 --mem gSideswipeState:0xA6=rand --mem gSideswipePos:0x20=rand \
+    --mem gHaveSideswipe:1=rand --mem gBufferIndex:1=choice:0,1 --mem gLevelGravity=rand --mem gBounceThreshold:2=rand --mem gCollBlocked:1=choice:0,1 --mem gCollVehicleAnim=rand \
+    --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand --follow sideswipe_update,sideswipe_build_model,sideswipe_set_physics,sideswipe_steer_rate,sideswipe_zone_alpha \
+    --sig 'veh_init_ground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5' --sig 'veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2' \
+    --sig 'veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12' \
+    --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= --sig veh_zone_alpha=a0,a1,a2,a3 --sig 'veh_points_transform=a0,a1,a2,a3,*stack0,*stack0+0x4,*stack0+0x8,*stack0+0xC,*stack0+0x10'

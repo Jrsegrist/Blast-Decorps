@@ -1,0 +1,450 @@
+# region offset width [idx]: fixed-address accesses of the native game code to the data
+# images (port/tools/mixscan.py --widths over the i686 assembly)
+hd 0 1
+hd 4 1
+hd 8 1
+hd C 1
+hd C 2
+hd C 4
+hd F 1
+hd 10 4
+hd 14 1
+hd 18 4
+hd 1C 4
+hd 20 1
+hd 28 1
+hd 28 4
+hd 28 4 idx
+hd 74 1
+hd 74 1 idx
+hd A0 4
+hd A4 4
+hd A8 4
+hd B4 4
+hd BC 2
+hd BE 2
+hd C0 2
+hd C2 2
+hd C4 2
+hd C6 2
+hd C8 2
+hd CA 2
+hd F0 4
+hd F4 4
+hd 100 4 idx
+hd 110 4
+hd 110 8
+hd 114 4
+hd 118 4
+hd 11C 4
+hd 120 2
+hd 1B4 1
+hd 1B8 4
+hd 1BC 1 idx
+hd 1F8 1 idx
+hd 234 1 idx
+hd 270 1 idx
+hd 2E4 4 idx
+hd 360 1 idx
+hd 398 1
+hd 39A 2
+hd 39C 2
+hd 39E 2
+hd 3A0 2
+hd 3C4 1 idx
+hd 3C5 1 idx
+hd 3D2 2 idx
+hd 3FC 1 idx
+hd 13CC 4
+hd 13D0 1 idx
+hd AF20 4
+hd AF24 4
+hd AF28 4
+hd B040 1
+hd B041 1
+hd B042 2
+hd B044 2
+hd B046 2
+hd B048 2
+hd B04A 2
+hd B04C 2
+hd B04E 2
+hd B050 2
+hd B052 2
+hd B054 4
+hd B058 4 idx
+hd B060 4
+hd B06C 4
+hd B07C 1 idx
+hd B618 4
+hd B618 4 idx
+hd B62C 4
+hd B640 4
+hd BC60 1
+hd BC61 1
+hd BC62 1
+hd BC64 1
+hd BC65 1
+hd BC66 1
+hd BC69 1
+hd BC6D 1
+hd BC70 1
+hd BC70 2
+hd BC71 1
+hd BC72 1
+hd BC74 1
+hd BC74 2
+hd BC75 1
+hd BC76 1
+hd BC78 1
+hd BC79 1
+hd BC79 2
+hd BC7A 1
+hd BC7B 1
+hd BC7C 1
+hd BC7D 1
+hd BC7D 2
+hd BC7E 1
+hd BC7F 1
+hd BC82 1
+hd BC86 1
+hd BC98 1 idx
+hd BC9F 1
+hd BCA0 1
+hd BCA0 1 idx
+hd BCA7 1
+hd BCA8 1
+hd BCA8 1 idx
+hd BD00 1 idx
+hd BD02 2 idx
+hd BDCA 1 idx
+hd BE28 1 idx
+hd BE50 1 idx
+hd BE51 1 idx
+hd BE52 1 idx
+hd C2A8 1
+hd C2D0 1
+hd C2D1 1
+hd CC6C 2
+hd CC84 1
+hd CCF8 2
+hd CD10 1
+hd CE10 2
+hd CE2C 2
+hd CE48 2
+hd CE64 2
+hd CE80 2
+hd CE9C 2
+hd CEB8 2
+hd CED4 2
+hd CF28 2
+hd CF3C 1
+hd CF44 2
+hd CF58 1
+hd CF74 1
+hd CF90 1
+hd D014 8
+hd D030 8
+hd D04C 8
+hd D0D8 4
+hd D0D8 8
+hd D0DC 4
+hd FA4C 4
+hd FA50 4
+hd FA62 2
+hd FA68 4
+hd 10010 2
+hd 10014 4
+hd 10017 1 idx
+hd 100BC 4
+hd 100C0 2
+hd 100CC 2
+hd 100E8 2
+hd 1012C 4
+hd 1013C 1
+hd 1013C 2
+hd 10190 2
+hd 10214 2
+hd 1021C 2
+hd 10268 2
+hd 10270 2
+hd 10284 2
+hd 1028C 2
+hd 102A2 2
+hd 10634 4
+hd 10820 2
+hd 10858 2
+hd 10890 2
+hd 109C4 2
+hd 10D60 4
+hd 10D74 4 idx
+hd 11630 4 idx
+hd 11680 4
+hd 11684 4
+hd 11688 4
+hd 1168C 4
+hd 11690 4
+hd 11694 4
+hd 11698 4
+hd 1169C 4
+hd 116A0 1
+hd 11CD0 2
+hd 11CD2 2
+hd 11CEE 1 idx
+hd 11CEF 1 idx
+hd 11D60 4
+hd 12170 4
+hd 12174 4
+hd 12178 1
+hd 13180 4
+hd 13190 4
+hd 131A0 4
+hd 131B0 4
+hd 131C0 4
+hd 131D0 4
+hd 131E0 4
+hd 131F0 4
+hd 13490 4
+hd 13498 4
+hd 134A0 4
+hd 13820 1
+hd 13821 1 idx
+hd 13822 1 idx
+hd 13854 1
+hd 13888 1
+hd 138C4 1 idx
+hd 138D2 1 idx
+hd 138DA 1 idx
+hd 138DB 1 idx
+hd 138E4 1 idx
+hd 1394C 4
+hd 13950 1
+hd 13952 4
+hd 13956 2
+hd 14DE0 4
+hd 14E90 1 idx
+hd 14EA0 1 idx
+hd 14EB0 2
+hd 14EB2 2
+hd 14EB8 4
+hd 14EBC 4
+hd 14EC0 2
+hd 14EC2 2
+hd 14EC8 2
+hd 14ECA 2
+hd 14ECC 4
+hd 14ED0 2
+hd 14ED2 2
+hd 14ED8 2
+hd 14EDA 2
+hd 14EDC 1
+hd 14EDD 1
+hd 14EDE 1
+hd 14EDF 1
+hd 14EE0 2
+hd 14EE2 2
+hd 14EE8 2
+hd 14EEA 2
+hd 14EEC 1
+hd 14EED 1
+hd 14EEE 1
+hd 14EEF 1
+hd 14EF0 4 idx
+hd 14F44 1
+hd 14F60 4
+hd 14F64 4
+hd 14F84 1 idx
+hd 14FC8 2
+hd 15000 1
+hd 15004 1
+hd 152BA 1 idx
+hd 152BB 1 idx
+hd 15D99 1 idx
+hd 15E30 1 idx
+hd 15E31 1 idx
+hd 16500 4 idx
+hd 16580 4
+hd 16584 4
+hd 16588 4
+hd 1658C 4
+hd 16590 4
+hd 16594 4
+hd 16598 4
+hd 1659C 4
+hd 165A0 1
+hd 165A1 1 idx
+hd 165A8 1
+hd 165B0 1 idx
+hd 16A18 1 idx
+hd 16A60 1 idx
+hd 16B54 4
+hd 16B58 4
+hd 1CE28 4
+hd 1D040 4
+hd 1D080 8
+hd 1D08C 4
+hd 1D0A0 4
+hd 1D0A4 4
+hd 1D0A8 4
+hd 1D0AC 4
+hd 1D0B0 4
+hd 1D0B4 4
+hd 1D0B8 4
+hd 1D0BC 4
+hd 1D0C0 4
+hd 1D0C4 4
+hd 1D0CC 4
+hd 1D0D0 4
+hd 1D0E1 1
+hd 1D192 2
+hd 1D1A4 2
+hd 1D244 4
+hd 1D268 2
+hd 1D6A0 4 idx
+hd 1D74F 1 idx
+hd 1D76C 1
+hd 1D804 2
+hd 1D810 1
+hd 1D81F 1 idx
+hd 1D8C5 1
+hd 24CA0 4
+hd 24CB0 4
+hd 24CB4 4
+hd 24CB8 4
+hd 24CBC 4
+hd 24CC0 4
+hd 24CD0 4
+hd 24CD4 4
+hd 24CD8 4
+hd 24CE0 4
+hd 24CF0 4
+hd 24CF4 4
+hd 24CF8 4
+hd 24CFC 4
+hd 24D00 4
+hd 24D04 4
+hd 24D08 4
+hd 24D0C 4
+hd 24D10 4
+hd 24D14 4
+hd 24D18 4
+hd 24D1C 4
+hd 24D20 4
+hd 24D24 4
+hd 24D28 4
+hd 24D2C 4
+hd 24D30 4
+hd 24D34 4
+hd 24D40 4
+hd 24D44 4
+hd 24D50 4
+hd 24D54 4
+hd 24D58 4
+hd 24D60 4
+hd 24D64 4
+hd 24D70 4
+hd 24D74 4
+hd 24D80 4
+hd 24D84 4
+hd 24D88 4
+hd 24D8C 4
+hd 24D90 4
+hd 24D94 4
+hd 24D98 4
+hd 24D9C 4
+hd 24DA0 4
+hd 24DA4 4
+hd 24DB0 4
+hd 24DC0 4
+hd 24DC4 4
+hd 24DC8 4
+hd 24DCC 4
+hd 24DD0 4
+hd 24DD4 4
+hd 24DE0 4
+hd 24DE4 4
+hd 24DF0 4
+hd 24DF4 4
+hd 24E00 4
+hd 24E04 4
+hd 24E10 4
+fe 0 4
+fe 4 4
+fe C 1 idx
+fe B8 1 idx
+fe CC 1 idx
+fe E0 4 idx
+fe 154 1 idx
+fe 278 1 idx
+fe 2BC 1 idx
+fe 2D4 1 idx
+fe 310 4
+fe 34F 1
+fe 35F 1
+fe 36F 1
+fe 37F 1
+fe 38F 1
+fe 39F 1
+fe 3AF 1
+fe 458 1
+fe 470 4
+fe 474 4
+fe 478 4
+fe 47C 4
+fe 480 1
+fe 490 4 idx
+fe 4A0 4 idx
+fe 3CE8 4
+fe 3DA4 4
+fe 3DAC 4
+fe 3E9F 1 idx
+fe 3EA0 1 idx
+fe 3FD4 1
+fe 3FDC 1 idx
+fe 40E4 4
+fe 40E4 8
+fe 40E8 4
+fe 40F1 1
+fe 40F6 2
+fe 40F8 2
+fe 40FA 2
+fe 40FA 4
+fe 40FC 2
+fe 4100 4
+fe 411C 4
+fe 4120 4
+fe 4132 4
+fe 4138 4
+fe 4138 8
+fe 413C 4
+fe 4154 8
+fe 41B8 2
+fe 41D4 2
+fe 41F0 2
+fe 420C 2
+fe 423C 1
+fe 42B4 2
+fe 42C8 1
+fe 42DC 8
+fe 42EC 2
+fe 4300 1
+fe 4306 1
+fe 4308 2
+fe 431C 1
+fe 4338 1
+fe 4354 1
+fe 435C 2
+fe 4370 1
+fe 4410 4
+fe 442C 4
+fe 4448 4
+fe 4934 4
+fe 5360 8
+fe 5478 4
+fe 5494 4
+fe 54B0 4
+fe 54D4 1 idx
+fe 57E8 1 idx
+fe 57EC 1 idx
+fe 6398 4
+fe 63F0 4 idx

@@ -1,0 +1,58 @@
+# splat's split of init, the boot code (ROM 0x1000-0x4CE0, stored as it is)
+options:
+  basename: init.us.v11
+  target_path: init.us.v11.bin          # the inflated segment (top-level `make extract`)
+  base_path: .
+  src_path: src.us.v11
+  compiler: IDO
+  symbol_addrs_path: symbol_addrs.init.us.v11.txt
+  undefined_funcs_auto_path: undefined_funcs_auto.init.us.v11.txt
+  undefined_syms_auto_path: undefined_syms_auto.init.us.v11.txt
+  find_file_boundaries: true
+  create_detected_syms: true
+segments:
+  - name: init
+    type: code
+    start: 0x0
+    vram: 0x8021ED00
+    subsegments:
+    - [0x0000, c, init/0000]   # entry - ROM entry point/CRT0: zero bss, set sp, jump to boot
+    - [0x0050, c, init/0050]
+    - [0x0E30, c, init/0E30]
+    - [0x1660, c, init/1660]   # kiunzip (gzip_unzip) and its gzip helpers
+    - [0x1A00, asm, init/1A00]
+    - [0x1A30, asm, init/1A30] # boot + 3 unidentified helpers (bit-unpack/cart-read related)
+    - [0x1EA0, c, init/1EA0]   # bzero (IDO/IRIX libkmc runtime, not libultra/game source)
+    - [0x1F40, asm, init/1F40]
+    - [0x2170, c, init/2170]   # osPiRawStartDma
+    - [0x2250, c, init/2250]   # osPiGetStatus
+    - [0x2260, c, init/2260]   # __osSetSR
+    - [0x2270, c, init/2270]   # __osGetSR
+    - [0x2280, c, init/2280]   # __osSetFpcCsr
+    - [0x2290, c, init/2290]   # __osSiRawReadIo
+    - [0x22E0, c, init/22E0]   # __osSiRawWriteIo
+    - [0x2330, c, init/2330]   # __osExceptionPreamble
+    - [0x2340, asm, init/2340] # Exception/interrupt handler. Structurally differs from
+                               # libultra's exceptasm.s (different thread-struct field
+                               # offsets, jump-table dispatch instead of __osIntOffTable/
+                               # __osIntTable) - likely Rare's own custom handler rather
+                               # than stock SDK code. Not renamed pending further research.
+    - [0x2BA0, c, init/2BA0]   # osWritebackDCache
+    - [0x2C20, c, init/2C20]   # osInvalICache
+    - [0x2CA0, asm, init/2CA0] # TLB setup helper, not yet identified
+    - [0x2D00, c, init/ul_pirawread]  # src/io/pirawread.c
+    - [0x2D60, c, init/ul_ll]  # src/libc/ll.c (-mips3)
+    - [0x3020, bin, init/3020] # 0x40 zero bytes between objects
+    - [0x3060, c, init/ul_virtualtophysical]  # src/os/virtualtophysical.c
+    - [0x30E0, c, init/30E0]   # __osSiDeviceBusy
+    - [0x3110, asm, init/3110]
+    - [0x3590, asm, init/3590]
+    - [0x3700, c, init/3700]
+    - [0x3770, asm, init/3770]
+    - [0x38D0, c, init/38D0]   # __osProbeTLB
+    - [0x3990, c, init/3990]   # __osGetCause
+    - [0x39A0, c, init/ul_atomic]  # src/os/atomic.c
+    - [0x3A00, c, init/3A00]   # __osDisableInt
+    - [0x3A20, c, init/3A20]   # __osRestoreInt
+    - [0x3A40, bin, init/3A40] # init's data, kept as bytes
+  - [0x3CE0]

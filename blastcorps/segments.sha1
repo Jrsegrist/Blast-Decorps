@@ -1,0 +1,8 @@
+# SHA-1 of the inflated code segments (text + data) the build makes, per
+# version (sha1sum --check format; the Makefile checks one line at a time)
+827e7c39f1e8710402f6a1458b3e11e6f5d28a75  build/init.us.v11.bin
+923eb2e280eb5fb25e27120ae15d7862d68a732a  build/hd_code.us.v11.bin
+3b40383fc613d9773557e190492931e425b227c2  build/hd_front_end.us.v11.bin
+ff624d31107bab14f3aa84846804e08c8cdf042e  build/us.v10/init.us.v10.bin
+cfe03fe2935ea3a9b7e3dc66953aa6d51f2ff2af  build/us.v10/hd_code.us.v10.bin
+793b68e56587f016b71a16bd0eee55dfebf79c46  build/us.v10/hd_front_end.us.v10.bin

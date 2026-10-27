@@ -1,0 +1,63 @@
+# 8A2E0: walks of the 0x14-byte table gCommPts (gCommPtCount entries; +0x10 is a
+# u16 flag). Both pass the countdown value (count..1), not the index, to the callee.
+
+# commpt_save_flags: call stats_set_level_flag(n) for entries whose flag is nonzero
+commpt_save_flags: -n 300 --ret void --sig stats_set_level_flag=a0 --mem gCommPts:0x200=halves:0,1,0xFFFF,0x8000,0x100 --mem gCommPtCount:1=int:0:20
+commpt_save_flags: -n 100 --seed 1 --ret void --sig stats_set_level_flag=a0 --mem gCommPts:0xA0=onehot:0x14@0x10/2:1,0x8000,0xFFFF:0 --mem gCommPtCount:1=8
+commpt_save_flags: -n 30 --seed 2 --ret void --sig stats_set_level_flag=a0 --mem gCommPts:0x13EC=halves:0,1 --mem gCommPtCount:1=choice:0,1,0xFF
+
+# commpt_load_flags: flag[i] = stats_test_level_flag(n) (stub returns 32-bit values; stored as a halfword)
+commpt_load_flags: -n 300 --ret void --sig stats_test_level_flag=a0 --mem gCommPts:0x200=rand --mem gCommPtCount:1=int:0:20
+commpt_load_flags: -n 30 --seed 1 --ret void --sig stats_test_level_flag=a0 --mem gCommPts:0x13EC=rand --mem gCommPtCount:1=choice:0,1,0xFF
+
+# commpt_set_box_verts (non-ABI: x t4, y t5, z t6): 8 box corners into gCommPtVtx[gCommPtCount * 8] (s16 ob only).
+# The asm's x + 10, y + 20, z + 20 are trapping `addi`s: inputs stay well inside s32.
+commpt_set_box_verts: -n 300 --arg a0=int:-0x100000:0x100000 --arg a1=int:-0x100000:0x100000 --arg a2=int:-0x100000:0x100000 \
+    --mem gCommPtCount:1=int:0:15 --mem gCommPtVtx:0x800=rand
+commpt_set_box_verts: -n 100 --seed 1 --arg t4=choice:0,0x7FF5,0x7FF6,-0x7FF6,-0x7FF7,0xFFFF \
+    --arg t5=choice:0,0x7FEB,0x7FEC,-0x8000,0xFFFF --arg t6=choice:0,0x7FEB,0x7FEC,-0x7FF6,-0x7FF7 \
+    --mem gCommPtCount:1=choice:0,1,15 --mem gCommPtVtx:0x800=rand
+
+# commpt_burst(pos t1): 24 debris records at (x, y, z) << 11 (y rising), then a sound
+commpt_burst: -n 200 --arg t1=ptr:0x10 --mem @t1:12=words:0,1,-1,0x100,-0x100,0x7FFF,-0x8000 --mem gEffectScratch:0x38=rand --mem gSfxBank=int --sig fx_finish_all= --sig obj_clear_effect_queue= --sig snd_play=a0,a1,a2
+commpt_burst: -n 100 --seed 1 --follow obj_queue_effect,obj_clear_effect_queue,fx_finish_all --arg t1=ptr:0x10 --mem @t1:12=words:0,1,-1,0x100,-0x100,0x7FFF,-0x8000 --mem gEffectScratch:0x38=rand --mem gEffectQueue:0x6C8=rand --mem gSfxBank=int --sig snd_play=a0,a1,a2
+
+# commpt_update(): pickups gCommPts[0..gCommPtCount) (0x14 bytes, flag +0x10) within 0x4C (>> 5 units, sqrt.s + cvt.w.s)
+# of the player: flag, two anim_set_frame sound fields, stats_finish_bonus_level(countdown), stats_show_commpt_hint, commpt_burst burst.
+# Positions in game range (the squared sum must not overflow).
+commpt_update: -n 300 --ret void --mem gCommPtCount:1=int:0:4 --mem gCommPts:0x50=rand \
+    --mem gCommPts*0x14:4=int:-0x40000:0x40000 --mem gCommPts+4*0x14:4=int:-0x40000:0x40000 --mem gCommPts+8*0x14:4=int:-0x40000:0x40000 \
+    --mem gCommPts+0x10*0x14:4/2=halves:0*3,1,0x100 --mem gPlayerX=int:-0x40000:0x40000 --mem gPlayerY=int:-0x40000:0x40000 \
+    --mem gPlayerZ=int:-0x40000:0x40000 --sig stats_finish_bonus_level=a0 --sig stats_show_commpt_hint=
+# player exactly on / near the 0x4C boundary: entries at the player plus dx (>> 5) of 0x4B, 0x4C (rounds) and diagonal ties
+commpt_update: -n 300 --seed 1 --ret void --mem gCommPtCount:1=int:1:4 --mem gCommPts:0x50=rand \
+    --mem gCommPts*0x14:4=choice:0x960,0x97F,0x980,0x99F,0x9A0,0x6A0,0x6C0,0x6E0,0,-0x980,-0x9A0 --mem gCommPts+4*0x14:4=choice:0,0x6A0,0x6C0,-0x6C0,0x20 \
+    --mem gCommPts+8*0x14:4=choice:0,0x1F,-0x20 --mem gCommPts+0x10*0x14:4/2=halves:0*5,1 \
+    --mem gPlayerX=choice:0,0x1F --mem gPlayerY=choice:0,0x1F --mem gPlayerZ=choice:0,-1 --sig stats_finish_bonus_level=a0 --sig stats_show_commpt_hint=
+# with the burst and the sound fields for real (commpt_burst -> gEffectQueue debris)
+commpt_update: -n 100 --seed 2 --ret void --follow commpt_burst,obj_clear_effect_queue,obj_queue_effect,anim_set_frame --mem gCommPtCount:1=int:0:4 \
+    --mem gCommPts:0x50=rand --mem gCommPts*0x14:4=int:-0x2000:0x2000 --mem gCommPts+4*0x14:4=int:-0x2000:0x2000 \
+    --mem gCommPts+8*0x14:4=int:-0x2000:0x2000 --mem gCommPts+0x10*0x14:4/2=halves:0*3,1 --mem gPlayerX=int:-0x1000:0x1000 \
+    --mem gPlayerY=int:-0x1000:0x1000 --mem gPlayerZ=int:-0x1000:0x1000 --mem gCommPtTakenAnims:0x30=rand --mem gEffectQueue:0x690=rand \
+    --mem gEffectScratch:0x38=rand --sig stats_finish_bonus_level=a0 --sig stats_show_commpt_hint= --sig fx_finish_all= --sig snd_play=a0,a1,a2
+# commpt_setup: box level setup (obj in t0; list of 8-byte records; gCommPts / gCommPtVtx hold 2 boxes)
+commpt_setup: -n 300 --heap 0x100 --arg t0=rel:heap0 --mem @heap0+0x28=0x40 --mem @heap0+0x2C=choice:0x40,0x48,0x50 \
+    --mem gHeapPtr=int:0x80100000:0x80200000 --mem gCommPts:0x28=rand --mem gCommPtTakenPose0:16=rand --mem gCommPtCount:1=rand --mem gCommPtBoxModel=rand \
+    --sig anim_play=a0,a1,a2 --sig anim_set_speed=a0,a1,a2 --sig anim_set_reverse=a0,a1,a2 --sig anim_set_loop_mode=a0,a1,a2 \
+    --sig anim_rewind=a0,a1 --sig anim_update_model=a0,a1,a2
+commpt_setup: -n 200 --seed 1 --heap 0x100 --arg t0=rel:heap0 --mem @heap0+0x28=0x40 --mem @heap0+0x2C=choice:0x40,0x48,0x50 \
+    --mem @heap0+0x40:0x10=halves:0,1,0x7FFF,0x8000,0xFFFF,0x1234,0xF000 \
+    --mem gHeapPtr=int:0x80100000:0x80200000 --mem gCommPts:0x28=rand --mem gCommPtTakenPose0:16=rand --mem gCommPtCount:1=rand --mem gCommPtBoxModel=rand \
+    --mem gCommPtVtx:0x100=rand --mem gCommPtTakenAnims:0x300=rand --mem gCommPtFreeAnims:0x300=rand \
+    --follow commpt_set_box_verts,anim_play,anim_set_speed,anim_set_reverse,anim_set_loop_mode,anim_set_interp,anim_rewind \
+    --sig anim_update_model=a0,a1,a2
+# commpt_draw: box drawing (0..2 boxes), gdl / dl2 / mtx in heap blocks
+commpt_draw: -n 300 --heap 0x100 --heap 0x300 --heap 0x200 --heap 0x40 --arg a0=rel:heap0 --arg a1=choice:0,1,2,0x100 \
+    --arg a2=rel:heap1 --arg a3=rel:heap2 --mem gCommPtCount:1=choice:0,1,2 \
+    --mem gCommPts:0x28=rand --mem gCommPts+0x10*0x14:2/2=halves:0,1,0x100 --mem gCommPtTakenPose0:16=rand --mem gCommPtBoxModel=rel:heap3 \
+    --sig mtx_to_n64=a0 --sig anim_update_model=a0,a1,a2
+commpt_draw: -n 200 --seed 1 --heap 0x100 --heap 0x300 --heap 0x200 --heap 0x40 --arg a0=rel:heap0 --arg a1=choice:0,1 \
+    --arg a2=rel:heap1 --arg a3=rel:heap2 --mem gCommPtCount:1=choice:1,2 \
+    --mem gCommPts:0x28=rand --mem gCommPts*0x14:2=int:-0x10000:0x10000 --mem gCommPts+4*0x14:2=int:-0x10000:0x10000 \
+    --mem gCommPts+8*0x14:2=int:-0x10000:0x10000 --mem gCommPts+0x10*0x14:2/2=halves:0,1 --mem gCommPtTakenPose0:16=rand \
+    --mem gCommPtBoxModel=rel:heap3 --follow mtx_translate,mtx_to_n64 --sig anim_update_model=a0,a1,a2

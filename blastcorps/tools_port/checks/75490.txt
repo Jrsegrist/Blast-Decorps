@@ -1,0 +1,255 @@
+# carrier_load_collide_dists: look up the current level (levelno) in the {s16 level, u16 x, u16 z} table gCarrierCollideDists
+# (terminated by a negative level) and set gCarrierWorldHitDist/ObjHitDist = x<<5, z<<5; clears them and gCarrierWorldHitOn/ObjHitOn first
+carrier_load_collide_dists: -n 300 --ret void --mem levelno=choice:0,1,2,3,0x7FFF,-1,0xFFFF,0x10002,0xFFFF8000 \
+    --mem gCarrierCollideDists:0x60=halves:0,1,2,3,0x7FFF,0x7FFE,0x8000,0xFFFF --mem gCarrierCollideDists+0x60=0xFFFFFFFF \
+    --mem gCarrierWorldHitDist=int --mem gCarrierObjHitDist=int --mem gCarrierWorldHitOn:2=rand
+# no negative keys before the terminator: matches deep in the table, or no match at all
+carrier_load_collide_dists: -n 200 --seed 1 --ret void --mem levelno=choice:0,1,2,3,4,5,0x7FFF,0x10002 \
+    --mem gCarrierCollideDists:0x60=halves:0,1,2,3,0x7FFF,0x7FFE --mem gCarrierCollideDists+0x60=0xFFFFFFFF \
+    --mem gCarrierWorldHitDist=int --mem gCarrierObjHitDist=int --mem gCarrierWorldHitOn:2=rand
+# the level appears in exactly one record (first/last/middle); x/z with the top bit set
+carrier_load_collide_dists: -n 150 --seed 2 --ret void --mem levelno=9 \
+    --mem gCarrierCollideDists:0x60=onehot:6/2:9:halves:0,1,0x7FFF,0x7FFE \
+    --mem gCarrierCollideDists+0x60=0xFFFFFFFF --mem gCarrierWorldHitDist=int --mem gCarrierObjHitDist=int --mem gCarrierWorldHitOn:2=rand
+# x/z of every record = 0x8000/0xFFFF (unsigned lhu then <<5), keys 0..3
+carrier_load_collide_dists: -n 100 --seed 3 --ret void --mem levelno=choice:0,1,2,3,4 \
+    --mem gCarrierCollideDists:0x18=halves:0x8000,0xFFFF,0x8001 \
+    --mem gCarrierCollideDists:2=halves:0 --mem gCarrierCollideDists+6:2=halves:1 --mem gCarrierCollideDists+12:2=halves:2 --mem gCarrierCollideDists+18:2=halves:3 \
+    --mem gCarrierCollideDists+0x18=0xFFFFFFFF --mem gCarrierWorldHitDist=int --mem gCarrierObjHitDist=int --mem gCarrierWorldHitOn:2=rand
+# empty table (first level 0xFFFF or 0x8000), level -1
+carrier_load_collide_dists: -n 40 --seed 4 --ret void --mem levelno=choice:-1,0,0xFFFF,0x8000,-32768 \
+    --mem gCarrierCollideDists:2=halves:0x8000,0xFFFF --mem gCarrierCollideDists+2:4=rand \
+    --mem gCarrierWorldHitDist=int --mem gCarrierObjHitDist=int --mem gCarrierWorldHitOn:2=rand
+
+# carrier_set_physics: gGravity = gLevelGravity * 2.0f; gBounceThreshold = 60; gBounceDamping = 10
+carrier_set_physics: -n 200 --ret void --mem gLevelGravity:4=floats --mem gGravity=int --mem gBounceThreshold:2=rand
+carrier_set_physics: -n 60 --seed 1 --ret void --mem gLevelGravity=choice:0,0x80000000,0x3F800000,0xBF800000,0x7F7FFFFF,0xFF7FFFFF,0x7F800000,0xFF800000,0x7FC00000,0x00000001 \
+    --mem gGravity=choice:0,-1 --mem gBounceThreshold:2=bytes:0,0xFF
+
+# carrier_update_sound (phase B): positional sound 0x75 at gCarrierX/Y/Z (volume knee 4000, x2);
+# math_dist3 (asm) followed in the ref, inlined in C
+carrier_update_sound: -n 300 --seed 0 --ret void --follow math_dist3 \
+    --sig snd_play=a0,a1,a2 --sig snd_stop=a0 --sig snd_modify=a0,a1,a2 \
+    --mem gCarrierSound=choice:0,0x80123450 --mem gSfxBank=int \
+    --mem gPlayerX=int:-20000:20000 --mem gPlayerY=int:-20000:20000 --mem gPlayerZ=int:-20000:20000 \
+    --mem gCarrierX=int:-20000:20000 --mem gCarrierY=int:-20000:20000 --mem gCarrierZ=int:-20000:20000
+carrier_update_sound: -n 300 --seed 1 --ret void --follow math_dist3 \
+    --sig snd_play=a0,a1,a2 --sig snd_stop=a0 --sig snd_modify=a0,a1,a2 \
+    --mem gCarrierSound=choice:0,0x80123450 --mem gSfxBank=int \
+    --mem gPlayerX=choice:0,1,3999,4000,4001,15999,16000,16001,-16000,-16001,-2048,-2049,-2017,2015,2016,2047,2048,-1,31,32,-32,-33 \
+    --mem gPlayerY=0 --mem gPlayerZ=0 --mem gCarrierX=0 --mem gCarrierY=0 --mem gCarrierZ=0
+carrier_update_sound: -n 200 --seed 2 --ret void --follow math_dist3 \
+    --sig snd_play=a0,a1,a2 --sig snd_stop=a0 --sig snd_modify=a0,a1,a2 \
+    --mem gCarrierSound=choice:0,0x80123450 --mem gSfxBank=int \
+    --mem gPlayerX=int:-0x10000000:0x10000000 --mem gPlayerY=int:-0x10000000:0x10000000 --mem gPlayerZ=int:-0x10000000:0x10000000 \
+    --mem gCarrierX=choice:0,0x123456 --mem gCarrierY=choice:0,-0x123456 --mem gCarrierZ=choice:0,7
+# carrier_scan_speed_zones: scan the 4-byte {s16 z, u8 level, u8 value} table gCarrierSpeedZones (negative z ends it) for the current
+# level with z <= gCarrierZ >> 5; last match's value -> a0 (ret) and, if nonzero, gCarrierTargetSpeed. Also outputs the
+# terminator z (a1), last level byte read (a2, passed in/out) and the level (a3). Table: 4 random records + terminator.
+carrier_scan_speed_zones: -n 400 --seed 0 --arg a2=int --mem levelno=choice:0,1,2 --mem gCarrierZ=int:-0x1000:0x200000 \
+    --mem gCarrierSpeedZones*4:4/2=halves:0,1,0x100,0x1000,0x7FFF,0x4000,0xFFFF --mem gCarrierSpeedZones+2*4:4/1=bytes:0,1,2 \
+    --mem gCarrierSpeedZones+3*4:4/1=bytes:0,1,5,0xFF --mem gCarrierSpeedZones+0x10:2=halves:0x8000,0xFFFF --mem gCarrierTargetSpeed:2=rand
+# z == player z / 32 exactly (and +-1), level always current, values nonzero
+carrier_scan_speed_zones: -n 200 --seed 1 --arg a2=int --mem levelno=1 --mem gCarrierZ=choice:0x1FFF,0x2000,0x201F,0x2020,0,-1 \
+    --mem gCarrierSpeedZones*4:4/2=halves:0xFF,0x100,0x101,0 --mem gCarrierSpeedZones+2*4:4/1=bytes:1 \
+    --mem gCarrierSpeedZones+3*4:4/1=bytes:1,7,0x80 --mem gCarrierSpeedZones+0x10:2=halves:0xFFFF --mem gCarrierTargetSpeed:2=rand
+# empty table (a2 passes through), level from the full word
+carrier_scan_speed_zones: -n 50 --seed 2 --arg a2=int --mem levelno=choice:0,1,0x101,-1 --mem gCarrierZ=int \
+    --mem gCarrierSpeedZones:2=halves:0x8000,0xFFFF --mem gCarrierTargetSpeed:2=rand
+# crane_exit_check: v0 = gCraneState[0xA1] == 0 (the asm's $gp change is declared `clobbers gp`)
+crane_exit_check: -n 100 --seed 0 --mem gCraneState+0xA1:1=bytes:0,1,2,0x80,0xFF
+
+# ---- phase D (wave 1, wt-d4) ----
+# carrier_update_sound now calls math_dist3: stubbed, distance driven by --stub-ret (the knees 4000 / 16000)
+carrier_update_sound: -n 200 --seed 3 --ret void --stub-ret math_dist3=rand \
+    --sig snd_play=a0,a1,a2 --sig snd_stop=a0 --sig snd_modify=a0,a1,a2 \
+    --mem gCarrierSound=choice:0,0x80123450 --mem gSfxBank=int \
+    --mem gPlayerX=int:-20000:20000 --mem gPlayerY=int --mem gPlayerZ=int \
+    --mem gCarrierX=int:-20000:20000 --mem gCarrierY=int --mem gCarrierZ=int
+carrier_update_sound: -n 60 --seed 4 --ret void --stub-ret math_dist3=16000 \
+    --sig snd_play=a0,a1,a2 --sig snd_stop=a0 --sig snd_modify=a0,a1,a2 \
+    --mem gCarrierSound=choice:0,0x80123450 --mem gPlayerX=int:-20000:20000 --mem gCarrierX=int:-20000:20000
+carrier_update_sound: -n 60 --seed 5 --ret void --stub-ret math_dist3=16001 \
+    --sig snd_play=a0,a1,a2 --sig snd_stop=a0 --sig snd_modify=a0,a1,a2 \
+    --mem gCarrierSound=choice:0,0x80123450 --mem gPlayerX=int:-20000:20000 --mem gCarrierX=int:-20000:20000
+carrier_update_sound: -n 60 --seed 6 --ret void --stub-ret math_dist3=4001 \
+    --sig snd_play=a0,a1,a2 --sig snd_stop=a0 --sig snd_modify=a0,a1,a2 \
+    --mem gCarrierSound=choice:0,0x80123450 --mem gPlayerX=int:-20000:20000 --mem gCarrierX=int:-20000:20000
+carrier_update_sound: -n 60 --seed 7 --ret void --stub-ret math_dist3=3999 \
+    --sig snd_play=a0,a1,a2 --sig snd_stop=a0 --sig snd_modify=a0,a1,a2 \
+    --mem gCarrierSound=choice:0,0x80123450 --mem gPlayerX=int:-20000:20000 --mem gCarrierX=int:-20000:20000
+
+# carrier_check_collide_dists: distance (y = 0) gCarrierX/Z -> gCarrierStartX/Z (s1 out) vs thresholds gCarrierWorldHitDist / gCarrierObjHitDist
+# followed: 3-4-5 style distances 0, 3, 4, 5, 100, 103.., thresholds around them and the signed extremes
+carrier_check_collide_dists: -n 300 --seed 0 --follow math_dist3 --mem gCarrierWorldHitOn:2=rand \
+    --mem gCarrierX=choice:0,3,-3 --mem gCarrierZ=choice:0,4 --mem gCarrierStartX=choice:0,100 --mem gCarrierStartZ=0 \
+    --mem gCarrierWorldHitDist=choice:0,1,3,4,5,6,100,101,-1,0x7FFFFFFF,0x80000000 --mem gCarrierObjHitDist=choice:0,1,3,4,5,6,100,101,-1,0x7FFFFFFF,0x80000000
+carrier_check_collide_dists: -n 300 --seed 1 --follow math_dist3 --mem gCarrierWorldHitOn:2=rand \
+    --mem gCarrierX=int:-100000:100000 --mem gCarrierZ=int:-100000:100000 --mem gCarrierStartX=int:-100000:100000 \
+    --mem gCarrierStartZ=int:-100000:100000 --mem gCarrierWorldHitDist=int:0:200000 --mem gCarrierObjHitDist=int:0:200000
+# stubbed: the distance comes from --stub-ret
+carrier_check_collide_dists: -n 100 --seed 2 --stub-ret math_dist3=5 --mem gCarrierWorldHitOn:2=rand \
+    --mem gCarrierX=int --mem gCarrierZ=int --mem gCarrierStartX=int --mem gCarrierStartZ=int \
+    --mem gCarrierWorldHitDist=choice:4,5,6,-1,0x80000000,0x7FFFFFFF --mem gCarrierObjHitDist=choice:4,5,6,-1,0x80000000,0x7FFFFFFF
+carrier_check_collide_dists: -n 100 --seed 3 --stub-ret math_dist3=rand --mem gCarrierWorldHitOn:2=rand \
+    --mem gCarrierWorldHitDist=int --mem gCarrierObjHitDist=int
+
+# carrier_check_arrival: same distance vs gCarrierRouteLen; sets gLevelDoneRequest and gPauseRequest
+carrier_check_arrival: -n 300 --seed 0 --ret void --follow math_dist3 --mem gLevelDoneRequest:1=rand --mem gPauseRequest:1=rand \
+    --mem gCarrierX=choice:0,3,-3 --mem gCarrierZ=choice:0,4 --mem gCarrierStartX=choice:0,100 --mem gCarrierStartZ=0 \
+    --mem gCarrierRouteLen=choice:0,1,3,4,5,6,100,101,-1,0x7FFFFFFF,0x80000000
+carrier_check_arrival: -n 200 --seed 1 --ret void --follow math_dist3 --mem gLevelDoneRequest:1=rand --mem gPauseRequest:1=rand \
+    --mem gCarrierX=int:-100000:100000 --mem gCarrierZ=int:-100000:100000 --mem gCarrierStartX=int:-100000:100000 \
+    --mem gCarrierStartZ=int:-100000:100000 --mem gCarrierRouteLen=int:0:200000
+carrier_check_arrival: -n 100 --seed 2 --ret void --stub-ret math_dist3=5 --mem gLevelDoneRequest:1=rand --mem gPauseRequest:1=rand \
+    --mem gCarrierX=int --mem gCarrierZ=int --mem gCarrierStartX=int --mem gCarrierStartZ=int \
+    --mem gCarrierRouteLen=choice:4,5,6,-1,0x80000000,0x7FFFFFFF
+
+# carrier_update_anims ($gp = gCarrierState): speed (+0x76) vs last (gCarrierLastSoundSpeed), sound handle, angle gCamYaw
+# (sector a / 0x555 after +0x800 and the 0x1000 wrap), gPaused gate; s4 out
+carrier_update_anims: -n 400 --seed 0 --arg gp=sym:gCarrierState --sig snd_modify=a0,a1,a2 \
+    --mem gCarrierState+0x76:2=halves:0,1,2,3,5,0x64,0xFFFF,0xFFFE,0x7FFF,0x8000 --mem gCarrierLastSoundSpeed:2=halves:0,1,2,3,0xFFFF \
+    --mem gCarrierSound=choice:0,0x80123450 --mem gCamYaw:2=int:0:0xFFFF --mem gPaused:1=bytes:0*2,1,0xFF
+# angle boundaries: the +0x800 wrap at 0x1000 and the sector edges 0x555 / 0xAAA
+carrier_update_anims: -n 300 --seed 1 --arg gp=sym:gCarrierState --sig snd_modify=a0,a1,a2 \
+    --mem gCarrierState+0x76:2=int:0:0xFFFF --mem gCarrierLastSoundSpeed:2=int:0:0xFFFF --mem gCarrierSound=choice:0,0x80123450 \
+    --mem gCamYaw:2=choice:0,1,0x554,0x555,0x556,0x7FE,0x7FF,0x800,0x801,0xAA9,0xAAA,0xAAB,0xD54,0xD55,0xFFF,0x1000,0xFFFF,0x8000 \
+    --mem gPaused:1=bytes:0,1
+# rounding ties in speed * gCarrierWheelAnimScale (0.5, 1.5, 2.5), random scale constants
+carrier_update_anims: -n 300 --seed 2 --arg gp=sym:gCarrierState --sig snd_modify=a0,a1,a2 \
+    --mem gCarrierState+0x76:2=halves:0,1,2,3,5,7,0xFFFF,0xFFFD,0xFFFB --mem gCarrierLastSoundSpeed:2=halves:0 \
+    --mem gCarrierWheelAnimScale=choice:0x3F000000,0x3FC00000,0xBF000000,0x40200000 --mem gCarrierPitchScale:4=floats:-10:10 \
+    --mem gCarrierYawThirdWidth:4=floats:1:2000 --mem gCarrierSound=0x80123450 --mem gCamYaw:2=int:0:0xFFFF --mem gPaused:1=bytes:0
+# speed unchanged (no sound call) vs changed by exactly one
+carrier_update_anims: -n 100 --seed 3 --arg gp=sym:gCarrierState --sig snd_modify=a0,a1,a2 \
+    --mem gCarrierState+0x76:2=halves:5 --mem gCarrierLastSoundSpeed:2=halves:4,5,6 --mem gCarrierSound=0x80123450 \
+    --mem gCamYaw:2=int:0:0xFFFF --mem gPaused:1=bytes:0
+
+# crane_enter: two halfwords and eleven channel-field setter calls (no inputs)
+crane_enter: -n 50 --ret void --mem gCamDistance:2=rand --mem gCamHeightBase:2=rand
+
+# crane_leave: veh_sync_buffers(gCraneMtxA, gCraneMtxB, 0x800), then stop each non-NULL handle
+crane_leave: -n 200 --ret void --sig snd_stop=a0 --sig veh_sync_buffers=a0,a1,a2 \
+    --mem gCraneArmSound:20=words:0*2,0x80123450,0x80123460,1,-1
+crane_leave: -n 20 --seed 1 --ret void --sig snd_stop=a0 --sig veh_sync_buffers=a0,a1,a2 --mem gCraneArmSound:12=words:0
+crane_leave: -n 20 --seed 2 --ret void --sig snd_stop=a0 --sig veh_sync_buffers=a0,a1,a2 --mem gCraneArmSound:12=words:0x80123450
+# copy run for real
+crane_leave: -n 30 --seed 3 --ret void --follow veh_sync_buffers --sig snd_stop=a0 --heap 0x800 --heap 0x800 \
+    --mem gCraneMtxA=rel:heap0 --mem gCraneMtxB=rel:heap1 --mem gCraneArmSound:12=words:0,0x80123450
+
+# zone lookup wrapper (id 0xFF at gCarrierX): veh_zone_alpha stubbed (scan registers mapped through r)
+carrier_zone_alpha: -n 200 --mem gCarrierX:12=rand
+carrier_zone_alpha: -n 300 --seed 1 --follow veh_zone_alpha,math_dist3 --mem gCarrierX=int:-100:100 --mem gCarrierX+4=int:-100:100 \
+    --mem gCarrierX+8=int:-100:100 --mem gAlphaZonesEnd=rel:gAlphaZones+0x24*int:0:4 --mem gAlphaZones:0x90=rand \
+    --mem gAlphaZones*0x24:4=int:-100:100 --mem gAlphaZones+4*0x24:4=int:-100:100 --mem gAlphaZones+8*0x24:4=int:-100:100 \
+    --mem gAlphaZones+0xC*0x24:4=choice:1,10,50,100,200,1000 --mem gAlphaZones+0x10*0x24:4/1=choice:0,1,1,2 \
+    --mem gAlphaZones+0x12*0x24:4/1=choice:0,1,1,1 --mem gAlphaZones+0x13*0x24:4/1=choice:0,1,2,3 \
+    --mem gAlphaZones+0x14*0x24:4/1=choice:0,0,5,0xFF --mem gAlphaZones+0x15*0x24:4/1=choice:0xFF,0xFF,0x30 \
+    --mem gAlphaZones+0x16*0x24:4/1=choice:0xFF,0x31 --mem gAlphaZones+0x17*0x24:4/1=choice:0xFF,0x32 \
+    --mem gDefaultVehAlpha:1=choice:0,1,0x80,0xFF,0x40 --mem gVehicles+0x5C*0x74:3=choice:0x100,0x200 \
+    --mem gVehicles+0x1B8=0xFF --mem gVehicles+0x60*0x74:4=int
+
+# zone lookup wrapper (id 6 at gCranePos): veh_zone_alpha stubbed (scan registers mapped through r)
+crane_zone_alpha: -n 200 --mem gCranePos:12=rand
+crane_zone_alpha: -n 300 --seed 1 --follow veh_zone_alpha,math_dist3 --mem gCranePos=int:-100:100 --mem gCranePos+4=int:-100:100 \
+    --mem gCranePos+8=int:-100:100 --mem gAlphaZonesEnd=rel:gAlphaZones+0x24*int:0:4 --mem gAlphaZones:0x90=rand \
+    --mem gAlphaZones*0x24:4=int:-100:100 --mem gAlphaZones+4*0x24:4=int:-100:100 --mem gAlphaZones+8*0x24:4=int:-100:100 \
+    --mem gAlphaZones+0xC*0x24:4=choice:1,10,50,100,200,1000 --mem gAlphaZones+0x10*0x24:4/1=choice:0,1,1,2 \
+    --mem gAlphaZones+0x12*0x24:4/1=choice:0,1,1,1 --mem gAlphaZones+0x13*0x24:4/1=choice:0,1,2,3 \
+    --mem gAlphaZones+0x14*0x24:4/1=choice:0,0,5,0xFF --mem gAlphaZones+0x15*0x24:4/1=choice:6,6,0x30 \
+    --mem gAlphaZones+0x16*0x24:4/1=choice:6,0x31 --mem gAlphaZones+0x17*0x24:4/1=choice:6,0x32 \
+    --mem gDefaultVehAlpha:1=choice:0,1,0x80,0xFF,0x40 --mem gVehicles+0x5C*0x74:3=choice:0x100,0x200 \
+    --mem gVehicles+0x1B8=6 --mem gVehicles+0x60*0x74:4=int
+
+# crane_part_on_ground: level 0x11 part (crane_find_test_part) on ground (ground_scan_guard_tris) -> v0. Callees stubbed (their
+# pass-through register inputs not compared: the C starts them at 0), lookup miss, then both followed
+crane_part_on_ground: -n 300 --mem levelno=choice:0x11,0x11,0x10,0,0x12 --stub-ret crane_find_test_part.s4=rand \
+    --stub-ret ground_scan_guard_tris.a1=rand --sig crane_find_test_part= --sig ground_scan_guard_tris=a0,a1,a2
+crane_part_on_ground: -n 100 --seed 1 --mem levelno=0x11 --stub-ret crane_find_test_part.s4=0 --sig crane_find_test_part= \
+    --sig ground_scan_guard_tris=a0,a1,a2
+crane_part_on_ground: -n 300 --seed 2 --mem levelno=0x11 \
+    --follow crane_find_test_part,ground_scan_guard_tris,ground_tri_box_contains,ground_tri_contains,ground_tri_height,__ll_mul,__ll_to_d,__d_to_ll \
+    --mem gVehPartSpheres:0x140=rand --mem gVehPartSpheres+0x13*0x14:16/1=bytes:0,0,1,0xFF \
+    --mem gVehPartSpheres+0x12*0x14:16/1=bytes:6,6,5 --mem gVehPartSpheres+0xC*0x14:16=choice:0x3BD,0x3BC,0 \
+    --mem gVehPartSpheres+0x13F:1=0xFF --mem gVehPartSpheres*0x14:16=int:-40:40 --mem gVehPartSpheres+4*0x14:16=int:-2000:500 \
+    --mem gVehPartSpheres+8*0x14:16=int:-40:40 --heap 0x64=halves:0,1,2,0xFFFF,0xFFFE,0x20,0xFFE0 \
+    --mem gGuardTris=rel:heap0 --mem gGuardTrisEnd=rel:heap0+0x14*int:0:5 --mem gGuardTrisBestY=int
+
+# crane_update_controls (wave 3; gp = gCraneState): every branch; channel float at, just below/above the limits and
+# around unk4 * 100 == 100 (0.998 / 1.005 round to 100, truncation would not); stubbed (anim_get_state's
+# outputs driven), then following the channel setters/getter and crane_part_on_ground (its scans stubbed)
+crane_update_controls: -n 400 --arg gp=sym:gCraneState --mem gCraneState+0xA1:1=choice:0*2,1,2 \
+    --mem gCraneState+0xA2:1=choice:0*4,1,0x80 --mem gHeldLeft:1=choice:0,1 --mem gHeldRight:1=choice:0,1 \
+    --mem gHeldL:1=choice:0*2,1 --mem gHeldR:1=choice:0*2,1 --mem gHeldA:1=choice:0,1 \
+    --mem gHeldB:1=choice:0,1 --mem gCraneArmMaxPos=choice:0x3F800000,0x3F000000,0,0x3F7FFFFF \
+    --mem gCraneArmMinPos=choice:0x3F800000,0x3F000000,0,0x3F800001 --mem gCraneArmSound=choice:0,0x80B00000 \
+    --mem gCraneSwingSound=choice:0,0x80B00010 --mem gCraneActionSound=choice:0,0x80B00020 \
+    --stub-ret anim_get_state.f0=choice:0x3F800000*3,0x3F7FFFFF,0x3F800001,0x3F80A3D7,0x3F7EB852,0x3F7F7CEE,0x3F8147AE,0,0x3F000000,0xBF800000 \
+    --stub-ret anim_get_state.t1=choice:0,1*3,-1 --stub-ret anim_get_state.v1=choice:0,1*2,2,-1 \
+    --stub-ret crane_part_on_ground=choice:0,1,2 --sig snd_stop=a0 --sig snd_play=a0,a1,a2 --sig crane_part_on_ground=
+crane_update_controls: -n 300 --seed 1 --arg gp=sym:gCraneState \
+    --follow anim_set_speed,anim_set_reverse,anim_play,anim_get_state,crane_part_on_ground --mem levelno=choice:0,0x11 \
+    --mem gCraneAnim:0x90=rand \
+    --mem gCraneAnim+4*0x18:6=choice:0x3F800000*3,0x3F7FFFFF,0x3F80A3D7,0x3F7F7CEE,0x3F8147AE,0,0x3F000000 \
+    --mem gCraneAnim+0x10*0x18:6/1=choice:0,1*2,2 --mem gCraneAnim+0x13*0x18:6/1=choice:0,1*2,0xFF \
+    --mem gCraneState+0xA1:1=choice:0*2,1,2 --mem gCraneState+0xA2:1=choice:0*4,1 --mem gHeldLeft:1=choice:0,1 \
+    --mem gHeldRight:1=choice:0,1 --mem gHeldL:1=choice:0*2,1 --mem gHeldR:1=choice:0*2,1 \
+    --mem gHeldA:1=choice:0,1 --mem gHeldB:1=choice:0,1 \
+    --mem gCraneArmMaxPos=choice:0x3F800000,0x3F000000,0,0x3F7FFFFF --mem gCraneArmMinPos=choice:0x3F800000,0x3F000000,0,0x3F800001 \
+    --mem gCraneArmSound=choice:0,0x80B00000 --mem gCraneSwingSound=choice:0,0x80B00010 --mem gCraneActionSound=choice:0,0x80B00020 \
+    --sig snd_stop=a0 --sig snd_play=a0,a1,a2 --stub-ret crane_find_test_part.s4=choice:0,1 \
+    --stub-ret ground_scan_guard_tris.a1=choice:0,1 --sig crane_find_test_part= --sig ground_scan_guard_tris=a0,a1,a2
+
+# ---- wt-v5 ----
+# carrier_build_model / crane_build_model: model matrices/points (as backlash_build_model in 71140): stubbed mtx_build_model doesn't leave
+# s2 = the matrix, so the stubbed runs skip veh_place_parts's s2 slot and the --follow runs compare it.
+carrier_build_model: -n 200 --arg gp=sym:gCarrierState --heap 0x200=hex:00000100000001400000018000000200000000000000004000000000 \
+    --heap 0x400 --mem gCarrierModel=rel:heap0 --mem @heap0+0x44=0x80 --mem gCarrierMtxA=rel:heap1 --mem gCarrierMtxB=rel:heap1+0x200 \
+    --mem gBufferIndex:1=choice:0,1 --mem gCarrierX:12=rand --mem gCarrierState+0x4C:2=rand --mem gModelRot:6=rand \
+    --sig veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2,*stack3+0x8,*stack3+0xC,*stack3+0x14
+carrier_build_model: -n 100 --seed 1 --follow mtx_build_model --arg gp=sym:gCarrierState \
+    --heap 0x200=hex:00000100000001400000018000000200000000000000004000000000 \
+    --heap 0x400 --mem gCarrierModel=rel:heap0 --mem @heap0+0x44=0x80 --mem gCarrierMtxA=rel:heap1 --mem gCarrierMtxB=rel:heap1+0x200 \
+    --mem gBufferIndex:1=choice:0,1 --mem gCarrierX:12=rand --mem gCarrierState+0x4C:2=rand --mem gModelRot:6=rand
+crane_build_model: -n 200 --arg gp=sym:gCraneState --heap 0x200=hex:00000100000001400000018000000200000000000000004000000000 \
+    --heap 0x400 --mem gCraneModel=rel:heap0 --mem @heap0+0x44=0x80 --mem gCraneMtxA=rel:heap1 --mem gCraneMtxB=rel:heap1+0x200 \
+    --mem gBufferIndex:1=choice:0,1 --mem gCranePos:12=rand --mem gCraneState+0x4C:2=rand --mem gModelRot:6=rand \
+    --sig veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2,*stack3+0x8,*stack3+0xC,*stack3+0x14
+crane_build_model: -n 100 --seed 1 --follow mtx_build_model --arg gp=sym:gCraneState \
+    --heap 0x200=hex:00000100000001400000018000000200000000000000004000000000 \
+    --heap 0x400 --mem gCraneModel=rel:heap0 --mem @heap0+0x44=0x80 --mem gCraneMtxA=rel:heap1 --mem gCraneMtxB=rel:heap1+0x200 \
+    --mem gBufferIndex:1=choice:0,1 --mem gCranePos:12=rand --mem gCraneState+0x4C:2=rand --mem gModelRot:6=rand
+# carrier_check_crash: collision/effect step; s7 = gp + 4 (its caller always sets it). fx_spawn (type 1, z 0) ignores the
+# leftover-register slots, so only the used ones are compared.
+carrier_check_crash: -n 400 --arg gp=sym:gCarrierState --arg t2=int --arg s7=sym:gCarrierState+4 --mem gCarrierHit:1=bytes:0*3,1 \
+    --mem gCarrierContact:1=bytes:0*3,1 --mem gCarrierWorldHitOn:1=bytes:0,1 --mem gCarrierObjHitOn:1=bytes:0,1 --mem gCollHit:1=rand \
+    --mem gCarrierState+4:0x24=words:0,10000,10001,-10000,-10001,5000 --mem gCarrierHitSeen:1=bytes:0,1 --mem gCarrierExplodeDelay:1=bytes:0*3,1,2 \
+    --mem gCarrierExplodeDone:1=bytes:0*2,1 --mem gCarrierExplodeStarted:1=bytes:0,1 --mem gCarrierExplodeFrames:1=bytes:0,0x10,0x11,0x12,0xFF \
+    --mem gCarrierX:12=rand --mem gCarrierState+0x76:2=rand --mem gCollVehicleAnim=rand --mem cmo_hit_request:1=rand --mem gPauseRequest:1=rand \
+    --sig fx_spawn=*a0,a1,a2,a3,stack0,stack1,stack2,stack8 --sig veh_collide_world=a0 --sig veh_collide_spheres=a0,a1 \
+    --sig obj_collide_vehicle=a0,a1 --sig hud_panel_stop= --sig fx_finish_all= --sig obj_clear_effect_queue= --sig anim_stop=a0,a1
+# boundary: height differences exactly 10000 / 10001, effect counter 0x11 -> 0x12
+carrier_check_crash: -n 200 --seed 1 --arg gp=sym:gCarrierState --arg t2=int --arg s7=sym:gCarrierState+4 --mem gCarrierHit:1=0 \
+    --mem gCarrierContact:1=0 --mem gCarrierWorldHitOn:1=bytes:0,1 --mem gCarrierObjHitOn:1=bytes:0,1 --mem gCollHit:1=rand \
+    --mem gCarrierState+4:0x24=words:0*6,10000,-10000,10001*1 --mem gCarrierHitSeen:1=bytes:0,1 --mem gCarrierExplodeDelay:1=0 \
+    --mem gCarrierExplodeDone:1=0 --mem gCarrierExplodeStarted:1=1 --mem gCarrierExplodeFrames:1=bytes:0x10,0x11,0x12 \
+    --mem gCarrierX:12=rand --mem gCarrierState+0x76:2=rand --mem gCollVehicleAnim=rand --mem cmo_hit_request:1=rand --mem gPauseRequest:1=rand \
+    --sig fx_spawn=*a0,a1,a2,a3,stack0,stack1,stack2,stack8 --sig veh_collide_world=a0 --sig veh_collide_spheres=a0,a1 \
+    --sig obj_collide_vehicle=a0,a1 --sig hud_panel_stop= --sig fx_finish_all= --sig obj_clear_effect_queue= --sig anim_stop=a0,a1
+# carrier_update: per-frame update of gCarrierState. Leaked-register inputs (zone scan regs, carrier_scan_speed_zones's a2, chain
+# registers into carrier_build_model, veh_ground_contact's f14-f26) are 0 in C and not compared (FIDELITY AUDIT).
+carrier_update: -n 300 --mem gCarrierState+0x9A:1=bytes:0*2,1 --mem gCarrierHit:1=bytes:0*3,1 --mem gPaused:1=bytes:0*3,1 --mem gCarrierState+0x76:2=halves:0,8,0x10,0x7F,0x80,0x88,0xFFF8,0x7FF0 --mem gCarrierTargetSpeed:2=halves:0,0x80,0x88,0x7FF8,0x8000 --mem gBufferIndex:1=bytes:0,1 --mem gCarrierMtxA=rand --mem gCarrierMtxB=rand --mem gCarrierX:12=rand --mem gCarrierState+0x4E:2=rand --mem gBounceSound:1=rand --stub-ret veh_slope=float --stub-ret veh_move_along_heading=int --stub-ret veh_move_along_heading.t1=int --stub-ret veh_move_along_heading.s3=int --stub-ret carrier_build_model=int --sig carrier_zone_alpha= --sig carrier_scan_speed_zones= --sig carrier_check_collide_dists= --sig carrier_update_anims= --sig carrier_set_physics= --sig carrier_check_arrival= --sig carrier_build_model= --sig veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12,*stack13
+# callees followed (h2 = carrier_build_model's leftover t2 reaching veh_collision_setup through carrier_check_crash)
+carrier_update: -n 300 --seed 1 --heap 0x200=hex:00000100000001400000018000000200000000000000004000000000 --heap 0x400 --mem gCarrierModel=rel:heap0 --mem @heap0+0x44=0x80 --mem gCarrierMtxA=rel:heap1 --mem gCarrierMtxB=rel:heap1+0x200 --mem gCarrierState+0x9A:1=bytes:0*2,1 --mem gCarrierHit:1=bytes:0*3,1 --mem gPaused:1=bytes:0*3,1 --mem gCarrierState+0x76:2=halves:0,8,0x10,0x7F,0x80,0x88,0xFFF8 --mem gCarrierTargetSpeed:2=halves:0,0x80,0x88 --mem gBufferIndex:1=bytes:0,1 --mem gCarrierX:12=int:-0x40000:0x40000 --mem gCarrierState+0x4E:2=rand --mem gBounceSound:1=rand --mem gCarrierContact:1=bytes:0*3,1 --mem gCarrierWorldHitOn:1=bytes:0,1 --mem gCarrierObjHitOn:1=bytes:0,1 --mem gCarrierState+4:0x24=words:0,10000,10001,5000 --mem gCarrierHitSeen:1=bytes:0,1 --mem gCarrierExplodeDelay:1=bytes:0,1 --mem gCarrierExplodeDone:1=bytes:0,1 --mem gCarrierExplodeStarted:1=bytes:0,1 --mem gCarrierExplodeFrames:1=rand --mem gCarrierRouteLen=int:-10:0x10000 --mem gCarrierWorldHitDist=int:-10:0x10000 --mem gCarrierObjHitDist=int:-10:0x10000 --mem levelno=int:0:0x40 --stub-ret veh_slope=float --stub-ret veh_move_along_heading=int --stub-ret veh_move_along_heading.t1=int --stub-ret veh_move_along_heading.s3=int --stub-ret math_dist3=int:0:0x20000 --follow carrier_zone_alpha,carrier_check_collide_dists,carrier_scan_speed_zones,carrier_set_physics,carrier_build_model,carrier_check_crash,carrier_check_arrival,mtx_build_model --sig veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12,*stack13 --sig fx_spawn=*a0,a1,a2,a3,stack0,stack1,stack2,stack8 --sig veh_zone_alpha=a0,a1,a2,a3 --sig veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2 --sig veh_points_transform=a0,a1,a2,a3,*stack0,*stack0+0x4 --sig veh_collide_world=a0 --sig veh_collide_spheres=a0,a1 --sig obj_collide_vehicle=a0,a1 --sig hud_panel_stop= --sig fx_finish_all= --sig obj_clear_effect_queue= --sig anim_stop=a0,a1 --sig carrier_update_anims= --sig veh_set_record=a0,a1,a2,a3,stack0
+
+# crane_update: per-frame update of vehicle 6. veh_update_stand_on's fp/f12-f26, the zone scan inputs, crane_build_model's chain
+# inputs and crane_check_part_hits's s0-s3 are leftover registers (0 in C, not compared; FIDELITY AUDIT).
+crane_update: -n 300 --mem gCraneState+0x9A:1=bytes:0*2,1 --mem gBufferIndex:1=bytes:0,1 --mem gCraneMtxA=rand --mem gCraneMtxB=rand --mem gCranePos:12=rand --mem gCollHit:1=bytes:0,1 --mem gCraneState+0xA2:1=rand --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand --mem gCraneState+0x4C:4=rand --mem gCollVehicleAnim=rand --sig crane_zone_alpha= --sig crane_update_controls= --sig veh_update_stand_on=a0,a1,a2,a3,stack0,stack1,stack2 --sig crane_check_part_hits= --sig veh_collide_spheres=a0,a1 --sig obj_collide_vehicle=a0,a1 --sig veh_collide_world=a0 --sig anim_update_model=a0,a1,a2 --sig crane_build_model= --stub-ret crane_build_model=int --stub-ret crane_build_model.t2=int
+crane_update: -n 200 --seed 1 --mem gCraneState+0x9A:1=bytes:0*2,1 --mem gBufferIndex:1=bytes:0,1 --mem gCraneMtxA=rand --mem gCraneMtxB=rand --mem gCranePos:12=rand --mem gCollHit:1=bytes:0,1 --mem gCraneState+0xA2:1=rand --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand --mem gCraneState+0x4C:4=rand --mem gCollVehicleAnim=rand --sig crane_zone_alpha= --sig crane_update_controls= --sig veh_update_stand_on=a0,a1,a2,a3,stack0,stack1,stack2 --sig crane_check_part_hits= --sig veh_collide_spheres=a0,a1 --sig obj_collide_vehicle=a0,a1 --sig veh_collide_world=a0 --sig anim_update_model=a0,a1,a2 --heap 0x200=hex:00000100000001400000018000000200000000000000004000000000 --heap 0x400 --mem gCraneModel=rel:heap0 --mem @heap0+0x44=0x80 --mem gCraneMtxA=rel:heap1 --mem gCraneMtxB=rel:heap1+0x200 --follow crane_build_model,crane_zone_alpha,mtx_build_model --sig veh_zone_alpha=a0,a1,a2,a3 --sig veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2 --sig veh_points_transform=a0,a1,a2,a3,*stack0,*stack0+0x4 --sig veh_deck_transform=a0,a1,a2
+
+# crane_spawn / carrier_spawn: level setup (register inputs mapped in conventions.txt; fp reaches veh_init_ground,
+# whose FP-state slots are not compared)
+crane_spawn: -n 300 --heap 0x200=hex:00000100000001400000018000000200000000000000004000000000 --mem @heap0+0x44=0x80 --arg s2=rel:heap0 --arg t7=int --arg s3=int --arg s0=int --arg s1=int --arg fp=int --mem gHeapPtr=int:0:0x7FFFE000 --mem gCraneState:0xA4=rand --mem gCranePos:16=rand --mem gCraneMtxA:8=rand --sig veh_init_ground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5 --sig veh_add_shadow=a0:1,a1,a2:2,a3:2 --sig crane_update= --sig veh_reset_state=a0
+crane_spawn: -n 200 --seed 1 --heap 0x200=hex:00000100000001400000018000000200000000000000004000000000 --mem @heap0+0x44=0x80 --heap 0x2000 --arg s2=rel:heap0 --arg t7=int --arg s3=int --arg s0=int --arg s1=int --arg fp=int --mem gHeapPtr=rel:heap1 --mem gCraneState:0xA4=rand --mem gCranePos:16=rand --mem gCraneMtxA:8=rand --sig veh_init_ground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5 --sig veh_add_shadow=a0:1,a1,a2:2,a3:2 --sig crane_update= --follow veh_reset_state,mtx_copy_at
+carrier_spawn: -n 300 --heap 0x200=hex:00000100000001400000018000000200000000000000004000000000 --mem @heap0+0x44=0x80 --arg s2=rel:heap0 --arg t4=int --arg t5=int --arg s1=int --arg t7=int --arg t6=int --arg fp=int --mem gHeapPtr=int:0:0x7FFFE000 --mem gCarrierState:0xA4=rand --mem gCarrierLastSoundSpeed:0x2C=rand --mem gCarrierMtxA:12=rand --sig veh_init_ground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5 --sig veh_add_shadow=a0:1,a1,a2:2,a3:2 --sig carrier_update= --sig carrier_build_model= --sig carrier_load_collide_dists= --sig veh_reset_state=a0
+carrier_spawn: -n 200 --seed 1 --heap 0x200=hex:00000100000001400000018000000200000000000000004000000000 --mem @heap0+0x44=0x80 --heap 0x2000 --arg s2=rel:heap0 --arg t4=int --arg t5=int --arg s1=int --arg t7=int --arg t6=int --arg fp=int --mem gHeapPtr=rel:heap1 --mem gCarrierState:0xA4=rand --mem gCarrierLastSoundSpeed:0x2C=rand --mem gCarrierMtxA:12=rand --mem gBufferIndex:1=bytes:0,1 --mem gModelRot:6=rand --sig veh_init_ground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5 --sig veh_add_shadow=a0:1,a1,a2:2,a3:2 --sig carrier_update= --follow carrier_load_collide_dists,carrier_build_model,mtx_build_model,mtx_copy_at,veh_reset_state --sig veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2 --sig veh_points_transform=a0,a1,a2,a3,*stack0,*stack0+0x4

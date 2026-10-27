@@ -1,0 +1,84 @@
+gzip_get_method = 0x8022043C;
+__osGetCause = 0x80222690;
+osPiRawStartDma = 0x80220E70;
+osPiGetStatus = 0x80220F50;
+osVirtualToPhysical = 0x80221D60;
+entry = 0x8021ED00;
+__osSetSR = 0x80220F60;
+__osGetSR = 0x80220F70;
+__osSetFpcCsr = 0x80220F80;
+__osSiRawReadIo = 0x80220F90;
+__osSiRawWriteIo = 0x80220FE0;
+__osSiDeviceBusy = 0x80221DE0;
+osMapTLBRdb = 0x802219A0; // init's copy: TLB entry 31, 0xC0000000 -> the RDB port (uncached)
+__osFinalrom = 0x80224A40; // init's copy (init_os_initialize sets it to 1)
+osClockRate = 0x80222860; // init's copy (init_os_initialize computes it)
+__osExceptionPreamble = 0x80221030;
+bzero = 0x80220BA0;
+osWritebackDCache = 0x802218A0;
+osInvalICache = 0x80221920;
+osPiRawReadIo = 0x80221A00;
+__osDisableInt = 0x80222700;
+__osRestoreInt = 0x80222720;
+__ull_rshift = 0x80221A60;
+__ull_rem = 0x80221A8C;
+__ull_div = 0x80221AC8;
+__ll_lshift = 0x80221B04;
+__ll_div = 0x80221B6C;
+__ll_mul = 0x80221BC8;
+__ll_rem = 0x80221C58;
+__ll_rshift = 0x80221CF4;
+__osProbeTLB = 0x802225D0;
+__osAtomicDec = 0x802226A0;
+huft_build = 0x8021ED50;
+inflate_codes = 0x8021F3EC;
+inflate_stored = 0x8021F7F4;
+inflate_fixed = 0x8021F988;
+inflate_dynamic = 0x8021FB30;
+inflate_block = 0x8022011C;
+inflate = 0x80220268;
+reverse_bits = 0x8022069C;
+mask_bits = 0x80222810;
+cplens = 0x80222754;
+cplext = 0x80222794;
+cpdist = 0x802227B4;
+cpdext = 0x802227F0;
+// cplens/cplext/cpdist/cpdext (0x80222754/94/0x802227B4/F0) are RFC 1951
+// fixed Huffman tables, but live inside the opaque init/3A40 binary blob -
+// referenced by raw address in src.us.v11/init/0050.c instead of as symbols
+// here, since splat doesn't expose individually-addressable symbols inside
+// a "bin" segment.
+
+// tools_port/names.txt (tools_port/rename.py): renamed symbols at their addresses
+gzip_unzip = 0x80220360; // type:func
+gzip_clear_bufs = 0x802206D0; // type:func
+init_debug_printf = 0x80220714; // type:func
+__osSetHWIntrRoutine = 0x80222400; // type:func
+border = 0x80222740; // type:data
+lbits = 0x80222834; // type:data
+dbits = 0x80222838; // type:data
+method = 0x80222840; // type:data
+exit_code = 0x80222844; // type:data
+gGzipUnknownMethodMsg = 0x802228D0; // type:data
+gInflateHuftArena = 0x802229E0; // type:data
+bb = 0x802229E4; // type:data
+bk = 0x802229E8; // type:data
+hufts = 0x802229EC; // type:data
+inbuf = 0x802229F0; // type:data
+slide = 0x802229F4; // type:data
+header_bytes = 0x802229FC; // type:data
+bytes_in = 0x80222A08; // type:data
+bytes_out = 0x80222A0C; // type:data
+insize = 0x80222A18; // type:data
+inptr = 0x80222A1C; // type:data
+outcnt = 0x80222A20; // type:data
+__osHwIntTable = 0x80224D00; // type:data
+gDepthBuffer = 0x8021ED00; // type:data
+init_boot = 0x80220730; // type:func
+init_unzip = 0x80220998; // type:func
+init_lzss_decode = 0x80220A50; // type:func
+init_lzss_read_bits = 0x80220B5C; // type:func
+gInitUnzipSrc = 0x80224A30; // type:data
+gInitUnzipDst = 0x80224A34; // type:data
+init_os_initialize = 0x80220C40; // type:func
+gInitBootMsg = 0x80222850; // type:data

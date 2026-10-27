@@ -1,0 +1,75 @@
+# Byte-order overrides for the data images (port/tools/swaptab.py).
+# ADDR SIZE ACTION [STRIDE COUNT]
+#                    (hex; ACTION w2/w4/w8 = swap as elements of that width, be = keep big-endian,
+#                     vtx = F3D Vtx records: six halfwords, colour bytes kept;
+#                     STRIDE COUNT: the same range in COUNT records STRIDE apart)
+#
+# gLevelInfo (60 level records, 0x44 bytes): +0x2C is a u32 bit mask, which
+# collectables/vehicles the level has (11530.c fe_globe_build_scene_dl's lw: the globe's
+# vehicle pictures).  01C40.c's view calls it times[0] (u16 at +0x2E), but
+# reads only times[1..4] (+0x30..+0x36, the rank times and the time limit,
+# typed by that view).  Untyped, the mask stayed big-endian: wrong pictures.
+802E8FC0 4 w4 44 3C
+#
+# gObjFadeCmdSubs (77E20.c, 12 x {u64 from, u64 to}): display-list commands compared
+# with and copied into DLs as whole doublewords; DLs are two host-order u32
+# words (w0, w1), so these are too (a u64 swap would exchange w0 and w1).
+802F46C0 C0 w4
+#
+# gObjSinkRenderCmds (77E20.c obj_start_sinking_part, u64[6]): six display-list commands copied
+# into a DL as doublewords; same reason.
+802F4780 30 w4
+#
+# gUseEeprom: u8 EEPROM-present flag (written at boot, read as a byte by the
+# front end) that is also word 0 of a 19-word table veh_leave indexes by
+# vehicle (00000.c port_802E8BF8_word).  On the N64 the flag is word 0's most
+# significant byte, so word 0 stays big-endian and is read bytewise; words
+# 1-18 (the exit distances) are host-order s32.
+802E8BF8 4 be
+802E8BFC 48 w4
+#
+# gYoshiHints (26570.c YoshiHintList[8], 0x22 bytes: u8 level, s16 window ids[16]):
+# 26570.c yoshi_show_hint also reads gYoshiHintMaxShows[id] (u8) with ids 70..107, i.e. a
+# byte table from 0x802F49E0 that IDO addresses from base - 70; that u8[]
+# declaration's extent typed triggers 5-7 (levels 33, 13, 10) as bytes: their
+# ids stayed big-endian (86 -> 22016) and level 13's mission intro crashed
+# (yoshi_load_window_sprites on window 22016).
+802F48D2 20 w2 22 8
+#
+# The trail-free zones (37530.c Zone {s16 a..f, ymin, ymax}, 46 of them at
+# 0x802FC080-0x802FC360, reached only through gTrailZones's ZoneList pointers):
+# no declaration covered them, so they stayed big-endian and the tyre tracks
+# were drawn where the N64 suppresses them (levels 0, 7: the trail ring).
+802FC080 2E0 w2
+#
+# gBackdropTileFormats (2D810.c FmtPair {u16 fmt[2]}): copied whole into a local
+# (`FmtPair fmts = gBackdropTileFormats;`, one lw in the trace), then read as u16s.
+802FA8A0 4 w2
+#
+# gObjEffectDefLists (77E20.c obj_run_effect_queue): 28 pointers to per-kind debris lists
+# {u8 n; u8 defIndex[n]}, which follow the table without a symbol of their own;
+# the declared pointer array's extent ran over them and swapped them as words
+# (list n read as 0: divide by zero once debris spawns).
+803062E0 3C be
+#
+# Vertices only the RSP reads (G_VTX), which other typing rules had made u32
+# words (found by checking every display list's Vtx against the ROM bytes,
+# stage 4; the renderer reads host-order halfwords and N64-order colour bytes):
+# - D_802F97B0 (16 Vtx, 26570.c's list gYoshiWindowDl): undeclared;
+# - gBackdropVtx (2D810.c Vtx[2][4]): some words fell under another symbol's
+#   extent and became u32 words (z and flag exchanged);
+# - D_802FDD48 (8 Vtx): inside the extent of the display list gBlockModels,
+#   which is words.
+802F97B0 100 vtx
+802FA820 80 vtx
+802FDD48 80 vtx
+# - gBlastDomeSeg6 (39050.c declares it Gfx[]): 179 Vtx, segment 6 of the nuclear
+#   blast's dome list gBlastDomeDl (the first 8 are its bounding box).  As
+#   words the dome came out flat (z = 0): a red band across the screen when
+#   the carrier is hit.
+802FFF38 B30 vtx
+# - 802FDFD8 (8 Vtx) inside the extent of the display list gBlockModels and
+#   802FE640 (45 Vtx: 16 + 14 + 15) inside gShellTypes, both lists typed as
+#   words; found by scanning every G_VTX in the hd data image (gfx2 notes).
+802FDFD8 80 vtx
+802FE640 2D0 vtx

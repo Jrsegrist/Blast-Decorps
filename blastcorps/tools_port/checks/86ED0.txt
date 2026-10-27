@@ -1,0 +1,14 @@
+# 86ED0 (shared vehicle helper) port checks
+# veh_start_turbo: block in $gp (-> a0). Sound 0x55 unless the u64 next game mode gNextGameMode == 0x40;
+# speed(+0x76) = gCamTiltMax * 1.5 (v + (v >> 1), 16-bit store); gTurboPending = 0; mb_start(6, 0.25f, 100);
+# gTurboActive = 1. Mode hi word nonzero with lo 0x40 must still play (64-bit compare).
+veh_start_turbo: -n 300 --seed 0 --ret void --arg gp=sym:gBallistaState --sig snd_play=a0,a1,a2 --sig mb_start=a0,a1,a2 \
+    --mem gNextGameMode:4=words:0*3,1,0xFFFFFFFF --mem gNextGameMode+4=choice:0x40*3,0,0x41,0x1000 \
+    --mem gCamTiltMax:2=int:0:0xFFFF --mem gSfxBank=int --mem gTurboPending:1=bytes:1,0xFF --mem gTurboActive:1=bytes:0,2 \
+    --mem gBallistaState+0x76:2=rand
+veh_start_turbo: -n 200 --seed 1 --ret void --arg gp=sym:gSkyfallState --sig snd_play=a0,a1,a2 --sig mb_start=a0,a1,a2 \
+    --mem gNextGameMode:4=0 --mem gNextGameMode+4=choice:0x40,0 \
+    --mem gCamTiltMax:2=halves:0,1,2,3,0x5555,0x5556,0x7FFF,0x8000,0xAAAA,0xAAAB,0xFFFF,0xFFFE \
+    --mem gTurboPending:1=1 --mem gTurboActive:1=0 --mem gSkyfallState+0x76:2=rand
+veh_start_turbo: -n 100 --seed 2 --ret void --arg gp=sym:gStarskiState --sig snd_play=a0,a1,a2 --sig mb_start=a0,a1,a2 \
+    --mem gNextGameMode:8=rand --mem gCamTiltMax:2=int:0:0xFFFF --mem gStarskiState+0x76:2=rand

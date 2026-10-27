@@ -1,0 +1,4 @@
+# SHA-1 of the ROMs the top-level build makes (sha1sum --check format); the
+# baseroms have the same (README.md)
+185a6ef7ba1adb243278062c81a7d4e119bda58c  build/blastcorps.us.v10.z64
+483f7161aea39de8b45c9fbc70a2c3883c4dea8c  build/blastcorps.us.v11.z64

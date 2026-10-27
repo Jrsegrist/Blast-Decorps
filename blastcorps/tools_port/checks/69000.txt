@@ -1,0 +1,8 @@
+# 69000: arcsine lookup (math_asin, v1 -> fp) and its o32 wrapper math_asin_c
+math_asin: -n 300 --arg a0=int:0:0xFFFF
+# segment edges, the fine-table switch at 0xFFC0, out-of-range and "negative" inputs
+math_asin: -n 200 --seed 1 --arg a0=choice:0,1,0x3F,0x40,0x41,0xFFBF,0xFFC0,0xFFC1,0xFFFF,0x10000,0x7FFFFFFF,0x80000000,-1,0xFF80,0xFF7F
+math_asin: -n 200 --seed 2 --arg a0=int
+math_asin_c: -n 300 --arg a0=int:0:0xFFFF --sig math_asin=a0
+math_asin_c: -n 200 --seed 1 --follow math_asin --arg a0=choice:0,1,0x3F,0x40,0xFFBF,0xFFC0,0xFFFF,0x10000,-1,0x80000000
+math_asin_c: -n 200 --seed 2 --follow math_asin --arg a0=int:0:0xFFFF

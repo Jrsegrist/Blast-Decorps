@@ -1,0 +1,967 @@
+# Register conventions of hand-written asm functions that don't follow o32.
+# eqcheck.py reads this file for the function under test and for every stubbed
+# callee (see tools_port/README.md, "Non-ABI functions").  One line per function:
+#
+#   NAME: in REG=SLOT,.. ; out REG=DEST,.. ; preserve REG,.. ; clobbers REG,..
+#
+#   in REG=SLOT     the asm takes an input in REG; the C version takes it in SLOT:
+#                   a0-a3, stackN (the word at sp+0x10+4N), f12, f14, or
+#                   *SLOT[+OFF][:W] (read through a pointer argument, W = 1/2/4 bytes)
+#                   List every input, ABI ones too (a0=a0), in C argument order.
+#                   REG may be stackN for a stack argument the asm reads in place.
+#   out REG=DEST    the asm returns a value in REG; the C version delivers it as
+#                   ret (v0), fret (f0), another register, or *SLOT[+OFF][:W]
+#                   (written through a pointer argument; for a struct of outputs use
+#                   one pointer slot with offsets: out s1=*a2,t0=*a2+4)
+#   preserve REGS   registers the asm leaves unchanged that its asm callers rely on;
+#                   a stub of this function won't write them (only matters for the
+#                   default stub, which writes v0/v1/f0; a line with in/out makes the
+#                   stub write exactly its outputs when the caller is asm)
+#   clobbers REGS   callee-saved registers (s0-s7, fp, f20-f31) the asm changes
+#                   without documenting them as outputs; not compared when this
+#                   function is the one under test.  Outputs are excluded anyway.
+#
+# Ranges work in register lists (s0-s7).  A line with `in` or `out` is a full
+# convention: the stub of a callee then records its arguments by C slot and
+# returns its outputs on the caller's side (asm registers for an asm caller,
+# v0/f0/pointer slots for a C caller).  `python3 tools_port/draftconv.py NAME`
+# drafts a line from the asm survey.
+
+# --- 56040 ---
+# search the 0x60-byte records gCollTris..*gCollTrisEnd for unk4F == id with unk51 == 0
+veh_tris_all_solid_impl: in v0=a0 ; out v1=ret
+# rec[0x4F] == 7: set gTrainContact, count gTrainContactFrames up to 0xC9 (rec in s0; saves v0)
+veh_note_train_contact: in s0=a0 ; preserve v0,a0,a1,a2,a3,t3,t4,t5,t6,t8,f12,f14
+# find the 0x60-byte record with [0x4F] == t7 and [0x50] == t6, clear [0x51]; record in s0, last byte in s1
+veh_open_tri: in t6=a0,t7=a1 ; out s0=ret,s1=*a2 ; preserve a1,a2,a3,t0,t1,t2,t4,t5,t6,t7,f12,f14
+# byte 0x51 of the first 0x60-byte record with [0x50] == t4, in t5 (saves s0/s1)
+veh_tri_is_solid: in t4=a0 ; out t5=ret ; preserve t0,t3,t6,t7
+# s0[0x55] = (t2 != 7) (saves v0)
+veh_set_tri_two_sided: in t2=a0,s0=a1 ; preserve v0,a3,t2,t6,t7,f12,f14
+# queue a 64-byte copy s2 -> t5 in the gMtxCopyQueue pool (saves v0, v1, a0)
+anim_queue_mtx_copy: in t5=a0,s2=a1 ; preserve v0,v1,a0,a1,a2,a3,t2,t4,t7,f8,f12,f14
+# cancel queued copies whose dst is s2 (saves v0, v1, a0)
+anim_cancel_mtx_copies: in s2=a0 ; preserve v0,v1,a0,a1,a2,a3,t2,t4,t7,f8,f12,f14
+# copy 64 bytes s2 -> t5 (restores v0, v1, t5, s2)
+anim_copy_mtx: in t5=a0,s2=a1 ; preserve v0,v1,a0,a2
+# dst[0..9] = dst[-10..-1] (halfwords), t1 += 0x14 (saves v0)
+anim_repeat_pose: in t1=a0 ; out t1=ret ; preserve v0,a0,t0,t3,t8,f12,f14
+# AnimChannel field setters/getter: entry = base + v0 * 0x18 (all restore what they use)
+anim_play: in a0=a0,v0=a1,v1=a2 ; preserve v0,v1,a0,a1,a2,a3,t6,t7,f12,f14
+anim_stop: in v0=a0,v1=a1 ; preserve v0,v1,a0,a1,a2,a3,t6,t7,f12,f14
+anim_rewind: in v0=a0,v1=a1 ; preserve v0,v1,a0,a1,a2,a3,t7,f12,f14
+anim_set_frame: in f0=f12,a0=a1,v0=a2,v1=a3 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t6,t7,f2,f12,f14
+anim_set_speed: in a0=a0,v0=a1,v1=a2 ; preserve v0,v1,a0,a1,a2,a3,t6,t7,f12,f14
+anim_set_reverse: in a0=a0,v0=a1,v1=a2 ; preserve v0,v1,a0,a1,a2,a3,t6,t7,f12,f14
+anim_set_loop_mode: in a0=a0,v0=a1,v1=a2 ; preserve v0,v1,a0,a1,a2,a3,t6,t7,f12,f14
+anim_set_loops: in a0=a0,v0=a1,v1=a2 ; preserve v0,v1,a0,a1,a2,a3
+anim_set_interp: in f0=f12,a0=a1,v0=a2,v1=a3 ; preserve v0,v1,a0,a1,a2,a3,t6,t7,f12,f14
+anim_get_state: in v0=a0,v1=a1 ; out v1=*a2,a0=*a2+4,a1=*a2+8,a2=*a2+0xC,a3=*a2+0x10,t0=*a2+0x14,t1=*a2+0x18,f0=*a2+0x1C ; preserve v0,t2,t4,t6,t7,t8,t9,f12,f14
+# vehicle-state reset: a0-a3 as is, then v0, v1, t0, t1, t2, t3, t8 and the vehicle record gp (varies by caller)
+veh_collision_setup: in a0=a0,a1=a1,a2=a2,a3=a3,v0=stack0,v1=stack1,t0=stack2,t1=stack3,t2=stack4,t3=stack5,t8=stack6,gp=stack7 ; preserve v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t6,t7,t8,f12,f14
+# triangle s0's heading (0x4C) and facing flag (0x56) from its vertices; restores every register
+veh_tri_facing: in s0=a0 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9
+# hit on triangle s0 with id fp: buffer A, plane-side veh_clip_free_arc unless listed at gNonBlockingParts, then veh_spawn_impact_effect (saves v0-a3, t0)
+veh_hit_triangle: in s0=a0,fp=a1 ; preserve v0,v1,a0,a1,a2,a3,t0
+# sphere (t3,t4,t5) radius t6 vs record s0's sphere (words 0x10/14/18, 0xC, >> 2) via math_spheres_overlap -> v1
+veh_sphere_hits_object: in t3=a0,t4=a1,t5=a2,t6=a3,s0=stack0 ; out v1=ret ; preserve v0,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t8,t9,f12,f14
+# place parts (tag t0, record walk t1..t2, Mtx base s4) at (v0,v1,a0); mtx_chain_transform's a3/s1/s2 (in/out) and s0 pass through
+veh_place_parts: in v0=a0,v1=a1,a0=a2,t0=a3,t1=stack0,t2=stack1,s4=stack2,a3=*stack3+8,s1=*stack3+0xC,s2=*stack3+0x10,s0=*stack3+0x14 ; out a3=*stack3+8,s1=*stack3+0xC,s2=*stack3+0x10 ; preserve v0,v1,a0,a1,a2,t0,t2,t3,t4,t6,t7,f12,f14
+# crane_find_test_part lookup, then tnt_test_sphere/block_test_sphere(s0-s3) if found; found flag -> s4 (saves everything else)
+crane_check_part_hits: in s0=a0,s1=a1,s2=a2,s3=a3 ; out s4=ret ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,s0,s1,s2,s3,t8,t9,gp,f14
+# gNextVehicle = s1 unless gTrainClosed and veh_rides_on(s1, 7) (saves t4, t8; a2 changed)
+veh_request_switch: in s1=a0 ; preserve v0,v1,a0,a1,a3,t0,t1,t2,t3,t4,t5,t6,t7,t8,f12,f14
+# first of t5 triangles at s4 containing (t0,t1), then is a1 in the u16 range after the table -> t4 (0 = in range)
+veh_gate_area_test: in a1=a0,t0=a1,t1=a2,t5=a3,s4=stack0,s1=*stack1,s3=*stack1+4,f12=*stack1+8,f14=*stack1+0xC,f20=*stack1+0x10,f22=*stack1+0x14,f24=*stack1+0x18,f26=*stack1+0x1C ; out t4=ret,s1=*stack1,s3=*stack1+4,f12=*stack1+8,f14=*stack1+0xC,f20=*stack1+0x10,f22=*stack1+0x14,f24=*stack1+0x18,f26=*stack1+0x1C ; preserve v1,a0,a1,a2,a3,t0,t1,t2,t3,t6,t7 ; clobbers s6,s7,f28
+# spline translation / scale matrix at gAnimStepMtx from keyframes t5, t6, t7, s0 at f30; 0 if identity -> a3 (f8/f12 scratch)
+anim_spline_translate: in t5=a0,t6=a1,t7=a2,s0=a3,f30=stack0 ; out a3=ret ; preserve v0,v1,a0,a1,a2,t0,t1,t2,t3,t4,t5,t6,t7,s0,s2,s3,f14
+anim_spline_scale: in t5=a0,t6=a1,t7=a2,s0=a3,f30=stack0 ; out a3=ret ; preserve v0,v1,a0,a1,a2,t0,t1,t2,t3,t4,t5,t6,t7,s0,s2,s3,f14
+# spline rotation about x / y / z (key angle at 6 / 8 / 0xA) into gAnimStepMtx; 0 if the angle rounds to 0 -> a3 (f0-f8 scratch)
+anim_spline_rot_x: in t5=a0,t6=a1,t7=a2,s0=a3,f30=stack0 ; out a3=ret ; preserve v1,a0,t0,t1,t2,t3,t5,t6,t7,s0
+anim_spline_rot_y: in t5=a0,t6=a1,t7=a2,s0=a3,f30=stack0 ; out a3=ret ; preserve v1,a0,t0,t1,t2,t3,t5,t6,t7,s0
+anim_spline_rot_z: in t5=a0,t6=a1,t7=a2,s0=a3,f30=stack0 ; out a3=ret ; preserve v1,a0,t0,t1,t2,t3,t5,t6,t7,s0
+# spline pose of channel t4 from keyframes t5 into 9 halfwords at t1 -> t1 + 0x14 (f20 = 1.0, f30 = t; f12/f14 scratch)
+anim_spline_pose: in t1=a0,t4=a1,t5=a2 ; out t1=ret ; preserve v0,a0,a3,t0,t2,t3,t4,t5,t6,t7,t8,s0,s1,s6,s7,fp ; clobbers f20,f30
+# linear pose between keyframes t5 and t5+0x14 at f30 into 9 halfwords at t1 -> t1 + 0x14 (f12/f14 scratch)
+anim_lerp_pose: in t1=a0,t5=a1,f30=a2 ; out t1=ret ; preserve a0,a1,a2,a3,t0,t2,t3,t4,t5,t8
+# same setters/getter on the gTexAnims entry with id v0 (via anim_tex_find); value v1, float f0; v0 restored
+anim_tex_play: in v0=a0,v1=a1 ; preserve v0,v1,a0,a1,a2,a3,t6,t7,f12,f14
+anim_tex_stop: in v0=a0 ; preserve v0,v1,a0,a1,a2,a3,t6,t7,f12,f14
+anim_tex_rewind: in v0=a0 ; preserve v0,v1,a0,a1,a2,a3,t6,t7,f12,f14
+anim_tex_set_frame: in f0=f12,v0=a1,v1=a2 ; preserve v0,v1,a0,a1,a2,a3,t6,t7,f2,f12,f14
+anim_tex_set_speed: in v0=a0,v1=a1 ; preserve v0,v1,a0,a1,a2,a3,t6,t7,f12,f14
+anim_tex_set_reverse: in v0=a0,v1=a1 ; preserve v0,v1,a0,a1,a2,a3,t6,t7,f12,f14
+anim_tex_set_loop_mode: in v0=a0,v1=a1 ; preserve v0,v1,a0,a1,a2,a3,t6,t7,f12,f14
+anim_tex_set_loops: in v0=a0,v1=a1 ; preserve v0,v1,a0,a1,a2,a3,t6,t7,f12,f14
+anim_tex_get_state: in v0=a0 ; out v1=*a1,a0=*a1+4,a1=*a1+8,a2=*a1+0xC,a3=*a1+0x10,t0=*a1+0x14,t1=*a1+0x18,f0=*a1+0x1C ; preserve v0,t2,t4,t6,t7,t8,t9,f12,f14
+# gTexAnims entry whose id == v0 (unbounded scan), returned in v0 (saves v1, a0)
+anim_tex_find: in v0=a0 ; out v0=ret ; preserve v1,a0
+# sphere-vs-triangle cluster (tri in s0, sphere (t3,t4,t5) radius t6); see the 56040.c comment above math_sphere_hits_tri_edges
+# plane distance test -> v0, hit point -> v1, a0, a1 (a1 untouched on a miss); s1 saved, s2/s3 scratch
+math_sphere_tri_plane: in t3=a0,t4=a1,t5=a2,t6=a3,s0=stack0,a1=*stack1+8 ; out v0=ret,v1=*stack1,a0=*stack1+4,a1=*stack1+8 ; preserve t3,t4,t5,t6,a2,a3,t8,t9,f12,f14 ; clobbers s2,s3
+# project vertices + hit point (v1, a0, a1) to 2-D by tri byte 0x4E -> v0, v1, a0, a1, a2, a3, t0, t1
+math_tri_project_2d: in s0=a0,v1=a1,a0=a2,a1=a3 ; out v0=*stack0,v1=*stack0+4,a0=*stack0+8,a1=*stack0+0xC,a2=*stack0+0x10,a3=*stack0+0x14,t0=*stack0+0x18,t1=*stack0+0x1C ; preserve t3,t4,t5,t6,t8,t9
+# 2-D point (t0, t1) in triangle (v0,v1) (a0,a1) (a2,a3) -> t7; saves t3-t6
+math_point_in_tri_2d: in a0=a0,a1=a1,a2=a2,a3=a3,v0=stack0,v1=stack1,t0=stack2,t1=stack3 ; out t7=ret ; preserve a0,a1,a2,a3,t3,t4,t5,t6,t8,t9 ; clobbers f20,f22,f24,f26,f28
+# any triangle edge within t6 of (t3, t4, t5) -> t7; s2-s4 scratch
+math_sphere_hits_tri_edges: in t3=a0,t4=a1,t5=a2,t6=a3,s0=stack0 ; out t7=ret ; preserve t3,t4,t5,t6,t8,t9,f12,f14 ; clobbers s2,s3,s4
+# vertex 0 within t6 of (t3, t4, t5) -> t7
+math_sphere_hits_tri_vertex0: in t3=a0,t4=a1,t5=a2,t6=a3,s0=stack0 ; out t7=ret ; preserve t3,t4,t5,t6,t8,t9,f12,f14
+# cubic spline value at f30 from control values f0, f2, f4, f6 and the basis gAnimSplineBasis -> f8 (restores v0/v1)
+math_spline_eval: in f0=f12,f2=f14,f4=a2,f6=a3,f30=stack0 ; out f8=fret ; preserve v0,v1,a0,a1,a2,a3,t3,t4,t5,t6,t7,f14
+# t^2 / t^3 (t in f30) to gAnimSplineT2/3, control indices around frame t2 of t6 to gAnimSplineKeys; t^3 -> f8
+anim_spline_keys: in f30=f12,t2=a1,t6=a2 ; out f8=fret ; preserve v0,v1,a0,a1,a2,a3,t2,t3,t4,t5,t6,t7,f12,f14
+# cardinal-spline basis for tension *(f32 *)(t0+8) when fp == 1; f12/f14 written only then, f20 = 1.0
+anim_set_spline_basis: in t0=a0,fp=a1,f12=*a2,f14=*a2+4 ; out f12=*a2,f14=*a2+4,f20=*a2+8 ; preserve v0,a0,a1,a2,a3,t2,t3,t4,t5,t6,t7
+# advance animation channel t0 (frame t2 of t6, frac f30) by f6 * speed -> t2, t7 (dir), f30, f8 (speed); s0-s2 scratch
+anim_advance_channel: in f6=f12,f30=f14,t0=a2,t2=a3,t6=stack0 ; out f8=fret,t2=*stack1,t7=*stack1+4,f30=*stack1+8 ; preserve a0,a1,a2,a3,t0,t3,t6,f12,f14 ; clobbers s0,s1,s2
+# lerp (a0,a1,a2) -> (a3,t0,t1) by f30 into a translation matrix at gAnimStepMtx; 0 if the result is 0 -> a0 (saves s2)
+anim_lerp_translate: in a0=a0,a1=a1,a2=a2,a3=a3,t0=stack0,t1=stack1,f30=stack2 ; out a0=ret ; preserve t7,f8,f12,f14
+# rotation matrix about x / y / z at gAnimStepMtx by the angle lerp math_lerp_angle(a0, a1, f30); 0 if angle 0 -> a0 (fp = cosine left)
+anim_lerp_rot_x: in a0=a0,a1=a1,f30=a2 ; out a0=ret ; clobbers fp
+anim_lerp_rot_y: in a0=a0,a1=a1,f30=a2 ; out a0=ret ; clobbers fp
+anim_lerp_rot_z: in a0=a0,a1=a1,f30=a2 ; out a0=ret ; clobbers fp
+# shortest-way angle lerp a0 -> a1 by f30 -> t4
+math_lerp_angle: in a0=a0,a1=a1,f30=a2 ; out t4=ret ; preserve a0,a1,a2,a3,t1,t5,t7
+# lerp as anim_lerp_translate into a scale matrix at gAnimStepMtx; 0 if unit scale (0x100) -> a0 (saves s2)
+anim_lerp_scale: in a0=a0,a1=a1,a2=a2,a3=a3,t0=stack0,t1=stack1,f30=stack2 ; out a0=ret ; preserve a2,t7
+# model setup from header t1: 32 channel entries at t0, copy/identity-fill buffers a0 and v1; t7 = s0 = s1 = 0 after
+anim_init_model: in a0=a0,v1=a1,t0=a2,t1=a3 ; out t7=ret ; preserve a1,a2,a3,f12,f14 ; clobbers s0,s1
+# vehicle record gp: byte +0xA0 / timer +0x76 update; gp differs per caller (each vehicle passes its own block), so an argument
+veh_prepare_escape: in gp=a0 ; preserve a1,a3,t0,t1,t3,t6,f12,f14
+# t1 / gp[0xA0] (divu) unless s1 == 0xFF or the byte is 1 (saves v0); gp = the caller's vehicle record (argument)
+veh_scale_part_radius: in t1=a0,s1=a1,gp=a2 ; out t1=ret ; preserve v0,a0,a1,a2,a3,t0,t3,t4,t5,t6,t7,t8,f12,f14
+# same with the key in t4 (its 0xFF branch jumps into veh_scale_part_radius's epilogue)
+veh_scale_other_radius: in t1=a0,t4=a1,gp=a2 ; out t1=ret ; preserve v0,a0,a1,a2,a3,t0,t3,t4,t5,t6,t7,t8,f12,f14
+# heading (x1,z1) -> (x2,z2) via the arcsine, veh_clip_free_arc(angle +- 0x400); n -> veh_contacts_add (saves v0-a2, t0, t7, s0, fp; a3 changed)
+veh_block_toward_part: in fp=a0,t8=a1,s0=a2,v0=a3,a0=stack0,a2=stack1,t0=stack2 ; preserve v0,v1,a0,a1,a2,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9,f12,f14
+# grid cell of (t3, t5) -> gCollCells[0], gCollCells[1] = -1; s0/s1 scratch
+veh_grid_cells_at: in t3=a0,t5=a1 ; preserve a0,a1,a2,a3,t3,t4,t5,t6,t8,f12,f14 ; clobbers s0,s1
+# register parts (tag t0, record walk t1..t2, scale t3) in gVehBoundSpheres / gVehPartSpheres
+veh_register_parts: in t0=a0,t1=a1,t2=a2,t3=a3 ; preserve t6,t7,f12,f14
+# find the gVehPartSpheres entry of kind 6 / id 0x3BD: words 0/4/8 in s0-s2, found in s4 (s0-s3 pass through)
+crane_find_test_part: in s0=*a0,s1=*a0+4,s2=*a0+8,s3=*a0+0xC ; out s0=*a0,s1=*a0+4,s2=*a0+8,s3=*a0+0xC,s4=*a0+0x10,t6=*a0+0x14,t7=*a0+0x18 ; preserve a3,f12,f14
+# sphere overlap |(a2,a3,t0) - (v0,v1,a0)| < a1 + t1 -> t2 (restores a1-a3, t0)
+math_spheres_overlap: in a0=a0,a1=a1,a2=a2,a3=a3,v0=stack0,v1=stack1,t0=stack2,t1=stack3 ; out t2=ret ; preserve a0,a1,a2,a3,t0,t1,t3,t4,t5,t6,t7,t8,t9,f12,f14
+# mark records of group t2 (byte 0x51 = 1); s0-s2, s4, s5 scratch
+veh_enable_tris: in t2=a0 ; preserve a1,a2,a3,t0,t1,t2,f12,f14 ; clobbers s0,s1,s2,s4,s5
+# triangle plane (normal, d) of s0's vertices -> 64-bit a1, a2, a3, t0 (low words compared)
+math_tri_plane: in s0=a0 ; out a1=*a1+4,a2=*a1+0xC,a3=*a1+0x14,t0=*a1+0x1C ; preserve v0,v1,a0,f12,f14
+# 0 if any of t5 (index, value) byte pairs at s4 has (s8) a2[index].unk13 == value, else 1 -> t4
+veh_gate_anim_test: in t5=a0,s4=a1,a2=a2 ; out t4=ret ; preserve v0,v1,a1,a2,a3,t0,t1,t2,t6,t7,f12,f14
+# record G_SETTIMG uses of key s2's texture in display list s0..s1 at gTexAnimPatchesEnd (restores all)
+anim_tex_find_patches: in s0=a0,s1=a1,s2=a2 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,f12,f14
+# find the gTexAnimBlocks block with (word 0, u16 4) == (t3, t6) and byte 6 set; clear byte 7; phys addr of data -> s1
+anim_tex_find_block: in t3=a0,t6=a1 ; out s1=ret ; preserve t0,t3,t6,f12,f14
+# texture animation step of channel t0 (load param fp): block use counts, anim_advance_channel, patch DL words (restores t0)
+anim_tex_step: in t0=a0,fp=a1 ; preserve t0 ; clobbers s0,s1,s2,s3,s4,s5,s6,f30
+# take the first free gTexAnimBlocks block for (t3, t6), load entry t6 into it (param fp) -> phys data address in s1
+anim_tex_load_block: in t3=a0,t6=a1,fp=a2 ; out s1=ret ; preserve v0,v1,a3,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9
+# two-pose animation tracks from channels v0, v1 of table a0 (poses via anim_spline_pose / anim_lerp_pose [/ anim_repeat_pose])
+anim_blend_channels: in v0=a0,v1=a1,a0=a2 ; preserve a0,a2,a3,t0,t1,t2,t3,t4,t7,t8 ; clobbers f20,f30
+anim_merge_poses: in v0=a0,v1=a1,a0=a2 ; preserve a0,a2,a3,t0,t1,t2,t3,t4,t7,t8 ; clobbers f20,f30
+# sphere (t3, t4, t5) radius t6 vs the world for vehicle kind t8 -> a1 (s3, f20-f28 left as the triangle tests leave them)
+veh_sphere_hits_world: in t3=a0,t4=a1,t5=a2,t6=a3,t8=stack0 ; out a1=ret ; preserve v1,t0,t1,t3,t6,t7,t8,t9 ; clobbers s3,f20,f22,f24,f26,f28
+# phase D (wt-g1): part/sphere contacts of vehicle tag t8 (t4 = the other object's tag; a2,a3,t0,t1 = a sphere);
+# s0, s1, fp, t7 are left as the scans leave them (dead in every asm caller)
+veh_parts_touch_sphere: in t8=a0,a2=a1,a3=a2,t0=a3,t1=stack0 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t3,t5,t8,f12,f14 ; clobbers s0,s1,fp
+veh_collide_commpts: in t8=a0 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t8,f12,f14 ; clobbers s0,s1,fp
+veh_collide_markers: in t8=a0 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t8,f12,f14 ; clobbers s0,s1,fp
+# (gpfix) gp = the calling vehicle's record (differs per caller: gSideswipeState, gBacklashState, gBallistaState, ...), an argument;
+# the chain passes it down to veh_scale_other_radius / veh_scale_part_radius, which read its byte +0xA0
+veh_collide_vehicle_parts: in t8=a0,t4=a1,gp=a2 ; preserve v0,v1,a0,a1,a2,a3,t0,t4,t6,t7,t8,s0,s1,f12,f14 ; clobbers fp
+veh_collide_vehicles: in t8=a0,gp=a1 ; preserve v0,v1,a0,a2,a3,t0,t1,t2,t3,t4,t5,t8,f12,f14 ; clobbers fp
+veh_collide_spheres: in t8=a0,gp=a1 ; preserve v0,v1,a0,a2,a3,t0,t1,t2,t3,t4,t5,t8,f12,f14 ; clobbers s0,s1,fp
+# world-hit reporting: switch triangle s0 (kind t8, part id fp) -> a1; sphere t3-t6 of kind t8, part id fp; vehicle kind t8
+veh_hit_switch_triangle: in s0=a0,t8=a1,fp=a2 ; out a1=ret ; preserve v0,v1,a0,a2,a3,t0,t3,t4,t5,t6,t8
+veh_report_world_hits: in t3=a0,t4=a1,t5=a2,t6=a3,t8=stack0,fp=stack1 ; preserve v1,t0,t1,t3,t6,t7,t8,t9 ; clobbers s3,f20,f22,f24,f26,f28
+# (fp = the part count on a world hit, else unchanged: veh_collide_world_fp in C, read only by driver_check_exit_point's caller)
+veh_collide_world: in t8=a0 ; preserve v1,t0,t1,t3,t6,t7,t9 ; clobbers s3,fp,f20,f22,f24,f26,f28
+# collision triangles of object t2 from model t6 (Mtx base s4); then group conditions (val a1, tbl a2, x t0, z t1)
+veh_build_tris: in t2=a0,t6=a1,s4=a2 ; preserve v1,a0,a1,a2,t0,t1,t2,t3,t6 ; clobbers s0,s1,s2,s3,s5,s6,s7,fp
+veh_update_tris: in a1=a0,a2=a1,t0=a2,t1=a3,t2=stack0,t6=stack1,s4=stack2 ; preserve t0,t2 ; clobbers s0-s7,fp,f20,f22,f24,f26,f28
+# animation drivers: texture channels (decode param fp); model channels v0/v1 buffers, t0 channels; one channel t0 at
+# base v0; spline (rec s1) / linear (keyframe s3) part transforms into s2 at f30
+anim_tex_update_all: in fp=a0
+anim_update_model: in v0=a0,v1=a1,t0=a2 ; clobbers s0-s5,fp,f20,f30
+anim_update_channel: in t0=a0,v0=a1 ; preserve t0,t1 ; clobbers s0-s7,fp,f20,f30
+anim_apply_spline_key: in s1=a0,s2=a1,f30=a2 ; preserve v0,a0,a3,t2,t4,t5,t6,t7,s0,s1
+anim_apply_linear_key: in s2=a0,s3=a1,f30=a2 ; preserve t2,t4,t5,t6,t7
+
+# --- 5BF40 ---
+# one-time DMA of the 0x8000-byte table at ROM 0x4CE0; saves every register
+tex_load_table: preserve v0,v1,t0,t6,t9
+# DMA texture/palette entry t6 of that table into the 0x100-byte buffer s1 (blocking / queued)
+tex_load_palette_impl: in t6=a0,s1=a1
+tex_queue_palette: in t6=a0,s1=a1 ; preserve a3,t6
+# G_SETTIMG ids in display list s0..s1 -> cached/loaded physical addresses; &gTexCacheEnd, new cursor, last pair -> s2, s3, s4
+tex_resolve_dl_impl: in s0=a0,s1=a1,s4=*a2+8 ; out s2=*a2,s3=*a2+4,s4=*a2+8 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9,s1,s7,gp,fp ; clobbers s0,s5,s6
+# load table entry t6 at the heap with decode param fp (uncached / cached -> phys address in s0)
+tex_load_to_heap_impl: in t6=a0,fp=a1 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9,gp,fp
+tex_get_impl: in t6=a0,fp=a1 ; out s0=ret ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9,gp,fp
+# queued load of entry t6 into s1 (OSIoMesg slot nextdma++), decode request (s1, size, type, fp) via tex_queue_decode
+tex_queue_load_impl: in t6=a0,s1=a1,fp=a2 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9,s1,s2,s3,s4,gp,fp
+# C-callable wrapper of tex_resolve_dl_impl (a0, a1 -> s0, s1); leaves tex_resolve_dl_impl's s2-s4 outputs and s5/s6 scratch
+tex_resolve_dl: in a0=a0,a1=a1 ; clobbers s2,s3,s4,s5,s6
+
+# --- 5CB60 ---
+# store v0/v1/a0/gp[0x9B] into the gVehicles record with id a1; gp is the caller's object
+veh_set_record: in a0=a0,a1=a1,v0=a2,v1=a3,gp=stack0 ; preserve v0,v1,a0,a1,a2,a3,t0,t6,f12,f14
+# register-saving wrapper of mb_copy_dl(t2, t3, t4)
+veh_copy_dl: in t2=a0,t3=a1,t4=a2
+# append a gVehicles record for model header s2 (a0, a1 flag, v0, v1), copy its display list to the heap (saves t0-t6)
+veh_add_record: in a0=a0,a1=a1,v0=a2,v1=a3,s2=stack0 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,s2,f12,f14
+# collision records from level object t0 (id v0, kind t9, s1 threaded through lvl_build_coll_tri); gp set to 0/1, s2-s7 scratch
+lvl_build_coll_grid_a: in t0=a0,v0=a1,t9=a2,s1=*a3 ; out t6=ret,s1=*a3 ; preserve v0,t0,t9,f12,f14 ; clobbers s2-s7,gp
+lvl_build_coll_grid_b: in t0=a0,v0=a1,t9=a2,s1=*a3 ; out t6=ret,s1=*a3 ; preserve v0,t0,t9,f12,f14 ; clobbers s2-s7,gp
+lvl_build_switch_groups: in t0=a0,v0=a1,t9=a2,s1=*a3 ; out s1=*a3 ; preserve v0,t0,t9,f12,f14 ; clobbers s2-s7,gp
+lvl_build_object_groups: in t0=a0,s1=*a1 ; out fp=ret,s1=*a1 ; preserve t0,f12,f14 ; clobbers s0,s2-s7,gp
+# level object in t0 (s0, s2, s3 left as scratch; s1 counts the items down: 0 out when the count word is non-zero,
+# and it reaches coll_add_dyn_tris via initlevel / block_spawn_all)
+lvl_build_part_tris: in t0=a0,s1=*a1 ; out s1=*a1 ; preserve t0,f12,f14 ; clobbers s0,s2,s3
+lvl_relocate_dls: in t0=a0 ; preserve t0,t6,t9,f12,f14
+lvl_tint_path_building_red: in t4=a0,s0=a1 ; preserve v0,v1,a0,a2,a3,t1,t2,t3,t4,t5,t6,t7,f12,f14
+lvl_end_seq_set_toughness: in t3=a0,s0=a1 ; preserve v0,v1,a2,a3,t1,t2,t3,f12,f14
+lvl_remap_break_fx_kinds: in v1=a0 ; preserve a0,a1,a2,a3,t0,t4,t9,f12,f14
+lvl_object_centre: in v1=a0,t4=a1 ; preserve a0,a1,a2,a3,t3,t4,t5,t6,t7,t9,f12,f14
+lvl_translate_object: in t4=a0,t5=a1,t6=a2,t7=a3 ; preserve v0,v1,a0,a2,a3,t1,t2,t3,t4,t5,t6,t7,f12,f14
+# DMA ROM 0x6EC4C0 into 0x800 heap bytes; leaves the buffer in s0 (not read by the caller)
+lvl_load_object_table: preserve t0 ; clobbers s0
+# 0xBA-0xBC records: gObjShadowTex = tex_get_impl(0xF81, fp), word 0x44 = coll_ground_height height (restores all integer regs)
+lvl_init_object_shadow: in v1=a0,fp=a1 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9 ; clobbers f20,f22,f24,f26,f28
+# DMA + decompress packed object t3 to the heap gHeapPtr; old heap -> s0 (saves t0-t6, s1)
+lvl_load_object: in t3=a0 ; out s0=ret ; preserve t0,t1,t2,t3,t4,t5,t6 ; clobbers s2,s7
+# packed block of type t3 from ROM, DL ids resolved (tex_resolve_dl_impl s4 = ROM start): data -> s2, s3/s4 (+ a1 = heap end)
+lvl_load_model_plain: in t3=a0 ; out s2=*a1,s3=*a1+4,s4=*a1+8 ; preserve t0,t1,t2,t3,t4,t5,t6,t7 ; clobbers s5,s6,s7
+lvl_load_model: in t3=a0 ; out s2=*a1,s4=*a1+4,a1=*a1+8 ; preserve t0,t1,t2,t3,t4,t5,t6,t7 ; clobbers s5,s6,s7
+lvl_read_alpha_zones: in t0=a0 ; preserve t0,f12,f14
+lvl_read_header: in t0=a0 ; preserve t0,t6,t9,f12,f14
+lvl_find_start_vehicle: in t0=a0 ; preserve a1,a2,a3,t0,f12,f14
+# (disp) level-setup dispatchers: obj in t0; fp = the previous object's leftover ground byte, in (and out of the spawn loop)
+lvl_spawn_vehicles: in t0=a0,fp=a1 ; out fp=ret ; preserve t0 ; clobbers s0-s7,gp,f20,f22,f24,f26,f28,f30
+lvl_spawn_carrier: in t0=a0,fp=a1 ; preserve t0 ; clobbers s0-s7,fp,gp,f20,f22,f24,f26,f28,f30
+lvl_spawn_shuttle: preserve t0 ; clobbers s0-s7,fp,gp,f20,f22,f24,f26,f28,f30
+lvl_spawn_chopper: in t0=a0 ; preserve t0 ; clobbers s0-s7,fp,gp,f20,f22,f24,f26,f28,f30
+# any record in [gCollTris, fp) with byte 0x50 == v0 -> t5
+lvl_has_tri_id: in v0=a0,fp=a1 ; out t5=ret ; preserve t1,t2,t3,t4,t6,t7,t9
+# collision triangle setup; t4 advanced by 0x60; s1 in (byte 0x58) and out (P0.x - P2.x)
+lvl_build_coll_tri: in t4=a0,t5=a1,v0=a2,t2=a3,t6=stack0,t7=stack1,s1=*stack2,t9=stack3,gp=stack4 ; out t4=ret,s1=*stack2 ; preserve v1,t0,t1,t2,t3,t5,t6,t7,t9,f12,f14 ; clobbers s2-s7
+lvl_build_ground_grid: in t0=a0 ; preserve t0,f12,f14
+# heap rounding: result in v0 and a1 (asm callers read a1)
+lvl_align_end: in a1=a0 ; out a1=ret ; preserve a2,a3,f12,f14
+# texture ids -> physical addresses (tex_get_impl, param fp) in level object t0's / t4's records; 1C20 sets s1 = 0x80000000 per record
+lvl_resolve_tex_ids: in t0=a0,fp=a1,s1=*a2 ; out s1=*a2 ; preserve v0,v1,a0,a1,a2,a3,t0,t3,t7,t8,t9 ; clobbers s0
+lvl_resolve_object_tex: in t4=a0,fp=a1,s1=*a2 ; out s1=*a2 ; preserve v0,v1,a0,a1,a2,a3,t0,t3,t4,t5,t6,t7,t8,t9
+# G_SETTIMG ids in level object t0's display list via tex_resolve_dl_impl; list end -> s1 (s4 passes through)
+lvl_resolve_dl_textures: in t0=a0 ; out s1=ret ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9 ; clobbers s0,s2,s3,s4,s5,s6
+# phase D (wt-g3): packed object 0x98 vertices moved by gAcademyMarkerX/Y/Z (saves t0; lvl_load_model's s2/s4 left)
+lvl_load_scientist: preserve t0 ; clobbers s2,s4,s5,s6,s7
+# packed object gGhostModelType (lvl_load_model_plain: s2-s4 out when loaded), its matrices to the heap, ghost_make_translucent_dl
+lvl_load_ghost_model: in s2=*a0,s3=*a0+4,s4=*a0+8 ; out s2=*a0,s3=*a0+4,s4=*a0+8 ; preserve t0 ; clobbers s0,s5,s6,s7
+# placed object setup: type t3, data t4, x/y/z t5-t7, flag s0, tag t9, param fp; record from gObjectsEnd, triangles at the heap
+lvl_add_object: in t3=a0,t4=a1,t5=a2,t6=a3,t7=stack0,s0=stack1,t9=stack2,fp=stack3,s1=*stack4 ; out s1=*stack4 ; preserve t0,t1,t2 ; clobbers s0,s2-s7,gp,f20,f22,f24,f26,f28
+# level objects from level object t0's placement list (param fp); list end -> t1 (= t2)
+lvl_spawn_objects: in t0=a0,fp=a1,s1=*a2 ; out t1=ret,s1=*a2 ; preserve t0 ; clobbers s0,s2-s7,gp,f20,f22,f24,f26,f28
+
+# --- 5FD50 ---
+# min of the first / max of the second s16 over an h x w block of a grid of s16 pairs
+cull_grid_height_range: in s0=a0,s1=a1,s2=a2,s3=a3,s4=stack0,s6=stack1 ; out v1=ret,a0=*stack2 ; preserve a1,a2,a3,t3,t8,f12,f14
+# 8-vertex box at a2: x = s0*s7..(s0+s2)*s7, z = s1*t8..(s1+s3)*t8, y = v1..a0
+cull_box_corners: in a2=a0,s0=a1,s1=a2,s2=a3,s3=stack0,s7=stack1,t8=stack2,v1=stack3,a0=stack4 ; preserve a1,a2,a3,t3,f12,f14
+# submit the gfx task; t6 = 1 unless the RDP output starts with 0xE8000000
+cull_rsp_test: in a1=a0,a2=a1,a3=a2 ; out t6=ret ; preserve t3
+# grid block visibility test: cursors t3 (quads) and s5 (cells) in-out; block x/z/w/h/stride s0-s4,
+# grid s6, scales s7/t8, task data a1/a2/a3
+cull_test_cells: in t3=*a0,s5=*a0+4,a1=a1,a2=a2,a3=a3,s0=stack0,s1=stack1,s2=stack2,s3=stack3,s4=stack4,s6=stack5,s7=stack6,t8=stack7 ; out t3=*a0,s5=*a0+4 ; preserve a0,a1,a2,a3,t0,t1,t2,t8
+# copy (and patch) the display lists of the records [t8, t9) that pass the gVisibleCells / gCullDlGroupIds..v1
+# filters from base a0 to a1 (returned advanced); gp left changed
+lvl_copy_visible_groups: in a0=a0,a1=a1,v1=a2,t8=a3,t9=stack0 ; out a1=ret ; clobbers gp
+# look up animation record t4 in the object's list; gp = 1 if a texture patch is set up
+lvl_find_tex_anim: in a0=a0,t4=a1 ; out gp=ret ; preserve a0,a1,a2,a3,t0,t1,t3,t4,t8,t9
+# copy a display list to a1 (returned advanced), patching it if gp
+lvl_copy_dl_tex_anim: in a0=a0,a1=a1,t5=a2,t6=a3,gp=stack0 ; out a1=ret ; preserve a0,a2,a3,t4,t7,t8,t9 ; clobbers gp
+# grid visibility step (lvl a0, task data a1-a3): quad stack gCullQuadTop, cell lists; s0-s7 left changed
+cull_walk_grid: in a0=a0,a1=a1,a2=a2,a3=a3 ; clobbers s0-s7
+# visible-part display list: lvl a0, dl a1 (-> a1), records [a2, a3), groups [t8, t9); saves t0-t2
+lvl_build_visible_dl: in a0=a0,a1=a1,a2=a2,a3=a3,t8=stack0,t9=stack1 ; out a1=ret ; preserve a0,t0,t1,t2,t8,t9 ; clobbers s0,s1,s2,gp
+
+# --- 60F60 ---
+# tex_decode_next reuses a0 (the record) and v1 (&gTexDecodeQueueHead) after the call;
+# tex_resolve_dl_impl / tex_get_impl keep f12, f14
+tex_decode: preserve a0,v1,f12,f14
+# texture buffer for record t4 (heap block / new block / t3 + (*a0 << 12)); next id from t9 loaded (param fp) -> s1, t9
+fx_get_texture: in t4=a0,a0=a1,t3=a2,t9=*a3,fp=stack0 ; out s1=ret,t9=*a3 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t7,t8
+
+# append four words at the gTexDecodeQueueTail cursor
+tex_queue_decode: in s1=a0,s2=a1,s3=a2,fp=a3 ; preserve v0,v1,f12,f14
+
+# tex_decode's decoders: src a0, size a1, dst a3 (advanced dst returned in a3), table t4
+tex_decode_type6: in a0=a0,a1=a1,a3=a2 ; out a3=ret
+tex_decode_type3: in a0=a0,a1=a1,a3=a2 ; out a3=ret
+tex_decode_type1: in a0=a0,a1=a1,a3=a2 ; out a3=ret
+tex_decode_type2: in a0=a0,a1=a1,a3=a2 ; out a3=ret
+tex_decode_type4: in a0=a0,a1=a1,a3=a2,t4=a3 ; out a3=ret
+tex_decode_type5: in a0=a0,a1=a1,a3=a2,t4=a3 ; out a3=ret
+tex_decode_type0: in a0=a0,a1=a1,a3=a2 ; out a3=ret
+
+# number of active gEffects records
+fx_count_active: out t0=ret ; preserve a0,a1,a2,a3,t6,t7,f12,f14
+
+# fill a 4-vertex quad: w v1, Vtx* t1, colour bytes t7, x s2, y s3, h s5
+fx_fill_quad: in v1=a0,t1=a1,t7=a2,s2=a3,s3=stack0,s5=stack1 ; preserve a0,a1,a2,a3,t0,t1,t3,t4,t5,t7,t8,t9,f12,f14
+
+# t2 = obj(t4)[0x3B] ? &gFxDlCursorB : &gFxDlCursorA
+fx_get_dl_cursor: in t4=a0 ; out t2=ret ; preserve a0,a1,a2,a3,t0,t1,t3,t4,t5,t8,f12,f14
+
+# set up a gEffects record (def t0, data t1, type t2, fields t3-t7, s0-s5, tag a3) -> t0 = 1/0;
+# a3 (last map byte scanned), t6 ((s16) def[0]) and s1 (record buffer) are also outputs
+fx_spawn: in a3=*a0,t6=*a0+4,s1=*a0+8,t0=a1,t1=a2,t2=a3,t3=stack0,t4=stack1,t5=stack2,t7=stack3,s0=stack4,s2=stack5,s3=stack6,s4=stack7,s5=stack8 ; out t0=ret,a3=*a0,t6=*a0+4,s1=*a0+8 ; preserve v0,v1,a0,a1,a2,t7
+
+# textured quad into obj (t4)'s cursor: gfx_draw_textured_quad(*cur, t1, s1, t8, v1, s5, gp); s0 scratch
+fx_draw_quad: in t4=a0,t1=a1,s1=a2,t8=a3,v1=stack0,s5=stack1,gp=stack2 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t3,t4,t5,t6,t7,t8,t9,f12,f14 ; clobbers s0
+
+# phase D (wt-g2): billboard matrix m (t0) for gEffects record t4; saves every integer register
+fx_build_matrix: in t0=a0,t4=a1 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9
+
+# --- 62740 ---
+# gp = the current vehicle's record (gSideswipeState, gThunderfistState, ...: differs per caller, so it is an
+# argument here, not a global base); the C takes it as `u8 *veh`
+veh_widen_bands: in gp=a0 ; preserve v0,v1,a0,f12,f14
+veh_hit_slowdown: in gp=a0,a1=a1 ; preserve v1,a0,a2,a3,t6,f12,f14
+veh_set_target_heading: in gp=a0,t7=a1 ; preserve v0,v1,a0,a1,a2,a3,t6,f12
+veh_reverse_if_behind: in gp=a0 ; preserve v0,v1,a0,a1,a3,t6,f12,f14
+# heading step: v1 = stepped heading (left alone when heading == target), a0 = target
+veh_step_heading: in gp=a0,a1=a1,v1=a2 ; out v1=ret,a0=*a3 ; preserve a3,t6,f12,f14
+veh_reset_state: in gp=a0 ; preserve a1,a3,t0,t1,t6,t7,f12,f14
+# vehicle save/restore through gVehSnapshot; 768C also copies t0 bytes a2 -> a3 and returns them advanced
+veh_snapshot: in gp=a0,v0=a1,v1=a2,a0=a3,a1=stack0 ; preserve v0,a0,a1,a2,a3,t0,t2,t3,t6,t7,f12,f14
+veh_rollback: in gp=a0,v0=a1,v1=a2,a0=a3,a1=stack0,a2=stack1,a3=stack2,t0=stack3 ; out a2=ret,a3=*stack4 ; preserve v0,a0,a1,t0,t1,t2,t3,f12,f14
+veh_coast: in gp=a0 ; preserve a0,a1,a2,a3,t6
+veh_past_reverse_limit: in t2=a0,s1=a1 ; out t4=ret ; preserve v0,v1,a0,t2,t3,t6
+veh_past_forward_limit: in t2=a0,s1=a1 ; out t4=ret ; preserve v0,v1,a0,t2,t3,t6
+veh_band_accel: in gp=a0,t2=a1,s1=a2 ; out t4=ret ; preserve t1,t2,t3,t6 ; clobbers s1
+veh_near_top_speed: in gp=a0,v1=a1 ; out v0=ret ; preserve v1,a1,a2,a3,f12,f14
+veh_drive_traction: in t7=a0,s0=a1 ; out t3=ret ; preserve t1,t6
+veh_steer: in s3=a0,s4=a1 ; preserve a0,a1,a2,a3,t6,t7 ; clobbers s3
+# t5 = matching gBlockedTurnRates value, left alone when none
+veh_blocked_turn_rate: in t5=a0 ; out t5=ret ; preserve v0,v1,a0,a1,a2,a3,t1,t6
+veh_slope: in t6=a0,s0=a1,s7=a2,t8=a3 ; out f12=fret ; preserve a0,a1,a2,a3,t6
+veh_slope_drop: in s7=a0 ; out t1=ret ; preserve t6,t7,f2
+veh_diamond_sands_damping: in gp=a0 ; preserve a1,a2,a3,t0,t1,t7,t8,t9,f12,f14
+# (wt-g3) touches only v0/at/f0/f2; veh_ground_contact keeps v1 (its tbl) live across it
+veh_rider_gravity: preserve v1,a1,a2,a3,t0,t1,t7,t8,t9,f12,f14
+veh_copy_slot0: in gp=a0 ; preserve v0,t0,t1,t7,t8,t9,f12,f14
+veh_check_no_wheels: in v1=a0 ; preserve v0,a1,a2,a3,t0,t1,t7,t8,t9,f12,f14
+veh_ground_surface: in gp=a0,s0=a1,t8=a2 ; preserve a0,a2,a3,t7,t8,f12,f14
+veh_clamp_climb: in s3=a0 ; out s3=ret ; preserve a1,a2,a3,t0,t1,t2,t8,t9,f12,f14
+ground_cache_tri: in v0=a0,t8=a1 ; preserve v1,a0,a1,a2,a3,t3,f12,f14
+# plane height over (t0,t1) of triangle (s1,s2,s3) (s4,s5,s6) (s7,t8,t9) -> v0; also leaves a3, t6
+ground_tri_height: in t0=a0,t1=a1,s1=a2,s2=a3,s3=stack0,s4=stack1,s5=stack2,s6=stack3,s7=stack4,t8=stack5,t9=stack6 ; out v0=ret,a3=*stack7,t6=*stack8 ; preserve v1,a0,a1,a2,t0,t1,t2,t3,t7,f12,f14
+# point (t0,t1) inside triangle (s1,s3) (s4,s6) (s7,t9) -> v0; FP side results through one struct (f24 in/out)
+ground_tri_contains: in t0=a0,t1=a1,s1=a2,s3=a3,s4=stack0,s6=stack1,s7=stack2,t9=stack3,f24=*stack4+16 ; out v0=ret,f12=*stack4,f14=*stack4+4,f20=*stack4+8,f22=*stack4+12,f24=*stack4+16,f26=*stack4+20 ; preserve v1,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9 ; clobbers f28
+# Mtx chain (a1 matrices at s4 + a2[i]) then transform (v0,v1,a0); count 0 returns s0/s1/s2 >> 11
+mtx_chain_transform: in a1=a0,a2=a1,s4=a2,v0=a3,v1=stack0,a0=stack1,a3=*stack2+8,s1=*stack2+12,s2=*stack2+16,s0=*stack2+20 ; out v0=ret,v1=*stack2,a0=*stack2+4,a3=*stack2+8,s1=*stack2+12,s2=*stack2+16 ; preserve a1,a2,t0,t1,t2,t3,t4,t5,t6,t7,f12,f14
+# point-in-bounding-box of a triangle: point (t0,t1), corners (s1,s3) (s4,s6) (s7,t9)
+ground_tri_box_contains: in t0=a0,t1=a1,s1=a2,s3=a3,s4=stack0,s6=stack1,s7=stack2,t9=stack3 ; out v0=ret ; preserve a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9,f12,f14
+mtx_copy_at: in t0=a0,t1=a1,t2=a2 ; preserve a1,a2,a3,t0,t1,t3,t4,f12,f14
+# line-intersection steps for ground_tri_interp: results in f10 (fret) and f20 (*stack3)
+ground_interp_dx0_zero: in t0=a0,s7=a1,v1=a2,a1=a3,t9=stack0,t1=stack1,a0=stack2 ; out f10=fret,f20=*stack3 ; preserve v0,v1,a0,a1,t0,t1,t3,t4,t5,t6,t7
+ground_interp_dx12_zero: in s7=a0,t0=a1,v0=a2,a0=a3,t1=stack0,t9=stack1,a1=stack2 ; out f10=fret,f20=*stack3 ; preserve v0,v1,a0,a1,t0,t1,t3,t4,t5,t6,t7
+ground_interp_dz0_zero: in t1=a0,t9=a1,a1=a2,v1=a3,s7=stack0,t0=stack1,v0=stack2 ; out f10=fret,f20=*stack3 ; preserve v0,v1,a0,a1,t0,t1,t3,t4,t5,t6,t7
+ground_interp_dz12_zero: in t9=a0,t1=a1,a0=a2,v0=a3,t0=stack0,s7=stack1,v1=stack2 ; out f10=fret,f20=*stack3 ; preserve v0,v1,a0,a1,t0,t1,t3,t4,t5,t6,t7
+veh_rides_on: in t4=a0,t8=a1 ; out a2=ret ; preserve a0,a1,a3,t0,t1,t2,t3,t4,t5,t6,t7,t8,f12,f14
+# gVehPoints record lookup: a0 = (first record with id v0) + (v1-1)*0x10, v1 = (v1-1)*0x10
+veh_find_point: in v0=a0,v1=a1 ; out v1=ret,a0=*a2 ; preserve a1,a2,a3,t0,t3,t6,t7,f12,f14
+# rounded 3-D distance between (t3,t4,t5) and (t6,t7,s0); 64-bit squares, cvt.d.l/sqrt.d/cvt.l.d
+math_dist3: in t3=a0,t4=a1,t5=a2,t6=a3,t7=stack0,s0=stack1 ; out s1=ret ; preserve t6,t7,s0 ; clobbers s1
+# phase D (wt-d2): vehicle steering/speed steps
+veh_turn_into_free_arc: in gp=a0,a0=a1,a1=a2,f0=stack0 ; out a1=ret,a0=*a3 ; preserve v0,v1,a2,a3,t0,t1,t2,t6,f12,f14
+veh_throttle: in gp=a0,t6=a1,t7=a2,s0=a3,s1=stack0,s2=stack1 ; preserve a0,a1,a2,a3,t6 ; clobbers s1
+veh_throttle_lr: in gp=a0,t6=a1,s1=a2,s2=a3 ; clobbers s1
+veh_turn_heading: in gp=a0,t1=a1,t5=a2,t6=a3,s4=stack0,s5=stack1,s6=stack2,s7=stack3 ; preserve a0,a1,a2,a3,t6
+veh_apply_slope: in gp=a0,t6=a1,t7=a2,s0=a3,s7=stack0,t8=stack1,f2=stack2 ; preserve a0,a1,a2,a3,t6,f12
+veh_ground_tilt: out a1=ret,a3=*a0 ; preserve v0,v1,a2,t2,t3,t7,t8,f12,f14
+veh_slot_launch: in v0=a0,a1=a1,a2=a2,a3=a3,t2=stack0,s3=stack1 ; out s3=ret ; preserve a1,a2,a3,t8,t9,f12,f14 ; clobbers s0
+# triangle scans (ground_tri_box_contains/AA460/AA2E4 per triangle): best height, FP side results (TriSideOut) in/out
+ground_scan_part_tris: in t0=a0,t1=a1,t2=a2,f12=*a3,f14=*a3+4,f20=*a3+8,f22=*a3+12,f24=*a3+16,f26=*a3+20,fp=*stack0 ; out t3=ret,fp=*stack0,f12=*a3,f14=*a3+4,f20=*a3+8,f22=*a3+12,f24=*a3+16,f26=*a3+20 ; preserve v0,v1,a0,a1,a3,t0,t1,t2,t4,t5,t7,t8,t9 ; clobbers f28
+ground_scan_moveable: in t0=a0,t1=a1,t2=a2,t8=a3,f12=*stack0,f14=*stack0+4,f20=*stack0+8,f22=*stack0+12,f24=*stack0+16,f26=*stack0+20 ; out t3=ret,t6=*stack1,a2=*stack2,f12=*stack0,f14=*stack0+4,f20=*stack0+8,f22=*stack0+12,f24=*stack0+16,f26=*stack0+20 ; preserve v0,v1,a0,a1,a3,t0,t1,t2,t4,t5,t7,t8,t9 ; clobbers f28
+ground_scan_grid: in t0=a0,t1=a1,t2=a2,f12=*a3,f14=*a3+4,f20=*a3+8,f22=*a3+12,f24=*a3+16,f26=*a3+20,t3=*stack0,fp=*stack1 ; out a1=ret,t3=*stack0,fp=*stack1,f12=*a3,f14=*a3+4,f20=*a3+8,f22=*a3+12,f24=*a3+16,f26=*a3+20 ; preserve v0,v1,a0,a3,t0,t1,t2,t4,t5,t6,t7,t8,t9 ; clobbers f28
+ground_scan_object: in t0=a0,t1=a1,t2=a2,s0=a3,a1=*stack0,f24=*stack1+16,f26=*stack1+20 ; out v1=ret,a1=*stack0,f24=*stack1+16,f26=*stack1+20 ; preserve t0,t1,t2,t6,t7 ; clobbers s1,s2,s3,s4,s5,s6,s7,fp,f20,f22,f28
+# steering + throttle: veh_steer(s3, s4) then veh_throttle(gp, t6, t7, s0, s1, s2)
+veh_steer_throttle: in s3=a0,s4=a1,gp=a2,t6=a3,t7=stack0,s0=stack1,s1=stack2,s2=stack3 ; preserve t6 ; clobbers s1,s3
+# slot check (index v0, arrays a1-a3, extra t3, pos s6) -> veh_slot_launch's s3 or the caller's s3
+veh_slot_land: in v0=a0,a1=a1,a2=a2,a3=a3,t3=stack0,s6=stack1,s3=stack2 ; out s3=ret ; preserve f12,f14 ; clobbers s0,s6
+# ground height for slot v0 at (t0, t2 + 0x78, t1): three scans, result t3 (also gSlotGroundY[v0]); FP results in/out
+ground_slot_height: in v0=a0,t0=a1,t1=a2,t2=a3,t8=stack0,gp=stack1,fp=stack2,f12=*stack3,f14=*stack3+4,f20=*stack3+8,f22=*stack3+12,f24=*stack3+16,f26=*stack3+20 ; out t3=ret,f12=*stack3,f14=*stack3+4,f20=*stack3+8,f22=*stack3+12,f24=*stack3+16,f26=*stack3+20 ; preserve v0,a1,a2,a3,t2,t6,t7,t8 ; clobbers f28
+# value pair at (t0, t1) on gMoveableTris triangle id a3 (s32 / s16 coordinate sets); results t3, t4, f12-f26
+veh_deck_to_local: in a3=a0,t0=a1,t1=a2,f24=*a3+24 ; out t3=*a3,t4=*a3+4,f12=*a3+8,f14=*a3+12,f20=*a3+16,f22=*a3+20,f24=*a3+24,f26=*a3+28 ; preserve a3,t0,t1,t2 ; clobbers f28
+veh_deck_to_world: in a3=a0,t0=a1,t1=a2,f24=*a3+24 ; out t3=*a3,t4=*a3+4,f12=*a3+8,f14=*a3+12,f20=*a3+16,f22=*a3+20,f24=*a3+24,f26=*a3+28 ; preserve a2,a3,t0,t1,t2,t7 ; clobbers f28
+# o32 (C caller); leaves ground_scan_object's FP results in f20-f28
+ground_over_object: clobbers f20,f22,f24,f26,f28
+ground_scan_guard_tris: in t0=a0,t1=a1,t2=a2,f12=*a3,f14=*a3+4,f20=*a3+8,f22=*a3+12,f24=*a3+16,f26=*a3+20,a3=*stack0+4,t6=*stack0+8,s1=*stack0+20,s2=*stack0+24,s3=*stack0+28,s4=*stack0+32 ; out v1=ret,a1=*stack0,a3=*stack0+4,t6=*stack0+8,t7=*stack0+12,fp=*stack0+16,s1=*stack0+20,s2=*stack0+24,s3=*stack0+28,s4=*stack0+32,f12=*a3,f14=*a3+4,f20=*a3+8,f22=*a3+12,f24=*a3+16,f26=*a3+20 ; clobbers s5,s6,s7,f28
+# Mtx-chain users (mtx_chain_transform; MtxChainRegs = v1,a0,a3,s1,s2,s0 at +0..+20)
+veh_deck_transform: in t3=a0,t4=a1,s4=a2,v1=*a3,a3=*a3+8,s1=*a3+12,s2=*a3+16 ; out t7=ret,v1=*a3,a3=*a3+8,s1=*a3+12,s2=*a3+16,s3=*stack0 ; preserve f12,f14 ; clobbers s0
+veh_points_transform: in t0=a0,t1=a1,t2=a2,s4=a3,v1=*stack0,a0=*stack0+4,a3=*stack0+8,s1=*stack0+12,s2=*stack0+16,s0=*stack0+20 ; out v1=*stack0,a0=*stack0+4,a3=*stack0+8,s1=*stack0+12,s2=*stack0+16 ; preserve a1,a2,t0,t2,t3,t4,t6,t7,f12,f14
+# interpolate (t3,t4) at point (t0,t1) over triangle (s1,s3)/(s4,s6)/(s7,t9) with values (t3,t4)/(t5,t6)/(t7,s0)
+ground_tri_interp: in t0=a0,t1=a1,s1=a2,s3=a3,s4=stack0,s6=stack1,s7=stack2,t9=stack3,t5=stack4,t6=stack5,t7=stack6,s0=stack7,t3=*stack8,t4=*stack8+4,f12=*stack8+8,f14=*stack8+12,f20=*stack8+16,f22=*stack8+20,f24=*stack8+24,f26=*stack8+28 ; out t3=*stack8,t4=*stack8+4,f12=*stack8+8,f14=*stack8+12,f20=*stack8+16,f22=*stack8+20,f24=*stack8+24,f26=*stack8+28 ; clobbers s2
+# zone lookup around point (t3,t4,t5) for id a3; v1 = list end, last record's registers through a struct
+veh_zone_alpha: in a3=a0,t3=a1,t4=a2,t5=a3,t6=*stack0,t7=*stack0+4,s0=*stack0+8,s1=*stack0+12,s2=*stack0+16,s3=*stack0+20,s4=*stack0+24 ; out v1=ret,t6=*stack0,t7=*stack0+4,s0=*stack0+8,s1=*stack0+12,s2=*stack0+16,s3=*stack0+20,s4=*stack0+24 ; preserve a3 ; clobbers s5,s6
+# phase D (wt-f2): o32 wrappers of veh_deck_to_local / veh_deck_to_world for C callers; leave their FP results in f20-f28
+veh_deck_to_local_c: clobbers f20,f22,f24,f26,f28
+veh_deck_to_world_c: clobbers f20,f22,f24,f26,f28
+# point (*t7, *s1) offset by length *t6 (s16, scaled by f12) along heading t4 -> t0, t1; s3 = *t7, fp = cosine
+veh_move_along_heading: in f12=f12,t4=a1,t6=a2,t7=a3,s1=stack0 ; out t0=ret,t1=*stack1,s3=*stack1+4,fp=*stack1+8 ; preserve t6,t7
+# out-of-bounds respawn of vehicle t8 (record gp) at (t0, t1) >> 5: position to *t7/*s2/*s1 and back in t0/t1
+veh_respawn_if_out: in gp=a0,t8=a1,t7=a2,s2=a3,s1=stack0,t0=*stack1,t1=*stack1+4 ; out t0=*stack1,t1=*stack1+4 ; preserve v0,v1,a0,a1,a2,a3,t2,t3,t4,t5,t6,t7,t8,t9
+# angle at (t3,t4) between the line to (t7,s0) and the offset (t5,t6) from it (arcsine >> 3) in s6
+veh_follow_angle: in t3=a0,t4=a1,t5=a2,t6=a3,t7=stack0,s0=stack1 ; out s6=ret ; preserve v1,a2,t3,t4,t5,t6,t7 ; clobbers s1,s2,s3,s4,fp
+# phase D (wt-g3): ground-height slots. tbl entry v0 (s16 x, z) rotated by *s4 -> t5, t6
+veh_wheel_offset: in v0=a0,v1=a1,s4=a2 ; out t5=ret,t6=*a3 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t7,t8,t9
+# three slots through ground_slot_height at (t0,t1) + rotated tbl t3 offsets, y from s7 records; kinds to the gStandOn record of t8
+veh_update_stand_on: in t0=a0,t1=a1,t3=a2,s4=a3,s7=stack0,t8=stack1,gp=stack2,fp=stack3,f12=*stack4,f14=*stack4+4,f20=*stack4+8,f22=*stack4+12,f24=*stack4+16,f26=*stack4+20 ; out t6=ret,f12=*stack4,f14=*stack4+4,f20=*stack4+8,f22=*stack4+12,f24=*stack4+16,f26=*stack4+20 ; preserve t0,t1,t7,t8,t9 ; clobbers s5,s6,f28
+# slot v0 on the ground / airborne (arrays a1-a3); s3 result (in/out for veh_slot_airborne)
+veh_slot_grounded: in v0=a0,a1=a1,a2=a2,a3=a3,v1=stack0,t0=stack1,t1=stack2,s4=stack3,s7=stack4,t8=stack5,gp=stack6,fp=stack7,f12=*stack8,f14=*stack8+4,f20=*stack8+8,f22=*stack8+12,f24=*stack8+16,f26=*stack8+20 ; out s3=ret,f12=*stack8,f14=*stack8+4,f20=*stack8+8,f22=*stack8+12,f24=*stack8+16,f26=*stack8+20 ; preserve v0,v1,a1,a2,a3,t0,t1,t3,t6,t7,t8,t9 ; clobbers f28
+veh_slot_airborne: in v0=a0,a1=a1,a2=a2,a3=a3,v1=stack0,t0=stack1,t1=stack2,s4=stack3,s7=stack4,t8=stack5,gp=stack6,fp=stack7,s3=*stack8,f12=*stack9,f14=*stack9+4,f20=*stack9+8,f22=*stack9+12,f24=*stack9+16,f26=*stack9+20 ; out s3=*stack8,f12=*stack9,f14=*stack9+4,f20=*stack9+8,f22=*stack9+12,f24=*stack9+16,f26=*stack9+20 ; preserve v0,v1,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9 ; clobbers s6,f28
+# reset the three slots (dst s1 records, mid s2) from the scans at (t7,s0) + rotated tbl v1 offsets, height t2
+veh_init_ground: in v1=a0,t2=a1,t7=a2,s0=a3,s1=stack0,s2=stack1,s4=stack2,t8=stack3,fp=stack4,gp=stack5,f12=*stack6,f14=*stack6+4,f20=*stack6+8,f22=*stack6+12,f24=*stack6+16,f26=*stack6+20 ; out s3=ret,f12=*stack6,f14=*stack6+4,f20=*stack6+8,f22=*stack6+12,f24=*stack6+16,f26=*stack6+20 ; clobbers s5,s6,f28
+veh_reground: in v1=a0,t2=a1,t7=a2,s0=a3,s1=stack0,s2=stack1,s4=stack2,t8=stack3,fp=stack4,gp=stack5,f12=*stack6,f14=*stack6+4,f20=*stack6+8,f22=*stack6+12,f24=*stack6+16,f26=*stack6+20 ; out t6=ret,s1=*stack7,s3=*stack7+4,f12=*stack6,f14=*stack6+4,f20=*stack6+8,f22=*stack6+12,f24=*stack6+16,f26=*stack6+20 ; preserve t7 ; clobbers s5,s6,f28
+# steer toward triangle a3's interpolated point: heading t0, distance s3; f24 in/out, f26 out (InterpRegs at stack4)
+veh_follow_heading: in v1=a0,t0=a1,a2=a2,a3=a3,t1=stack0,s1=stack1,s2=stack2,f24=*stack4+24 ; out t0=ret,s3=*stack3,f24=*stack4+24,f26=*stack4+28 ; preserve a2,a3 ; clobbers s0,s1,s2,s4,s5,s6,fp,f20,f22,f28
+# per-frame ground contact of vehicle t8 (record gp): reset, three slots, height history s7, tilts (divisors fp / t9), veh_update_stand_on
+veh_ground_contact: in gp=a0,t8=a1,t7=a2,s2=a3,s1=stack0,t0=stack1,t1=stack2,t9=stack3,fp=stack4,s4=stack5,s0=stack6,v1=stack7,a1=stack8,a2=stack9,a3=stack10,s7=stack11,s3=*stack12,f12=*stack13,f14=*stack13+4,f20=*stack13+8,f22=*stack13+12,f24=*stack13+16,f26=*stack13+20 ; out s3=*stack12,s4=*stack12+4,fp=*stack12+8,f12=*stack13,f14=*stack13+4,f20=*stack13+8,f22=*stack13+12,f24=*stack13+16,f26=*stack13+20 ; preserve t4,t7 ; clobbers s5,s6,s7,f28
+# model matrix at t8: scale s7, rotations gModelRot/gModelRotZ/gModelRotY, translation (s4,s5,s6) << 11; leaves s2 = t8
+mtx_build_model: in s4=a0,s5=a1,s6=a2,s7=a3,t8=stack0 ; clobbers s2
+
+# recursive id lookup in the gStandOn list; saves t1-t4 and s3, leaves s2 changed when found
+veh_has_partial_rider_walk: in s2=a0 ; out t0=ret ; preserve t1,t2,t3,t4,s3 ; clobbers s2
+# (disp) gStandOn tree walks: id in s2 / a3; hooks' f24 chains in, f20-f26 out (FP state via r); s3 in/out for the second walk
+veh_attach_riders: clobbers gp,fp
+veh_attach_riders_walk: in s2=a0,f20=*a1+16,f22=*a1+20,f24=*a1+24,f26=*a1+28 ; out f20=*a1+16,f22=*a1+20,f24=*a1+24,f26=*a1+28 ; preserve a2,a3,t0,t1 ; clobbers gp,s4,f28
+veh_move_riders_walk: in a3=a0,s3=*a1,f20=*a2+16,f22=*a2+20,f24=*a2+24,f26=*a2+28 ; out s3=*a1,f20=*a2+16,f22=*a2+20,f24=*a2+24,f26=*a2+28 ; preserve a3,t0,t1,t2 ; clobbers s0-s2,s4-s7,fp,gp,f28
+
+# --- 7FB50 ---
+# zone lookup wrapper: veh_zone_alpha(id, x, y, z) with its scan registers t6, t7, s0-s4 passed through
+jbomb_zone_alpha: in t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; out v1=ret,t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; preserve f12,f14 ; clobbers s5,s6
+# ground checks via ground_scan_guard_tris: its FP results (and, for 70E8, its scan registers) pass through
+jbomb_check_surface_above: in f12=*a0,f14=*a0+4,f20=*a0+8,f22=*a0+12,f24=*a0+16,f26=*a0+20,a3=*a1+4,t6=*a1+8,s1=*a1+20,s2=*a1+24,s3=*a1+28,s4=*a1+32 ; out v1=ret,f12=*a0,f14=*a0+4,f20=*a0+8,f22=*a0+12,f24=*a0+16,f26=*a0+20,a3=*a1+4,t6=*a1+8,t7=*a1+12,fp=*a1+16,s1=*a1+20,s2=*a1+24,s3=*a1+28,s4=*a1+32 ; clobbers s5,s6,s7,f28
+jbomb_check_overhead: in t0=a0,t1=a1,f12=*a2,f14=*a2+4,f20=*a2+8,f22=*a2+12,f24=*a2+16,f26=*a2+20 ; out f12=*a2,f14=*a2+4,f20=*a2+8,f22=*a2+12,f24=*a2+16,f26=*a2+20 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9 ; clobbers f28
+# value pair at the vehicle's x/z via veh_deck_to_local (id in a3); its FP results pass through; gp left = gJbombState
+jbomb_ride_attach: in a3=a0,f24=*a1+24 ; out f12=*a1+8,f14=*a1+12,f20=*a1+16,f22=*a1+20,f24=*a1+24,f26=*a1+28 ; preserve a3,t0,t1,t3,t4 ; clobbers gp,f28
+# per-frame vehicle update: s0 on to jbomb_update_jet_effects; FP f12-f26 and a3/t6/s1-s4 in for jbomb_check_surface_above, f20-f26 back out
+jbomb_update_modes: in s0=a0,f12=*a1,f14=*a1+4,f20=*a1+8,f22=*a1+12,f24=*a1+16,f26=*a1+20,a3=*a2+4,t6=*a2+8,s1=*a2+20,s2=*a2+24,s3=*a2+28,s4=*a2+32 ; out f20=*a1+8,f22=*a1+12,f24=*a1+16,f26=*a1+20 ; clobbers s0-s7,fp,f28,f30
+# ramp / countdown; t6, t7, s0-s4 pass through to fx_spawn (s1 comes back changed)
+jbomb_update_jet_effects: in t6=a0,t7=a1,s0=a2,s1=a3,s2=stack0,s3=stack1,s4=stack2 ; clobbers s1,s5,s6,s7
+# gp = &gJbombState (vehicle block) in all of these: a base pointer, not an argument
+jbomb_slow_down: preserve a0,a1,a2,a3,t6
+# vehicle step value in s6; s7 and a1 are scratch
+jbomb_thrust_speed: out s6=ret ; preserve a2,a3,t6,t7,f12,f14 ; clobbers s7
+jbomb_lift_off_water: preserve a1,a2,a3,f12,f14
+# enter vehicle: points $gp at gJbombState and leaves it
+jbomb_enter: clobbers gp
+jbomb_check_idle: preserve a1,a2,a3
+# steering/tilt channels; up flag left in s2 on the steering paths (jbomb_roll_limit's input), and
+# jbomb_roll_limit's s3 = 270 left behind there (reaches fx_spawn via jbomb_update_jet_effects); s5 scratch
+jbomb_update_tilt: in s2=*a0 ; out s2=*a0 ; preserve a1,a2,a3,t6,t7,f12,f14 ; clobbers s3,s5
+# (1 - |gPadStickY| / 80) / 2 in f4 (f6 scratch)
+jbomb_pitch_limit: out f4=fret ; preserve v0,f2
+# up flag in s2, result in f2; leaves s3 = 270
+jbomb_roll_limit: in s2=a0 ; out f2=fret ; clobbers s3
+jbomb_steer_rate: out s3=ret ; preserve a0,a1,a2,a3
+jbomb_set_gravity: preserve a0,a1,a2,a3,t3,t4,t6,f12,f14
+jbomb_set_tuning: preserve a0,a1,a2,a3,t3,t4,f12,f14
+# load vehicle 9 (dispatcher lvl_spawn_vehicles): x t7, y s3, z s0, heading s1, model s2, $fp on to veh_init_ground; s-/FP leftovers not modelled
+jbomb_spawn: in t7=a0,s3=a1,s0=a2,s1=a3,s2=stack0,fp=stack1 ; preserve t0,t1,t2,t3,t4,t5 ; clobbers s0-s7,fp,gp,f20,f22,f24,f26,f28,f30
+# move while not the player's vehicle (C veh_update_others): $fp (leaked from the caller) goes on to veh_reground
+jbomb_reground: in fp=a0
+# set down on triangle id (a3): veh_deck_to_world / veh_ground_contact / jbomb_build_model; s3 in/out and the FP state, gp left = gJbombState
+jbomb_ride_follow: in a3=a0,s3=*a1,f24=*a2+24 ; out s3=*a1,f20=*a2+16,f22=*a2+20,f24=*a2+24,f26=*a2+28 ; preserve a3,t0,t1,t2 ; clobbers s0-s2,s4-s7,fp,gp,f28
+# place the model (mtx_build_model / veh_place_parts / veh_points_transform); s0/s1 in, the mtx_chain_transform chain registers out
+jbomb_build_model: in s1=*a0+12,s0=*a0+20 ; out v1=*a0,a0=*a0+4,a3=*a0+8,s1=*a0+12,s2=*a0+16 ; clobbers s4-s7
+
+# --- 7F8B0 ---
+# LZSS bit reader: mask a3, reader state a0 (src) / t3 (byte) / t4 (bit) in/out, bits -> v0 (s4 = 0x80, s5 = 1 constants)
+lzss_read_bits: in a3=a0,a0=*a1,t3=*a1+4,t4=*a1+8 ; out v0=ret,a0=*a1,t3=*a1+4,t4=*a1+8 ; preserve a1,a2,t0,t1,t5,t6 ; clobbers s7
+# LZSS decompressor: src a0 / dst a1 in and out (C: through pointers), window a2, offset bits a3
+lzss_decode: in a0=*a0,a1=*a1,a2=a2,a3=a3 ; out a0=*a0,a1=*a1 ; clobbers s0,s4-s7
+# kiunzip on gKiunzipSrc/Dst = a0/a1; results back in a0/a1 (saves everything else)
+kiunzip_entry: in a0=*a0,a1=*a1,a2=a2 ; out a0=*a0,a1=*a1 ; preserve a2,f12,f14
+# sound level |s5| (saves every integer register)
+veh_set_engine_level: in s5=a0 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,f12,f14
+# start / stop the looping sounds (ABI arguments; save every integer register)
+veh_start_engine_sound: preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7
+veh_stop_engine_sounds: preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,f12,f14
+# second looping sound, id in a1 (saves every register)
+veh_update_horn: in a1=a0 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,f12,f14
+
+# --- 8A2E0 ---
+# box corners x t4, y t5, z t6 into gCommPtVtx[gCommPtCount * 8]
+commpt_set_box_verts: in t4=a0,t5=a1,t6=a2 ; preserve v0,v1,a0,a1,a2,a3,t1,t2,t3,t7,f12,f14
+# 24 debris records at the s32 x, y, z that t1 points to; saves every register
+commpt_burst: in t1=a0 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,f12,f14
+# level setup of the boxes (level object in t0, saved); leaves channel-routine junk in s0-s7, fp, f20, f30
+commpt_setup: in t0=a0 ; preserve t0 ; clobbers s0-s7,fp,f20,f30
+# box drawing (o32 from 00000.c); anim_update_model leaves f20/f30 changed
+commpt_draw: clobbers f20,f30
+
+# --- 679E0 ---
+# s32 16.16 matrix (s2) to Mtx layout in place; saves everything
+mtx_to_n64: in s2=a0 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,f8,f12,f14
+# translation / scale matrix: x t0, y t1, z t2, m t3
+mtx_translate: in t0=a0,t1=a1,t2=a2,t3=a3 ; preserve a0,a1,a2,a3,t0,t1,t2,t3,t4,t6,t7,t8,f12,f14
+mtx_scale: in t0=a0,t1=a1,t2=a2,t3=a3 ; preserve a0,a1,a2,a3,t4,f12,f14
+# o32 wrapper of ground_tri_contains (C callers); doesn't save the FP registers ground_tri_contains changes
+ground_in_triangle: clobbers f20,f22,f24,f26,f28
+# m(s2) = m * b(a0), 16.16 with s64 sums, via gMtxMulTemp; leaves a1=4, a2=4, a3=0
+mtx_mul: in a0=a0,s2=a1 ; preserve a0,t2,t4,t5,t6,t7,t8,f8,f12,f14
+# phase D (wt-f2): level 0x17 position wrap (x/y/z pointers in v0/v1/a0); v0 left = caller's t2
+veh_wrap_position: in v0=a0,v1=a1,a0=a2
+# phase D (wt-g2): trampoline to veh_wrap_position (same registers)
+veh_check_wrap: in v0=a0,v1=a1,a0=a2
+# game mode 0x40: vehicle reset (veh_collision_setup inputs a0, a1, v0, v1, t0, t8, gp), collision pass, move hit objects away
+veh_maze_object_hits: in a0=a0,a1=a1,v0=a2,v1=a3,t0=stack0,t8=stack1,gp=stack2 ; clobbers s0-s7,fp,f20,f22,f24,f26,f28
+# rotation matrices about y / z / x: angle t0, m t3; save v1, a0, t5, fp
+mtx_rotate_y: in t0=a0,t3=a1 ; preserve v1,a0,t0,t3,t5,t6,t7,t8
+mtx_rotate_z: in t0=a0,t3=a1 ; preserve v1,a0,t0,t3,t5,t6,t7,t8
+mtx_rotate_x: in t0=a0,t3=a1 ; preserve v1,a0,t0,t3,t5,t6,t7,t8
+# 2-D rotations by angle a3 (cos/sin via fp); save v0/v1
+math_rotate_xz: in a1=a0,a2=a1,a3=a2 ; out t0=*a3,t1=*a3+4 ; preserve v0,v1 ; clobbers fp
+math_rotate_xz_inv: in a0=a0,a2=a1,a3=a2 ; out a3=ret,t1=*a3 ; preserve v0,v1,a0,a2 ; clobbers fp
+math_rotate_xx: in a0=a0,a3=a1 ; out t0=*a2,a3=*a2+4 ; preserve v0,v1,a0 ; clobbers fp
+
+# interpolated lookup in the u16 table gAtanTable[0x401]; saves a0, a1, v1
+math_atan: in v1=a0 ; out fp=ret ; preserve a0,a1,v1
+
+# --- 69000 ---
+# arcsine: sine in v1 (0..0xFFFF), angle in fp; saves v1, a0, a1
+math_asin: in v1=a0 ; out fp=ret ; preserve v1,a0,a1,t1,t2,t3,t6,t7,f12,f14
+
+# --- 69930 ---
+# fixed-point cos / sin: angle in v1 (low 12 bits), 16.16 result in fp; saves v1, a0
+math_cos: in v1=a0 ; out fp=ret ; preserve v1,a0,a1,a2,a3,t0,t3,t4,t5,t7
+math_sin: in v1=a0 ; out fp=ret ; preserve v1,a0,a1,a2,a3,t0,t3,t4,t5,t7
+
+# --- 69BB0 ---
+# zone lookup wrapper: veh_zone_alpha(id, x, y, z) with its scan registers t6, t7, s0-s4 passed through
+driver_zone_alpha: in t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; out v1=ret,t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; preserve t8,f12,f14 ; clobbers s5,s6
+# zone test: mode in a3 (1 or 2), result 0/1 in a1; a3 left holding the last coordinate compared
+driver_in_exit_zone: in a3=*a0 ; out a1=ret,a3=*a0 ; preserve a0,a2,t0,t1,t2,t3,f12,f14
+# returns 0x8C in s3
+driver_steer_rate: out s3=ret ; preserve a0,a1,a2,a3,f12,f14
+# vehicle 0 setup (object dispatcher): header s2, x t7, y s3, z s0, heading s1; the dispatcher's fp and f12-f26 reach
+# veh_init_ground; saves t0-t5; gp left = gDriverState
+driver_spawn: in s2=a0,t7=a1,s3=a2,s0=a3,s1=stack0,fp=stack1,f12=*stack2,f14=*stack2+4,f20=*stack2+8,f22=*stack2+12,f24=*stack2+16,f26=*stack2+20 ; preserve t0,t1,t2,t3,t4,t5 ; clobbers s0-s7,fp,gp,f20,f22,f24,f26,f28,f30
+# places vehicle 0's model and parts ($gp = gDriverState); leaves the part-list end in t2 (and t0 = 0) for veh_collision_setup;
+# veh_place_parts/mtx_build_model leave s1, s2, s4-s7 changed
+driver_build_model: out t2=ret ; clobbers s1,s2,s4,s5,s6,s7
+# drive-in path check at distance a2 (result a3); veh_reground's leftover key t8, fp, f12-f26 come in from the caller;
+# fp goes out as veh_collide_world left it (its part count on a world hit, else unchanged) for the caller's next check
+driver_check_exit_point: in a2=a0,t8=a1,fp=*a2,f12=*a3,f14=*a3+4,f20=*a3+8,f22=*a3+12,f24=*a3+16,f26=*a3+20 ; out a3=ret,fp=*a2 ; preserve v0,v1,a0,a2,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9 ; clobbers s0-s7,f20,f22,f24,f26,f28
+# drive-in step ($gp = gDriverState read as the global); veh_reground's leftover key t8, fp, f12-f26 come in from the caller
+driver_exit_walk_step: in t8=a0,fp=a1,f12=*a2,f14=*a2+4,f20=*a2+8,f22=*a2+12,f24=*a2+16,f26=*a2+20 ; clobbers s0-s6,f20,f22,f24,f26,f28
+# per-frame animation update ($gp = gDriverState, read as globals in C); f20/f30 via anim_blend_channels. Asm caller
+# driver_update reads t6, t8, f12, f14 after it (passed through, except util_rand2_range leaves its seeds in t6/t8)
+driver_update_anims: clobbers s5,f20,f30
+
+# --- 6B4A0 ---
+# zone lookup wrapper: veh_zone_alpha(id, x, y, z) with its scan registers t6, t7, s0-s4 passed through
+sideswipe_zone_alpha: in t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; out v1=ret,t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; preserve f12,f14 ; clobbers s5,s6
+# rounded speed/divisor of this vehicle ($gp = gSideswipeState, read as globals in C) in s3
+sideswipe_steer_rate: out s3=ret ; preserve a0,a1,a2,a3
+# channel 5 of gSideswipeAnim restart check; leaves the channel's (u16) field 0xC in a3, s5 scratch
+sideswipe_check_ram_hit: out a3=ret ; preserve f12,f14 ; clobbers s5
+# enter vehicle 1: points $gp at gSideswipeState and leaves it
+sideswipe_enter: clobbers gp
+# per-frame animation/sound update ($gp = gSideswipeState, read as globals in C)
+sideswipe_update_anims: clobbers s4,s5
+# (wt-v1) vehicle 1 driver: setup (model s2, x t7, y s3, z s0, heading s1, ground flag seed fp; saves t0-t5)
+sideswipe_spawn: in s2=a0,t7=a1,s3=a2,s0=a3,s1=stack0,fp=stack1 ; preserve t0,t1,t2,t3,t4,t5 ; clobbers s0-s7,fp,gp,f20,f22,f24,f26,f28,f30
+# put on the ground: fp seeds veh_reground (from a C caller: a leaked $s8)
+sideswipe_reground: in fp=a0
+# per-frame update: t6, t7, s0-s4 only pass through sideswipe_zone_alpha (saves every callee-saved register)
+sideswipe_update: in t6=a0,t7=a1,s0=a2,s1=a3,s2=stack0,s3=stack1,s4=stack2
+# model parts: s0/s1 in (zero-count parts only), s1 out, current matrix buffer in s4
+sideswipe_build_model: in s1=*a0+12,s0=*a0+20 ; out s4=ret,s1=*a0+12 ; clobbers s2,s5,s6,s7
+# --- 6C5E0 ---
+# zone lookup wrapper: veh_zone_alpha(id, x, y, z) with its scan registers t6, t7, s0-s4 passed through
+thunderfist_zone_alpha: in t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; out v1=ret,t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; preserve a0,f12,f14 ; clobbers s5,s6
+# vehicle setup: points $gp at gThunderfistState and leaves it
+thunderfist_enter: clobbers gp
+# 0 / 50 / 120 from this vehicle's speed and +0xA1 ($gp = gThunderfistState) in s3
+thunderfist_steer_rate: out s3=ret ; preserve a0,a1,a2,a3
+# vehicle 2 state machine: t6, t7, s0-s4 passed through to fx_spawn (gp = gThunderfistState read as the global);
+# f20/f30 left as anim_blend_channels leaves them
+thunderfist_update_actions: in t6=a0,t7=a1,s0=a2,s1=a3,s2=stack0,s3=stack1,s4=stack2 ; clobbers s1,s5,f20,f30
+# vehicle 2 = vehicle 16's code (8AEE0 cyclone_build_model / cyclone_reground / cyclone_update / cyclone_spawn) with id 2
+thunderfist_build_model: in a3=a0,s0=a1,s1=a2 ; out t0=ret,t2=*a3,s1=*a3+4,s4=*a3+8 ; preserve t6,t7 ; clobbers s2,s5,s6,s7
+thunderfist_reground: in fp=a0,a3=a1,f12=a2,f14=a3,f20=stack0,f22=stack1,f24=stack2,f26=stack3
+thunderfist_update: in t6=a0,t7=a1,s0=a2,s1=a3,s2=stack0,s3=stack1,s4=stack2,f14=stack3,f20=stack4,f22=stack5,f24=stack6,f26=stack7
+thunderfist_spawn: in s2=a0,t7=a1,s3=a2,s0=a3,s1=stack0,fp=stack1,t6=stack2,f12=*stack3,f14=*stack3+4,f20=*stack3+8,f22=*stack3+12,f24=*stack3+16,f26=*stack3+20 ; preserve t0,t1,t2,t3,t4,t5 ; clobbers s0-s7,fp,gp,f20,f22,f24,f26,f28,f30
+# --- 6E200 ---
+# zone lookup wrapper: veh_zone_alpha(id, x, y, z) with its scan registers t6, t7, s0-s4 passed through
+ramdozer_zone_alpha: in t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; out v1=ret,t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; preserve f12,f14 ; clobbers s5,s6
+skyfall_zone_alpha: in t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; out v1=ret,t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; preserve f12,f14 ; clobbers s5,s6
+# tyre trail ($gp = gSkyfallState); saves every integer register
+skyfall_add_tyre_trail: preserve a1,a2,a3
+# rounded speed/divisor ($gp = gSkyfallState) in s3
+skyfall_steer_rate: out s3=ret ; preserve a0,a1,a2,a3
+# setup leaf, touches only at/v0/v1/f0/f2
+skyfall_set_physics: preserve a0,a1,a2,a3,t3,t4,f12,f14
+# tyre trail ($gp = gRamdozerState); saves every integer register
+ramdozer_add_tyre_trail: preserve a0,a1,a2,a3,t6,t7
+# 22 / 75 from this vehicle's flags ($gp = gRamdozerState) in s3
+ramdozer_steer_rate: out s3=ret ; preserve a0,a1,a2,a3
+# vehicle setups: point $gp at gSkyfallState / gRamdozerState and leave it
+skyfall_enter: clobbers gp
+ramdozer_enter: clobbers gp
+# vehicle 3 update: t6, t7, s0-s4 passed through to fx_spawn (gp = gSkyfallState read as the global)
+skyfall_update_anims: in t6=a0,t7=a1,s0=a2,s1=a3,s2=stack0,s3=stack1,s4=stack2 ; clobbers s1,s5,s6,s7
+# vehicle 4 update: same pass-through (gp = gRamdozerState read as the global)
+ramdozer_update_anims: in t6=a0,t7=a1,s0=a2,s1=a3,s2=stack0,s3=stack1,s4=stack2 ; clobbers s1,s5,s6,s7
+# (wt-v1) vehicle 3 / 4 drivers: setup (model s2, x t7, y s3, z s0, heading s1, ground flag seed fp; saves t0-t5)
+skyfall_spawn: in s2=a0,t7=a1,s3=a2,s0=a3,s1=stack0,fp=stack1 ; preserve t0,t1,t2,t3,t4,t5 ; clobbers s0-s7,fp,gp,f20,f22,f24,f26,f28,f30
+ramdozer_spawn: in s2=a0,t7=a1,s3=a2,s0=a3,s1=stack0,fp=stack1 ; preserve t0,t1,t2,t3,t4,t5 ; clobbers s0-s7,fp,gp,f20,f22,f24,f26,f28,f30
+# put on the ground: fp seeds veh_reground (from a C caller: a leaked $s8)
+skyfall_reground: in fp=a0
+ramdozer_reground: in fp=a0
+# track points on triangle a3 (InterpRegs: f24 in, f24/f26 out); v1 = veh + 0x52
+skyfall_ride_attach: in a3=a0,f24=*a1+24 ; out v1=ret,f24=*a1+24,f26=*a1+28 ; preserve t0,t1,t3,t4 ; clobbers s4,gp,f20,f22,f28
+ramdozer_ride_attach: in a3=a0,f24=*a1+24 ; out v1=ret,f24=*a1+24,f26=*a1+28 ; preserve t0,t1,t3,t4 ; clobbers s4,gp,f20,f22,f28
+# drive along triangle a3: s3 = veh_ground_contact's s3; f24 in, f24/f26 out
+skyfall_ride_follow: in a3=a0,f24=*a1+24 ; out s3=ret,f24=*a1+24,f26=*a1+28 ; preserve a3,t0,t1,t2 ; clobbers s0,s1,s2,s4,s5,s6,s7,fp,gp,f20,f22,f28
+ramdozer_ride_follow: in a3=a0,f24=*a1+24 ; out s3=ret,f24=*a1+24,f26=*a1+28 ; preserve a3,t0,t1,t2 ; clobbers s0,s1,s2,s4,s5,s6,s7,fp,gp,f20,f22,f28
+# per-frame updates: t6, t7, s0-s4 only pass through the zone lookup to the effects function (saves every callee-saved register)
+skyfall_update: in t6=a0,t7=a1,s0=a2,s1=a3,s2=stack0,s3=stack1,s4=stack2
+ramdozer_update: in t6=a0,t7=a1,s0=a2,s1=a3,s2=stack0,s3=stack1,s4=stack2
+# model parts: s0/s1 in (zero-count parts only), s1 out, current matrix buffer in s4
+skyfall_build_model: in s1=*a0+12,s0=*a0+20 ; out s4=ret,s1=*a0+12 ; clobbers s2,s5,s6,s7
+ramdozer_build_model: in s1=*a0+12,s0=*a0+20 ; out s4=ret,s1=*a0+12 ; clobbers s2,s5,s6,s7
+# --- 71140 ---
+# zone lookup wrapper: veh_zone_alpha(id, x, y, z) with its scan registers t6, t7, s0-s4 passed through
+backlash_zone_alpha: in t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; out v1=ret,t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; preserve f12,f14 ; clobbers s5,s6
+# tyre trail ($gp = gBacklashState); saves every integer register
+backlash_add_tyre_trail: preserve a0,a1,a2,a3,t6,t7
+# rounded speed/divisor ($gp = gBacklashState) in s3
+backlash_steer_rate: out s3=ret ; preserve a0,a1,a2,a3
+# 0.5 +- |speed|/480 (side flag in s2) in f2; s3 left = 240
+backlash_lean_limit: in s2=a0 ; out f2=fret ; preserve a1,a2,a3,f0,f12,f14 ; clobbers s3
+# enter vehicle 5: points $gp at gBacklashState and leaves it
+backlash_enter: clobbers gp
+# per-frame animation/sound update ($gp = gBacklashState, read as globals in C)
+backlash_update_anims: clobbers s2,s3,s5,s6
+# (wt-v5) model matrices/points ($gp = gBacklashState); mtx_chain_transform chain registers through a0 (MtxChainRegs)
+backlash_build_model: in a3=*a0+8,s1=*a0+12,s0=*a0+20 ; out v1=*a0,a0=*a0+4,a3=*a0+8,s1=*a0+12,s2=*a0+16 ; preserve t6,t7 ; clobbers s4,s5,s6,s7
+# (wt-v5) level setup of vehicle 5 from the object-list dispatcher; fp reaches veh_init_ground
+backlash_spawn: in s2=a0,t7=a1,s3=a2,s0=a3,s1=stack0,fp=stack1 ; preserve t0,t1,t2,t3,t4,t5 ; clobbers s0-s7,fp,gp,f20,f22,f24,f26,f28
+# (wt-v5) path-following setup / step of vehicle 5 (id a3; FP state chained as jbomb_ride_attach's)
+backlash_ride_attach: in a3=a0,f24=*a1+24 ; out f12=*a1+8,f14=*a1+12,f20=*a1+16,f22=*a1+20,f24=*a1+24,f26=*a1+28 ; preserve a3,t0,t1,t3,t4 ; clobbers gp,s4,f28
+backlash_ride_follow: in a3=a0,f24=*a1+16 ; out s3=ret,f24=*a1+16,f26=*a1+20 ; preserve a3,t0,t1,t2 ; clobbers s0,s1,s2,s4,s5,s6,s7,fp,gp,f20,f22,f28
+# --- 72B80 ---
+# zone lookup wrapper: veh_zone_alpha(id, x, y, z) with its scan registers t6, t7, s0-s4 passed through
+# value pairs on triangle a3 at vehicle 8's x/z and at the offset wheel point; veh_deck_to_local's FP results pass through; gp left = gAmdreamState
+amdream_ride_attach: in a3=a0,f24=*a1+24 ; out f12=*a1+8,f14=*a1+12,f20=*a1+16,f22=*a1+20,f24=*a1+24,f26=*a1+28 ; preserve a3,t0,t1,t3,t4 ; clobbers gp,s4,f28
+# path-driven vehicle 8 (id a3); f24 in from the dispatcher, f24 out (veh_ground_contact's); gp left = gAmdreamState
+amdream_ride_follow: in a3=a0,f24=*a1 ; out f24=*a1 ; preserve a3,t0,t1,t2 ; clobbers gp,s0-s7,fp,f20,f22,f26,f28
+# model/parts/points placement ($gp read as the global); mtx_build_model/veh_place_parts/veh_points_transform leave s1, s2, s4-s7 changed
+amdream_build_model: clobbers s1,s2,s4,s5,s6,s7
+chopper_build_model: clobbers s1,s2,s4,s5,s6,s7
+# vehicle 8 setup (object dispatcher): header s2, x t7, y s3, z s0, heading s1; the dispatcher's fp and f12-f26 reach
+# veh_init_ground; saves t0-t5; gp left = gAmdreamState
+amdream_spawn: in s2=a0,t7=a1,s3=a2,s0=a3,s1=stack0,fp=stack1,f12=*stack2,f14=*stack2+4,f20=*stack2+8,f22=*stack2+12,f24=*stack2+16,f26=*stack2+20 ; preserve t0,t1,t2,t3,t4,t5 ; clobbers s0-s7,fp,gp,f20,f22,f24,f26,f28,f30
+# flying vehicle setup (object dispatcher): a1 value and model header s2; saves t0-t5; gp left = gChopperState
+chopper_spawn: in a1=a0,s2=a1 ; preserve t0,t1,t2,t3,t4,t5 ; clobbers s0-s7,fp,gp,f20,f30
+amdream_zone_alpha: in t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; out v1=ret,t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; preserve f12,f14 ; clobbers s5,s6
+# enter vehicle: points $gp at gAmdreamState and leaves it
+amdream_enter: clobbers gp
+# tyre trail ($gp = gAmdreamState); saves every integer register
+amdream_add_tyre_trail: preserve a0,a1,a2,a3,t6,t7
+# rounded speed/divisor ($gp = gAmdreamState) in s3
+amdream_steer_rate: out s3=ret ; preserve a0,a1,a2,a3
+# distance (y = 0) gChopperX/Z -> gChopperTargetX/Z in s1; s0 left = gChopperTargetZ
+chopper_target_distance: out s1=ret ; preserve a0,a1,a2,a3,f12,f14 ; clobbers s0
+# (wt-g3) flying-vehicle state machine on gChopperMode; sets gp = gChopperState, leaves its callees' registers
+chopper_fly: clobbers s0-s4,s6,fp,gp
+# sound/animation update ($gp = gChopperState); (160 - speed) / 320 left in f20
+chopper_update_anims: out f20=fret ; preserve a2,a3,t7,f12,f14
+# trail + effect cooldown ($gp = gAmdreamState); t6, t7, s0-s4 pass through to fx_spawn (s1 comes back changed)
+amdream_update_effects: in t6=a0,t7=a1,s0=a2,s1=a3,s2=stack0,s3=stack1,s4=stack2 ; clobbers s1,s5,s6,s7
+# marker 0xFE at the ground height (ground_slot_height, else the incoming t3) ($gp = gChopperState); fp and f12-f26 pass through ground_slot_height
+chopper_update_shadow: in t3=a0,fp=a1,f12=*a2,f14=*a2+4,f20=*a2+8,f22=*a2+12,f24=*a2+16,f26=*a2+20 ; out f12=*a2,f14=*a2+4,f20=*a2+8,f22=*a2+12,f24=*a2+16,f26=*a2+20 ; clobbers f28
+# --- 75490 ---
+# zone lookup wrapper: veh_zone_alpha(id, x, y, z) with its scan registers t6, t7, s0-s4 passed through
+crane_zone_alpha: in t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; out v1=ret,t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; preserve f12,f14 ; clobbers s5,s6
+carrier_zone_alpha: in t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; out v1=ret,t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; preserve f12,f14 ; clobbers s5,s6
+# distance (y = 0) gCarrierX/Z -> gCarrierStartX/Z in s1; s0 left = gCarrierStartZ
+carrier_check_collide_dists: out s1=ret ; preserve a2,a3,f12,f14 ; clobbers s0
+# engine sound/animation update ($gp = gCarrierState); angle sector in s4, s5 scratch
+carrier_update_anims: out s4=ret ; preserve a2,a3,t7,f12,f14 ; clobbers s5
+carrier_check_arrival: preserve a2,a3,f12,f14 ; clobbers s0,s1
+# enter vehicle: points $gp at gCraneState and leaves it
+crane_enter: clobbers gp
+# zone value scan of gCarrierSpeedZones; its scan registers a0-a3 reach veh_move_along_heading via carrier_update
+carrier_scan_speed_zones: in a2=*a1 ; out a0=ret,a1=*a0,a2=*a1,a3=*a2
+# level 0x11 part-on-ground flag in v0; leaves crane_find_test_part / ground_scan_guard_tris registers behind (unread)
+crane_part_on_ground: out v0=ret ; clobbers s0-s7,fp,f20,f22,f24,f26,f28
+# channels 5/4/2 and sounds 0x6F/0x6E/0x6D ($gp = gCraneState); leaves crane_part_on_ground's registers behind (scratch)
+crane_update_controls: clobbers s0-s7,fp,f20,f22,f24,f26,f28
+# exit check: points $gp at gCraneState and leaves it
+crane_exit_check: clobbers gp
+# (wt-v5) model matrices/points of gCarrierState / gCraneState; chain registers through a0 (MtxChainRegs)
+carrier_build_model: in a3=*a0+8,s1=*a0+12,s0=*a0+20 ; out t2=ret,v1=*a0,a0=*a0+4,a3=*a0+8,s1=*a0+12,s2=*a0+16 ; preserve t6,t7 ; clobbers s4,s5,s6,s7
+crane_build_model: in a3=*a0+8,s1=*a0+12,s0=*a0+20 ; out t0=ret,t2=*a1 ; clobbers s0-s7,fp,f20,f22,f24,f26,f28
+# (wt-v5) level setup of gCarrierState / vehicle 6 from the object-list dispatchers; fp reaches veh_init_ground
+carrier_spawn: in s2=a0,t4=a1,t5=a2,s1=a3,t7=stack0,t6=stack1,fp=stack2 ; preserve t0,t1,t2,t3,t4,t5 ; clobbers s0-s7,fp,gp,f20,f22,f24,f26,f28
+crane_spawn: in s2=a0,t7=a1,s3=a2,s0=a3,s1=stack0,fp=stack1 ; preserve t0,t1,t2,t3,t4,t5 ; clobbers s0-s7,fp,gp,f20,f22,f24,f26,f28
+# (wt-v5) collision/effect step of gCarrierState; h2 (carrier_build_model's leftover t2) in t2
+carrier_check_crash: in t2=a0 ; clobbers s0,s1,s3,s4,s5,fp,f20,f22,f24,f26,f28
+# --- 772A0 ---
+# zone lookup wrapper: veh_zone_alpha(id, x, y, z) with its scan registers t6, t7, s0-s4 passed through
+train_zone_alpha: in t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; out v1=ret,t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; preserve a0,f12,f14 ; clobbers s5,s6
+# enter vehicle: points $gp at gTrainState and leaves it
+train_enter: clobbers gp
+# countdown / effect spawn / sound level; t6, t7, s0-s4 pass through to fx_spawn (s1 comes back changed)
+train_update_effects: in t6=a0,t7=a1,s0=a2,s1=a3,s2=stack0,s3=stack1,s4=stack2 ; clobbers s1,s5
+# spawn vehicle 7 (from lvl_spawn_vehicles): x t7, y s3, z s0, heading s1, model data s2, ground byte fp; saves t0-t5
+train_spawn: in t7=a0,s3=a1,s0=a2,s1=a3,s2=stack0,fp=stack1 ; preserve t0,t1,t2,t3,t4,t5 ; clobbers s0-s7,gp,fp,f20,f22,f24,f26,f28,f30
+# vehicle 7 model update: block in $gp (always gTrainState); leaves t0 = x, t2 = 7 for its caller
+train_build_model: clobbers s0-s7,fp,f20,f22,f24,f26,f28
+# --- 83910 ---
+# spawn dispatcher (from lvl_spawn_vehicles): type t3, x t7, y s3, z s0, heading s1, model data s2, ground byte fp; saves t0-t5
+barge_spawn: in t3=a0,t7=a1,s3=a2,s0=a3,s1=stack0,s2=stack1,fp=stack2 ; preserve t0,t1,t2,t3,t4,t5 ; clobbers s0-s7,gp,fp,f20,f22,f24,f26,f28,f30
+# spawn vehicle 0x0B / 0x11 / 0x12: inputs as barge_spawn's
+barge_spawn_0b: in t7=a0,s3=a1,s0=a2,s1=a3,s2=stack0,fp=stack1 ; clobbers s0-s7,gp,fp,f20,f22,f24,f26,f28,f30
+barge_spawn_11: in t7=a0,s3=a1,s0=a2,s1=a3,s2=stack0,fp=stack1 ; clobbers s0-s7,gp,fp,f20,f22,f24,f26,f28,f30
+barge_spawn_12: in t7=a0,s3=a1,s0=a2,s1=a3,s2=stack0,fp=stack1 ; clobbers s0-s7,gp,fp,f20,f22,f24,f26,f28,f30
+# per-frame update of vehicle 0x0B / 0x11 / 0x12: points $gp at its block and leaves it
+barge_update_0b: clobbers s0-s7,gp,fp,f20,f22,f24,f26,f28,f30
+barge_update_11: clobbers s0-s7,gp,fp,f20,f22,f24,f26,f28,f30
+barge_update_12: clobbers s0-s7,gp,fp,f20,f22,f24,f26,f28,f30
+# model update of vehicle 0x0B / 0x11 / 0x12: block in $gp (fixed per copy); leaves t0 = x, t2 = type for its caller
+barge_build_model_0b: clobbers s0-s7,fp,f20,f22,f24,f26,f28
+barge_build_model_11: clobbers s0-s7,fp,f20,f22,f24,f26,f28
+barge_build_model_12: clobbers s0-s7,fp,f20,f22,f24,f26,f28
+# bounce: speed (s16 at +0x76 of the block in $gp; three vehicles share it) -> -max(|v|,80)/2 with sign
+barge_bounce: in gp=a0 ; preserve a0,a1,a2,a3,f12,f14
+# rounded speed / gBargeSteerDivisor of the block in $gp (no direct callers) in s3
+barge_steer_rate: in gp=a0 ; out s3=ret
+# --- 853D0 ---
+# enter vehicle: points $gp at gBallistaState and leaves it
+ballista_enter: clobbers gp
+# zone lookup wrapper: veh_zone_alpha(id, x, y, z) with its scan registers t6, t7, s0-s4 passed through
+ballista_zone_alpha: in t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; out v1=ret,t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; preserve f12,f14 ; clobbers s5,s6
+# per-frame effects ($gp = gBallistaState); t6, t7, s0-s4 only pass through to fx_spawn
+ballista_update_actions: in t6=a0,t7=a1,s0=a2,s1=a3,s2=stack0,s3=stack1,s4=stack2 ; clobbers s1-s7
+# centre trail ($gp = gBallistaState); saves every integer register
+ballista_add_tyre_trail: preserve a1,a2,a3
+# 0.5 +- |speed|/560 (side flag in s2) in f2; s3 left = 280
+ballista_lean_limit: in s2=a0 ; out f2=fret ; preserve a1,a2,a3 ; clobbers s3
+# rounded speed/divisor ($gp = gBallistaState) in s3
+ballista_steer_rate: out s3=ret ; preserve a0,a1,a2,a3
+# load vehicle 10 (dispatcher lvl_spawn_vehicles): x t7, y s3, z s0, heading s1, model s2, $fp on to veh_init_ground; s-/FP leftovers not modelled
+ballista_spawn: in t7=a0,s3=a1,s0=a2,s1=a3,s2=stack0,fp=stack1 ; preserve t0,t1,t2,t3,t4,t5 ; clobbers s0-s7,fp,gp,f20,f22,f24,f26,f28,f30
+# move while not the player's vehicle: $fp (leaked from the caller) goes on to veh_reground
+ballista_reground: in fp=a0
+# value pairs at the vehicle's x/z and at ground slot 0 via veh_deck_to_local (id in a3); its FP results pass through; gp left = gBallistaState
+ballista_ride_attach: in a3=a0,f24=*a1+24 ; out f12=*a1+8,f14=*a1+12,f20=*a1+16,f22=*a1+20,f24=*a1+24,f26=*a1+28 ; preserve a3,t0,t1,t3,t4 ; clobbers gp,s4,f28
+# set down on triangle id (a3): veh_follow_heading / veh_deck_to_world / veh_ground_contact / ballista_build_model; s3 and the FP state out, gp left = gBallistaState
+ballista_ride_follow: in a3=a0,f24=*a2+24 ; out s3=*a1,f20=*a2+16,f22=*a2+20,f24=*a2+24,f26=*a2+28 ; preserve a3,t0,t1,t2 ; clobbers s0-s2,s4-s7,fp,gp,f28
+# place the model (mtx_build_model / veh_place_parts / veh_points_transform); s0/s1 in, the mtx_chain_transform chain registers out
+ballista_build_model: in s1=*a0+12,s0=*a0+20 ; out v1=*a0,a0=*a0+4,a3=*a0+8,s1=*a0+12,s2=*a0+16 ; clobbers s4-s7
+# --- 86ED0 ---
+# shared by eight vehicle modules: the state block comes in $gp; a0-a3 left as junk (a0 = 1)
+veh_start_turbo: in gp=a0
+# --- 86F60 ---
+# zone lookup wrapper: veh_zone_alpha(id, x, y, z) with its scan registers t6, t7, s0-s4 passed through
+police_zone_alpha: in t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; out v1=ret,t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; preserve f12,f14 ; clobbers s5,s6
+# tyre trail ($gp = gPoliceState); saves every integer register
+police_add_tyre_trail: preserve a0,a1,a2,a3,t6,t7
+# rounded speed/divisor ($gp = gPoliceState) in s3
+police_steer_rate: out s3=ret ; preserve a0,a1,a2,a3
+# enter vehicle: points $gp at gPoliceState and leaves it
+police_enter: clobbers gp
+# animation phase / trail / effect spawn / sound level; t6, t7, s0-s3 pass through to fx_spawn
+# (its s4 input is computed here; s1 comes back changed)
+police_update_effects: in t6=a0,t7=a1,s0=a2,s1=a3,s2=stack0,s3=stack1 ; clobbers s1,s4,s5,s6,s7
+# model placement ($gp = gPoliceState): mtx_build_model, then parts/points (veh_place_parts / veh_points_transform, id 0xD); leaves junk in s1, s2, s4-s7
+police_build_model: clobbers s1,s2,s4,s5,s6,s7
+# triangle value pairs (veh_deck_to_local) at the position and at tbl[0] rotated by the heading -> +0x6A..+0x72; FP results via r; v1 = &gPoliceState[0x52]
+police_ride_attach: in a3=a0,f24=*a1+24 ; out v1=ret,f12=*a1+8,f14=*a1+12,f20=*a1+16,f22=*a1+20,f24=*a1+24,f26=*a1+28 ; preserve a3,t0,t1,t3,t4 ; clobbers gp,s4,f28
+# steer along triangle a3 + ground contact; veh_ground_contact's s3 and FP results out (f = TriSideOut); f12/f14 left by police_build_model (not modelled)
+police_ride_follow: in a3=a0,f24=*a1+16 ; out s3=ret,f20=*a1+8,f22=*a1+12,f24=*a1+16,f26=*a1+20 ; preserve a3,t0,t1,t2 ; clobbers gp,s0,s1,s2,s4,s5,s6,s7,fp,f28
+# vehicle setup (dispatcher case 0xD): header s2, x t7, y s3, z s0, heading s1, fp and FP state into veh_init_ground; f22-f26 out
+# (fp/f20 as anim_update_model leaves them and f12/f14 as police_update leaves them are not modelled)
+police_spawn: in s2=a0,t7=a1,s3=a2,s0=a3,s1=stack0,fp=stack1,f12=*stack2,f14=*stack2+4,f20=*stack2+8,f22=*stack2+12,f24=*stack2+16,f26=*stack2+20 ; out f22=*stack2+12,f24=*stack2+16,f26=*stack2+20 ; preserve t0,t1,t2,t3,t4,t5 ; clobbers gp,s0-s7,fp,f20,f28,f30
+# --- 88160 ---
+# zone lookup wrapper: veh_zone_alpha(id, x, y, z) with its scan registers t6, t7, s0-s4 passed through
+ateam_zone_alpha: in t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; out v1=ret,t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; preserve f12,f14 ; clobbers s5,s6
+# enter vehicle: points $gp at gAteamState and leaves it
+ateam_enter: clobbers gp
+# tyre trail ($gp = gAteamState); saves every integer register
+ateam_add_tyre_trail: preserve a0,a1,a2,a3,t6,t7
+# rounded speed/divisor ($gp = gAteamState) in s3
+ateam_steer_rate: out s3=ret ; preserve a0,a1,a2,a3
+# trail / effect spawn / sound level; t6, t7, s0-s4 pass through to fx_spawn (s1 comes back changed)
+ateam_update_effects: in t6=a0,t7=a1,s0=a2,s1=a3,s2=stack0,s3=stack1,s4=stack2 ; clobbers s1,s5,s6,s7
+# model placement ($gp = gAteamState), as police_build_model with id 0xE; leaves junk in s1, s2, s4-s7
+ateam_build_model: clobbers s1,s2,s4,s5,s6,s7
+# triangle value pairs, as police_ride_attach for gAteamState
+ateam_ride_attach: in a3=a0,f24=*a1+24 ; out v1=ret,f12=*a1+8,f14=*a1+12,f20=*a1+16,f22=*a1+20,f24=*a1+24,f26=*a1+28 ; preserve a3,t0,t1,t3,t4 ; clobbers gp,s4,f28
+# steer along triangle a3 + ground contact, as police_ride_follow
+ateam_ride_follow: in a3=a0,f24=*a1+16 ; out s3=ret,f20=*a1+8,f22=*a1+12,f24=*a1+16,f26=*a1+20 ; preserve a3,t0,t1,t2 ; clobbers gp,s0,s1,s2,s4,s5,s6,s7,fp,f28
+# vehicle setup (dispatcher case 0xE), as police_spawn
+ateam_spawn: in s2=a0,t7=a1,s3=a2,s0=a3,s1=stack0,fp=stack1,f12=*stack2,f14=*stack2+4,f20=*stack2+8,f22=*stack2+12,f24=*stack2+16,f26=*stack2+20 ; out f22=*stack2+12,f24=*stack2+16,f26=*stack2+20 ; preserve t0,t1,t2,t3,t4,t5 ; clobbers gp,s0-s7,fp,f20,f28,f30
+# --- 8A080 ---
+# collision triangles for block_spawn_all's records: items a0, count a1, h52 a2; the
+# caller's stale v0 (id), t6 (b57), t9 (b4F) and s1 (chain start; saved/restored); gp = 0 after
+coll_add_dyn_tris: in a0=a0,a1=a1,a2=a2,v0=a3,t6=stack0,t9=stack1,s1=stack2 ; clobbers gp
+# --- 4B5E0 (IDO C; matched) ---
+# never touches the s-registers: its caller's s1 reaches coll_add_dyn_tris (NM build: extra argument);
+# coll_add_dyn_tris leaves gp = 0
+block_spawn_all: in a0=a0,a1=a1,s1=a2 ; clobbers gp
+# --- 8AEE0 ---
+# zone lookup wrapper: veh_zone_alpha(id, x, y, z) with its scan registers t6, t7, s0-s4 passed through
+cyclone_zone_alpha: in t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; out v1=ret,t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; preserve f12,f14 ; clobbers s5,s6
+starski_zone_alpha: in t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; out v1=ret,t6=*a0,t7=*a0+4,s0=*a0+8,s1=*a0+12,s2=*a0+16,s3=*a0+20,s4=*a0+24 ; preserve f12,f14 ; clobbers s5,s6
+# enter vehicle: points $gp at gStarskiState and leaves it
+starski_enter: clobbers gp
+# tyre trail ($gp = gStarskiState); saves every integer register
+starski_add_tyre_trail: preserve a0,a1,a2,a3,t6,t7
+# rounded speed/divisor ($gp = gStarskiState) in s3
+starski_steer_rate: out s3=ret ; preserve a0,a1,a2,a3
+# vehicle setup: points $gp at gCycloneState and leaves it
+cyclone_enter: clobbers gp
+# 0 / 5 / 110 from this vehicle's speed and +0xA1 ($gp = gCycloneState) in s3
+cyclone_steer_rate: out s3=ret ; preserve a0,a1,a2,a3
+# trail + effect cooldown ($gp = gStarskiState); t6, t7, s0-s4 pass through to fx_spawn (s1 comes back changed)
+starski_update_effects: in t6=a0,t7=a1,s0=a2,s1=a3,s2=stack0,s3=stack1,s4=stack2 ; clobbers s1,s5,s6,s7
+# animation state machine ($gp = gCycloneState); anim_blend_channels leaves f20/f30 changed (cyclone_update reads f20 after)
+cyclone_update_moves: clobbers s5,f20,f30
+# model matrices: a3/s0/s1 pass into mtx_chain_transform's chain registers; results t0 (tag), t2 (point-list end), s1, s4 (buffer)
+starski_build_model: in a3=a0,s0=a1,s1=a2 ; out t0=ret,t2=*a3,s1=*a3+4,s4=*a3+8 ; preserve t6,t7 ; clobbers s2,s5,s6,s7
+cyclone_build_model: in a3=a0,s0=a1,s1=a2 ; out t0=ret,t2=*a3,s1=*a3+4,s4=*a3+8 ; preserve t6,t7 ; clobbers s2,s5,s6,s7
+# re-ground: fp/a3 and the FP pass-through state go to veh_reground / the matrices (C caller passes garbage)
+starski_reground: in fp=a0,a3=a1,f12=a2,f14=a3,f20=stack0,f22=stack1,f24=stack2,f26=stack3
+cyclone_reground: in fp=a0,a3=a1,f12=a2,f14=a3,f20=stack0,f22=stack1,f24=stack2,f26=stack3
+# moving-platform pair / heading (gp = gStarskiState left behind); f24 chains through InterpRegs
+starski_ride_attach: in a3=a0,f24=*a1+24 ; out v1=ret,f24=*a1+24,f26=*a1+28 ; preserve t0,t1 ; clobbers gp,s4,f20,f22,f28
+starski_ride_follow: in a3=a0,f24=*a1+24 ; out s3=ret,f24=*a1+24,f26=*a1+28 ; preserve a3,t0,t1,t2 ; clobbers gp,s0,s1,s2,s4,s5,s6,s7,fp,f20,f22,f28
+# per-frame update: zone registers t6, t7, s0-s4 and the FP pass-through state f14-f26 (C caller passes garbage)
+starski_update: in t6=a0,t7=a1,s0=a2,s1=a3,s2=stack0,s3=stack1,s4=stack2,f14=stack3,f20=stack4,f22=stack5,f24=stack6,f26=stack7
+cyclone_update: in t6=a0,t7=a1,s0=a2,s1=a3,s2=stack0,s3=stack1,s4=stack2,f14=stack3,f20=stack4,f22=stack5,f24=stack6,f26=stack7
+# spawn (from lvl_spawn_vehicles): model s2, x t7, y s3, z s0, heading s1, fp; t6 and the FP state pass through
+starski_spawn: in s2=a0,t7=a1,s3=a2,s0=a3,s1=stack0,fp=stack1,t6=stack2,f12=*stack3,f14=*stack3+4,f20=*stack3+8,f22=*stack3+12,f24=*stack3+16,f26=*stack3+20 ; preserve t0,t1,t2,t3,t4,t5 ; clobbers s0-s7,fp,gp,f20,f22,f24,f26,f28,f30
+cyclone_spawn: in s2=a0,t7=a1,s3=a2,s0=a3,s1=stack0,fp=stack1,t6=stack2,f12=*stack3,f14=*stack3+4,f20=*stack3+8,f22=*stack3+12,f24=*stack3+16,f26=*stack3+20 ; preserve t0,t1,t2,t3,t4,t5 ; clobbers s0-s7,fp,gp,f20,f22,f24,f26,f28,f30
+# --- 8DDB0 ---
+# per-frame events / one-shot sounds / effect countdowns of vehicle 0xFD; leaves junk in s0, s1, s5-s7
+shuttle_update_events: clobbers s0,s1,s5,s6,s7
+# model placement ($gp = gShuttleState): angles, mtx_build_model, then points (veh_points_transform, id 0xFD); leaves junk in s1, s2, s4-s7
+shuttle_build_model: clobbers s1,s2,s4,s5,s6,s7
+# vehicle 0xFD setup (dispatcher lvl_spawn_shuttle): header in s2; saves t0-t5, leaves $gp = gShuttleState and channel-routine junk
+shuttle_spawn: in s2=a0 ; preserve t0,t1,t2,t3,t4,t5 ; clobbers gp,s0-s7,fp,f20,f30
+# --- 77E20 ---
+# 1 if every gBoxTargets entry has unk26 set; saves t0, t1, t3
+obj_box_targets_done: out t4=ret ; preserve a0,a1,a2,a3,t0,t1,t2,t3,f12,f14
+# phase D (wt-f2): animation channel records t1..t2 of object v0 (saves everything it uses)
+obj_step_tex_anims: in v0=a0,t1=a1,t2=a2 ; preserve v0,v1,a0,a1,t1,t2,t3,t4,t5,t6,t7
+# falling-part effect for part t3 of object t9 into a free gTopplingParts slot (saves every register but f0/f2)
+obj_start_topple: in t9=a0,t3=a1 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9,f12,f14
+# bump/insert a counter in gDelayedDamage (kind t3, id t9, amount a2); saves every register
+obj_add_delayed_damage: in t3=a0,t9=a1,a2=a2 ; preserve a0,a1,t3,t4,t6,t7,t9
+# buffer A scans: "some byte differs from v0" / "contains v0"; buffer B "contains fp" (fp is a value)
+veh_contacts_has_other: in v0=a0 ; out v1=ret
+veh_contacts_has: in v0=a0 ; out v1=ret ; preserve a0,a1,a2,a3,f12,f14
+veh_prev_contacts_has: in fp=a0 ; out v1=ret ; preserve a0,a1,a2,t3,t8,t9,f12,f14
+# done-check of the gObjects entry before t0 (callers pass entry + 0xFC); saves t0-t2, t4
+obj_parts_destroyed: in t0=a0 ; out v0=ret ; preserve t0,t1,t2,t4,t5,t6,t7
+# clear unk51 of model triangles with unk52 == a3 + 1 (model in v0); changes nothing else
+obj_disable_landed_part_tris: in v0=a0,a3=a1 ; preserve v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,f12,f14
+# level 0x32 and !stats_level_done(level) -> t1; preserves everything else
+obj_end_object_hidden: out t1=ret ; preserve v0,v1,a0,a1,a2,a3,t0,t2,t3,t4,t5,t6,t7,t8,t9,f12,f14
+# move a model (v0) by (a2, a3, t0) and recompute its triangle planes; changes s0-s7, fp (callers save them), leaves junk in a1-a3
+obj_move_model: in v0=a0,a2=a1,a3=a2,t0=a3 ; preserve f12,f14 ; clobbers s0-s7,fp
+# animated-texture display-list copy [t7, s0) -> dst (a2 / t0) with table [t1, t2); returns the new dst, t7 ends at s0
+obj_copy_dl_tex_anim: in t7=a0,s0=a1,a2=a2,t1=a3,t2=stack0 ; out a2=ret ; preserve a0,a1,t0,t1,t2,t3,t4,t5,t6,f12,f14
+obj_copy_dl_tex_anim2: in t7=a0,s0=a1,t0=a2,t1=a3,t2=stack0 ; out t0=ret ; preserve a0,a1,a2,t1,t2,t3,t4,t5,t6,f12,f14
+# gObjSolidKinds lookup for entry t3 and bit t8 -> t9
+obj_is_solid_for_vehicle: in t3=a0,t8=a1 ; out t9=ret ; preserve a0,a1,t3,t4,t6,t8,f12,f14
+# pair list gObjHits..gObjHitsEnd: append (t9, t3) / find (t9, t3) -> t7
+obj_hits_add: in t9=a0,t3=a1 ; preserve a0,a1,t3,t8,t9,f12,f14
+obj_hits_has: in t9=a0,t3=a1 ; out t7=ret ; preserve a0,a1,t3,t8,t9,f12,f14
+# entry in t9 (gObjects entries)
+obj_check_mars_fail: in t9=a0 ; preserve a0,a1,t8,t9,f12,f14
+obj_mark_part_gone: in t9=a0,t3=a1 ; preserve a1,t0,t1,t2,t3,t4,t5,t6,t7,t9,f12,f14
+obj_spawn_people: in t9=a0 ; preserve a0,a1,t3,t5,t9,f12,f14
+obj_check_destroyed: in t9=a0 ; preserve a0,a1,t3,t5,t9,f12,f14
+# util_rand_range(a0, a1) -> s4; preserves everything else
+obj_rand_range: in a0=a0,a1=a1 ; out s4=ret ; preserve t0,t1,t4,t5,t6,t7,t9
+# entry t9, object v1; preserves everything
+obj_start_emitter: in t9=a0,v1=a1 ; preserve a0,t3,t5,t9
+# vehicle block in gp (varies by caller, so an argument)
+obj_set_full_damage: in gp=a0 ; preserve a0,a1,t6,t8,f12,f14
+# bit t8, flag gp (a value) -> t2; t7 = 100 only when t2 = 1
+obj_full_damage_rule: in t8=a0,gp=a1,t7=*a2 ; out t2=ret,t7=*a2 ; preserve t8,t9
+# part id v0 of entry t9 blocked? -> t3 (0 = blocked); v0 is left doubled on one path
+obj_part_exposed: in v0=a0,t9=a1 ; out t3=ret ; preserve t2,t4,t7,t8,t9
+# copy the 0x38-byte record v1 into the first gEffectQueue entry with byte 0x34 set
+obj_queue_effect: in v1=a0 ; preserve a0,a1,a2,a3,t3,t5,t6,t7,t9
+# gfx in and out in v0
+obj_draw_fading_parts: in v0=a0 ; out v0=ret ; preserve a0,a1,a2,a3,f12,f14
+# 64-bit command in t4 (in and out); the C takes/returns u64 (a0:a1 / v0:v1), only the low word is mapped
+obj_fade_substitute_cmd: in t4=a1 ; out t4=v1 ; preserve a0,a1,a2,a3,t1,t2,t3,t9
+# 4 box-corner vertices at v1 + 0x9E0 for entry t9
+obj_set_sink_quad: in v1=a0,t9=a1 ; preserve t3,t9
+# two gfx pointers in and out in a0/a1 (C: through pointers); changes s0-s5
+obj_draw_toppling_parts: in a0=*a0,a1=*a1 ; out a0=*a0,a1=*a1 ; clobbers s0-s5
+# entry t9, 1-based index t3 -> a2
+obj_part_outranked: in t9=a0,t3=a1 ; out a2=ret ; preserve t3,t9,f12,f14
+# 0 if a current-level gTriTargets entry at/after the player's z has a wanted id -> t4; saves t0, t1, t3, t5
+obj_tri_targets_ahead_done: out t4=ret ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t5,f12,f14
+# append fp's low byte to buffer A unless present; saves everything
+veh_contacts_add: in fp=a0 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t3,t4,t5,t6,t7,t8,t9,f12,f14
+# triangle s0's plane sign at gCollX/Y/Z >> 2 -> veh_clip_free_arc ring span (saves v0-t0)
+obj_tri_clip_free_arc: in s0=a0 ; preserve v0,v1,a0,a1,a2,a3,t0,t3,t4,t5,t6,t9,f12,f14
+# parts of entry t9 fall when their supports' weights drop below a threshold (saves t3-t7, s0-s7)
+obj_drop_unsupported_parts: in t9=a0 ; preserve a0,a1,t3,t4,t5,t6,t7,t9,f12,f14
+# debris for part t3 of entry t9 (level t5, info v0 = e->info, obj v1 passed on when no record is made); saves everything
+obj_spawn_random_effects: in t9=a0,t3=a1,t5=a2,v0=a3,v1=stack0 ; preserve v0,v1,a0,a1,a2,a3,t3,t5,t6,t7,t9,f12,f14
+# one debris record for part a3 of entry v0; saves everything
+obj_spawn_random_landing_effect: in v0=a0,a3=a1 ; preserve v0,v1,a0,a1,a2,a3,t6,t7,f12,f14
+# damage for part t3 of entry t9: value t7, rule bit t8 / key fp, flag/divisor gp (values) -> t7 (saves v0-t4)
+obj_calc_damage: in t3=a0,t7=a1,t8=a2,t9=a3,gp=stack0,fp=stack1 ; out t7=ret ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t8,t9,f12,f14
+# entry t9's conditional display list for part t3 in a gFadingParts slot; saves everything
+obj_start_part_fade: in t3=a0,t9=a1 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9,f12,f14
+# rising debris: move + draw into gfx v0 (returned advanced in v0)
+obj_draw_sinking_part: in v0=a0 ; out v0=ret ; preserve v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,f12,f14
+# start the rising debris for part t3 of entry t9; saves everything
+obj_start_sinking_part: in t3=a0,t9=a1 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9,f12,f14
+# blast at (t3, t4, t5) radius a1, amount t6 -> obj_add_delayed_damage per part; saves what it uses
+obj_blast_damage: in t3=a0,t4=a1,t5=a2,a1=a3,t6=stack0 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,t9,f12,f14
+# break off part t3 of entry t9 at level t5 (obj_spawn_random_effects or its 0x38-byte records); saves v0-a1
+obj_spawn_break_effects: in t9=a0,t3=a1,t5=a2 ; preserve v0,v1,a0,a1,t3,t5,t9
+# debris records of part a3+1 of entry v0 (obj_spawn_random_landing_effect or matching records); saves v0-a1, a3
+obj_spawn_landing_effects: in v0=a0,a3=a1 ; preserve v0,v1,a0,a1,a3
+# phase D (wt-g2): moving-part matrix of object v0, part offset a3 (2 * index), lift s6 -> pool address - 0x80000000 in s5
+obj_falling_part_mtx: in v0=a0,a3=a1,s6=a2 ; out s5=ret ; preserve a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,t8 ; clobbers s5
+# phase D (wt-g2): vehicle id t8 vs object t9's triangle s0 through the gVehPartSpheres spheres: damage, collapse (saves t3-t7, s0-s4, gp, fp)
+obj_hit_tri: in t8=a0,t9=a1,s0=a2 ; preserve t3,t4,t5,t6,t7,t8,t9 ; clobbers f20,f22,f24,f26,f28
+# sphere (v0, v1, a0) radius a1 (>> 2) vs object t3's triangles for vehicle t8 (saves v0-a2, t3, t4); s0-s4, f20-f28 left changed
+obj_collide_sphere: in v0=a0,v1=a1,a0=a2,a1=a3,t3=stack0,t8=stack1 ; preserve v0,v1,a0,a1,a2,t3,t4,t8 ; clobbers s0,s1,s2,s3,s4,f20,f22,f24,f26,f28
+# collision pass of vehicle t8, record gp (varies by caller, so an argument); saves a2-t5, t7, s0, s2, t8
+obj_collide_vehicle: in t8=a0,gp=a1 ; preserve a2,a3,t0,t1,t2,t3,t4,t5,t7,t8 ; clobbers s1,s3,s4,f20,f22,f24,f26,f28
+
+# --- 89250 ---
+# ground height under (a0, a2) near a1 via three triangle scans; ABI apart from leaving f20-f28 changed
+coll_ground_height: in a0=a0,a1=a1,a2=a2 ; out v0=ret ; clobbers f20,f22,f24,f26,f28
+# heading (v0, a0) -> (a2, t0) via the arcsine, then veh_clip_free_arc(angle +- 0x400); saves v0-t0, t7, s0, fp
+coll_block_toward: in v0=a0,a0=a1,a2=a2,t0=a3 ; preserve v0,v1,a0,a1,a2,a3,t0,t7,s0
+# phase D (wt-g2): impact of gCollX..F8 radius a0 (damage a1) on the objects; o32 apart from f20-f28 (triangle tests)
+coll_probe_objects: clobbers f20,f22,f24,f26,f28
+# sphere (v0, v1, a0) radius a1 (>> 2) vs object t3's triangles; hit flag in and out in fp (saves v0-a2, t3, t4)
+coll_probe_object_tris: in v0=a0,v1=a1,a0=a2,a1=a3,t3=stack0,fp=stack1 ; out fp=ret ; preserve v0,v1,a0,a1,a2,t3,t4 ; clobbers s0,s1,s2,s3,s4,f20,f22,f24,f26,f28
+# impact damage fp to object t9's part of triangle s0; saves every register
+coll_damage_object_part: in t9=a0,s0=a1,fp=a2 ; preserve v0,v1,a0,a1,a2,a3,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9
+# vehicle t4's hit spheres vs (v0, v1, a0) radius a1 -> s4 (0/1); t5 left = -1 (its caller's constant); saves v0-t0, t6, t7, s0, s1
+coll_probe_vehicle_spheres: in v0=a0,v1=a1,a0=a2,a1=a3,t4=stack0 ; out s4=ret ; preserve v0,v1,a0,a1,a2,a3,t0,t3,t4,t6,t7 ; clobbers s4
+
+# --- hd_front_end 1B100 ---
+# o32 wrapper of anim_update_model (saves s0-s7, gp, fp but no FPU register): f20/f30 as anim_update_model's asm leaves them
+fe_anim_update_model: clobbers f20,f30

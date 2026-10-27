@@ -1,0 +1,234 @@
+# Continuous integration: what can be built and checked without the ROM.
+#
+#   windows: the MSVC x64 port from a clean checkout (port/CMakeLists.txt, preset
+#            x64-release, with the committed port/inputs): bc.exe, bc_headless.exe,
+#            bc_loadcheck.exe and the player package; smoke tests without a ROM;
+#            the package's two zips as artifacts
+#   linux:   the Python tools' self-tests (the deflate among them), `make -C port
+#            norom-check` (typemap.txt against the game C, ptrcheck64, the clang
+#            alignment check), and IDO 5.3 as `make setup-ido` fetches it compiling
+#            every C file that has no GLOBAL_ASM (`make -C blastcorps compile-c`)
+#
+# No ROM, nothing derived from it and no secrets are used.  The matching build,
+# the NON_MATCHING build, runchecks, check-inputs, verify and verify-levels need
+# the ROM and stay local (blastcorps/port/README.md, "Continuous integration").
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows (MSVC x64 port)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: ultralib submodule
+        run: git submodule update --init lib/ultralib
+
+      # short paths outside the checkout: RT64's object paths must stay under
+      # 250 characters, and the downloads are cached on their own
+      - name: Paths
+        run: |
+          "BC_BUILD=$env:RUNNER_TEMP\b" >> $env:GITHUB_ENV
+          "BC_THIRDPARTY=$env:RUNNER_TEMP\thirdparty" >> $env:GITHUB_ENV
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # The downloads (RT64 at its pinned commit with its submodules, DXC, SDL2),
+      # keyed by what selects them: the URLs and SHA-256s in CMakeLists.txt,
+      # rt64_pin.cmake (the RT64 commit and patch list), fetch_rt64.cmake and
+      # the RT64 patches.
+      - name: Third-party cache key
+        id: tpkey
+        run: |
+          $p = "blastcorps/port"
+          $lines = Select-String -Path "$p/CMakeLists.txt" -Pattern 'BC_RT64_COMMIT|https://|^\s+[0-9a-f]{64}\)' |
+            ForEach-Object { $_.Line.Trim() }
+          $text = ($lines -join "`n") + "`n" + (Get-Content -Raw "$p/cmake/rt64_pin.cmake") +
+            "`n" + (Get-Content -Raw "$p/cmake/fetch_rt64.cmake")
+          foreach ($f in Get-ChildItem "$p/rt64/patches" -Filter *.patch | Sort-Object Name) {
+            $text += "`n" + $f.Name + " " + (Get-FileHash $f.FullName -Algorithm SHA256).Hash
+          }
+          $sha = [System.Security.Cryptography.SHA256]::Create()
+          $h = -join ($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($text.Replace("`r", ""))) |
+            ForEach-Object { $_.ToString("x2") })
+          "key=thirdparty-v1-$h" >> $env:GITHUB_OUTPUT
+
+      - name: Third-party cache (restore)
+        id: tpcache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.BC_THIRDPARTY }}
+          key: ${{ runner.os }}-${{ steps.tpkey.outputs.key }}
+
+      # VsDevCmd.bat's environment for the later steps (what a "x64 Native Tools
+      # Command Prompt" has: cl, link, the Windows SDK, CMake and Ninja)
+      - name: Visual Studio x64 environment
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath
+          if (-not $vs) { throw "no Visual Studio with the x64 C++ tools" }
+          "Visual Studio: $vs"
+          $bat = Join-Path $env:RUNNER_TEMP "vsenv.bat"
+          "@call `"$vs\Common7\Tools\VsDevCmd.bat`" -arch=amd64 -host_arch=amd64 -no_logo`r`n" +
+            "@if errorlevel 1 exit /b 1`r`n@set`r`n" | Set-Content -Encoding ascii -NoNewline $bat
+          $vars = & cmd.exe /d /c $bat
+          if ($LASTEXITCODE) { throw "VsDevCmd.bat failed" }
+          $n = 0
+          foreach ($l in $vars) {
+            if ($l -notmatch '^([^=]+)=(.*)$') { continue }
+            $name, $value = $Matches[1], $Matches[2]
+            if ([Environment]::GetEnvironmentVariable($name) -eq $value) { continue }
+            if ($name -eq "Path") {
+              # the new folders, through GITHUB_PATH (each line goes in front: reversed keeps VS's order)
+              $old = $env:Path -split ";"
+              $new = @($value -split ";" | Where-Object { $_ -and $old -notcontains $_ })
+              [array]::Reverse($new)
+              $new | ForEach-Object { $_ >> $env:GITHUB_PATH }
+              "PATH: $($new.Count) folders added"
+            } else {
+              "$name=$value" >> $env:GITHUB_ENV
+              $n++
+            }
+          }
+          "$n variables set"
+
+      - name: Tools
+        run: |
+          (Get-Command cl.exe).Source
+          cmake --version | Select-Object -First 1
+          "ninja $(ninja --version)"
+          python --version
+          git --version
+
+      - name: Configure (preset x64-release)
+        working-directory: blastcorps/port
+        run: >
+          cmake --preset x64-release -B "${{ env.BC_BUILD }}"
+          "-DBC_THIRDPARTY=${{ env.BC_THIRDPARTY }}"
+          "-DPython3_EXECUTABLE=${{ env.pythonLocation }}\python.exe"
+
+      # (right after the downloads, so a failing build still keeps them)
+      - name: Third-party cache (save)
+        if: steps.tpcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.BC_THIRDPARTY }}
+          key: ${{ runner.os }}-${{ steps.tpkey.outputs.key }}
+
+      - name: Build bc.exe and bc_headless.exe
+        run: cmake --build "${{ env.BC_BUILD }}"
+
+      - name: Build bc_loadcheck.exe
+        run: cmake --build "${{ env.BC_BUILD }}" --target bc_loadcheck
+
+      - name: Package (target dist)
+        run: cmake --build "${{ env.BC_BUILD }}" --target dist
+
+      - name: Smoke tests (no ROM)
+        working-directory: ${{ env.BC_BUILD }}
+        run: |
+          function Run($exe, $argv, $want) {
+            $p = Start-Process $exe -ArgumentList $argv -Wait -PassThru -NoNewWindow `
+              -RedirectStandardOutput smoke_out.txt -RedirectStandardError smoke_err.txt
+            Get-Content smoke_out.txt, smoke_err.txt | Select-Object -First 2
+            if ($p.ExitCode -ne $want) { throw "$exe $argv : exit code $($p.ExitCode), expected $want" }
+            "$exe $argv : exit code $want, as expected"
+          }
+          Run .\bc_headless.exe "--no-msgbox" 1                       # no ROM: usage
+          Run .\bc_headless.exe "missing.z64 --no-msgbox" 2           # a missing ROM: fatal error
+          Run .\bc.exe "--no-config --no-msgbox" 2                    # no ROM, no file dialog
+          Run .\bc.exe "missing.z64 --no-config --no-msgbox" 2
+
+      - name: Check the package (no game data)
+        id: dist
+        run: |
+          python blastcorps/port/dist/check_dist.py "${{ env.BC_BUILD }}\dist"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $z = Get-ChildItem "${{ env.BC_BUILD }}\dist\BlastCorps-port-*.zip"
+          "zip=$(($z | Where-Object Name -notlike '*-pdb.zip').FullName)" >> $env:GITHUB_OUTPUT
+          "pdb=$(($z | Where-Object Name -like '*-pdb.zip').FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Upload the player package
+        uses: actions/upload-artifact@v7
+        with:
+          name: BlastCorps-port-${{ github.sha }}
+          path: ${{ steps.dist.outputs.zip }}
+          if-no-files-found: error
+
+      - name: Upload the symbols (bc.pdb, map, syms)
+        uses: actions/upload-artifact@v7
+        with:
+          name: BlastCorps-port-${{ github.sha }}-pdb
+          path: ${{ steps.dist.outputs.pdb }}
+          if-no-files-found: error
+
+  linux:
+    name: Linux (ROM-free checks)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: ultralib submodule
+        run: git submodule update --init lib/ultralib
+
+      - name: Packages (clang 18, mingw-w64 binutils, gcc -m32)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends clang-18 binutils-mingw-w64-x86-64 gcc-multilib
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Python packages
+        run: python -m pip install pyelftools==0.33 unicorn==2.1.4
+
+      - name: Python tools compile
+        working-directory: blastcorps
+        run: python -m compileall -q port/tools port/dist tools_port
+
+      - name: eqcheck self-tests (tools_port/tests/test_eqcheck.py)
+        working-directory: blastcorps
+        run: python tools_port/tests/test_eqcheck.py
+
+      - name: version map self-tests (tools_port/tests/test_vermap.py, synthetic code)
+        working-directory: blastcorps
+        run: python tools_port/tests/test_vermap.py
+
+      - name: level/model file library self-tests (tools_port/bcfiles/test_bcfiles.py, synthetic data)
+        working-directory: blastcorps
+        run: python tools_port/bcfiles/test_bcfiles.py
+
+      - name: rename map (tools_port/tests/test_rename.py, rename.py --check)
+        working-directory: blastcorps
+        run: |
+          python tools_port/tests/test_rename.py
+          python tools_port/rename.py --check
+
+      - name: make -C port norom-check
+        working-directory: blastcorps
+        run: make -C port -j"$(nproc)" norom-check PYTHON=python
+
+      - name: IDO 5.3 (make setup-ido) and the C that needs no ROM (make -C blastcorps compile-c)
+        run: |
+          make setup-ido
+          make -C blastcorps -j"$(nproc)" VERSION=us.v11 compile-c PYTHON=python

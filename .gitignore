@@ -1,0 +1,26 @@
+# Nothing made from the ROM or by the build is committed.
+
+# set-up (`make setup`): the Python venv and IDO 5.3
+/.env
+/tools/ido5.3/
+
+# the baseroms and what is split, inflated or built from them
+*.z64
+*.bin
+*.ext
+*.ok
+*.i
+*.m2c
+asm/
+assets/
+build/
+build_nm/
+build_shift/
+expected/
+junk/
+blastcorps/nonmatchings/
+# splat's linker scripts and symbol files
+*.ld
+*auto*.txt
+
+__pycache__/

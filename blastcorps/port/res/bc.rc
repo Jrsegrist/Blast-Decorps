@@ -1,0 +1,37 @@
+/* bc.exe's icon and version resource (port/Makefile: windres). */
+#include <winver.h>
+#include "version.h"
+
+1 ICON "bc.ico"
+
+/* Common Controls 6 (themed file dialog and message boxes), per-monitor DPI awareness */
+1 24 "bc.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION 0, 6, 0, 0
+PRODUCTVERSION 0, 6, 0, 0
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+FILEFLAGS 0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE 0
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "Blast Corps decompilation project"
+            VALUE "FileDescription", "Blast Corps (native Windows port; needs your own ROM)"
+            VALUE "FileVersion", BC_VERSION
+            VALUE "InternalName", "bc"
+            VALUE "OriginalFilename", "bc.exe"
+            VALUE "ProductName", "Blast Corps native port"
+            VALUE "ProductVersion", BC_VERSION
+            VALUE "Comments", "Built from the decompiled game code; the game data comes from the player's ROM at run time."
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

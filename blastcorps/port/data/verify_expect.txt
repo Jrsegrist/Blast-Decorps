@@ -1,0 +1,14 @@
+# make -C port verify (tools/compare.py verify): numbers that must not get worse.
+# `key MIN` (at least), `key =N` (exactly), `key <=N` (at most); a `frames N` line starts
+# the expectations for a run of N frames (lines before any apply to every run).
+exe_exit =0
+cull_model_disagree =0
+emu_audio_lle_different =0
+sync_main_mismatches <=10
+
+frames 1500
+timeline_retrace 1500
+timeline_state 1500
+dumps_match 150
+dumps_strict_ok 150
+emu_audio_lle_identical 1000

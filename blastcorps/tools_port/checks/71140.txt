@@ -1,0 +1,156 @@
+# 71140 (vehicle module) port checks
+# backlash_exit_check: exit check, 1 iff bytes +0x96/+0x97/+0x98 of gBacklashState are all != 1
+backlash_exit_check: -n 300 --seed 0 --ret int --mem gBacklashState+0x96:3=bytes:0,1*2,2,0xFF
+backlash_exit_check: -n 100 --seed 1 --ret int --mem gBacklashState+0x96:3=onehot:1/1:1:bytes:0,2,0xFF
+# backlash_set_physics: gGravity = gLevelGravity * 2.0f; gBounceThreshold/Damping = 60, 2; gBacklashGrip = (C1A || C1B) ? 3200 : 9000
+backlash_set_physics: -n 300 --seed 0 --ret void --mem gLevelGravity:4=floats:-100000:100000 \
+    --mem gHeldL:2=bytes:0*2,1,2,0xFF --mem gBacklashGrip:2=rand
+backlash_set_physics: -n 200 --seed 1 --ret void \
+    --mem gLevelGravity:4=words:0,0x80000000,0x3F800000,0x7F800000,0xFF800000,0x7FC00000,0x00000001,0x7F7FFFFF,0xC2C80000 \
+    --mem gHeldL:2=bytes:0,1
+
+# backlash_save_state: return veh_serialize_state(a0, gBacklashState, gBacklashPos) (serialize vehicle state; v0 passed through)
+backlash_save_state: -n 300 --seed 0 --ret int --sig veh_serialize_state=a0,a1,a2 --stub-ret veh_serialize_state=rand \
+    --arg a0=choice:0,1,-1,0x80000000,0x7FFFFFFF,0x80B00000,0x80B00003,0x803FFFFF
+backlash_save_state: -n 50 --seed 1 --ret int --sig veh_serialize_state=a0,a1,a2 --stub-ret veh_serialize_state=0xB2 --arg a0=choice:0,0x80B00000
+# end to end with the callee run for real (asm vs its C rewrite): unaligned dst, random state
+backlash_save_state: -n 100 --seed 2 --ret int --follow veh_serialize_state --arg a0=choice:0x80B00000,0x80B00001,0x80B00002,0x80B00003,0x80B00005 --mem 0x80B00000:0x100=rand \
+    --mem gBacklashState:0xA6=rand --mem gBacklashPos:12=rand
+# backlash_load_state: veh_deserialize_state(a0, gBacklashState, gBacklashPos) (restore vehicle state)
+backlash_load_state: -n 300 --seed 0 --ret void --sig veh_deserialize_state=a0,a1,a2 \
+    --arg a0=choice:0,1,-1,0x80000000,0x7FFFFFFF,0x80B00000,0x80B00003,0x803FFFFF
+backlash_load_state: -n 100 --seed 1 --ret void --follow veh_deserialize_state --arg a0=choice:0x80B00000,0x80B00001,0x80B00002,0x80B00003,0x80B00005 --mem 0x80B00000:0x100=rand \
+    --mem gBacklashState:0xA6=rand --mem gBacklashPos:12=rand
+
+# backlash_add_tyre_trail: tyre trail ($gp = gBacklashState), a/b = 40 -+ round(|gBacklashLean - 0.5| * 40) by side of 0.5.
+# trail_add's args compared at their declared widths (--conv), stack args included.
+backlash_add_tyre_trail: -n 400 --seed 0 --ret void --arg gp=sym:gBacklashState \
+    --conv 'trail_add: in a0=a0:1,a1=a1,a2=a2:2,a3=a3:2,stack0=stack0:2,stack1=stack1:2,stack2=stack2,stack3=stack3,stack4=stack4:2,stack5=stack5:1,stack6=stack6:1,stack7=stack7:1,stack8=stack8:1' \
+    --mem gBacklashState+0x99:1=bytes:0,1,0x80 \
+    --mem gBacklashState+0x98:1=bytes:0*3,1,2 --mem gBacklashState+0x50:1=bytes:0,1,2*2,3,4,0x80,0xFF --mem gBacklashState+0x9B:1=bytes:0*4,1,0x80 \
+    --mem gBacklashState+0x1C=int --mem gBacklashState+0x4E:2=int:0:0xFFFF --mem gBacklashPos=int --mem D_803EEB40=int \
+    --mem gBacklashLean:4=floats:-10:10
+# trail always drawn: balance at/near 0.5 (0.5, next floats up/down), 0, 1, -0.5, 1.5, 3.2; extreme positions
+backlash_add_tyre_trail: -n 300 --seed 1 --ret void --arg gp=sym:gBacklashState \
+    --conv 'trail_add: in a0=a0:1,a1=a1,a2=a2:2,a3=a3:2,stack0=stack0:2,stack1=stack1:2,stack2=stack2,stack3=stack3,stack4=stack4:2,stack5=stack5:1,stack6=stack6:1,stack7=stack7:1,stack8=stack8:1' \
+    --mem gBacklashState+0x99:1=1 --mem gBacklashState+0x98:1=0 --mem gBacklashState+0x50:1=bytes:0,2 --mem gBacklashState+0x9B:1=0 \
+    --mem gBacklashState+0x1C=choice:0,-1,0x7FFFFFFF,0x80000000 --mem gBacklashState+0x4E:2=halves:0,0x7FFF,0x8000,0xFFFF \
+    --mem gBacklashPos=choice:0,-1,0x80000000 --mem D_803EEB40=choice:0,-1,0x7FFFFFFF \
+    --mem gBacklashLean=words:0x3F000000*3,0x3F000001,0x3EFFFFFF,0,0x80000000,0x3F800000,0xBF000000,0x3FC00000,0x404CCCCD,0x3F0CCCCD,0x3EE66666
+backlash_add_tyre_trail: -n 300 --seed 2 --ret void --arg gp=sym:gBacklashState \
+    --conv 'trail_add: in a0=a0:1,a1=a1,a2=a2:2,a3=a3:2,stack0=stack0:2,stack1=stack1:2,stack2=stack2,stack3=stack3,stack4=stack4:2,stack5=stack5:1,stack6=stack6:1,stack7=stack7:1,stack8=stack8:1' \
+    --mem gBacklashState+0x99:1=1 --mem gBacklashState+0x98:1=0 --mem gBacklashState+0x50:1=0 --mem gBacklashState+0x9B:1=0 \
+    --mem gBacklashLean:4=floats:0.3:0.7
+# backlash_steer_rate: s3 (-> v0) = round_nearest(speed(+0x76) / (bytes +0x96/7/8 any == 1 ? 6.0 : gBacklashSteerRateDiv)); $gp = gBacklashState
+backlash_steer_rate: -n 300 --seed 0 --arg gp=sym:gBacklashState --mem gBacklashState+0x96:3=bytes:0,1,2,0xFF*3 \
+    --mem gBacklashState+0x76:2=int:0:0xFFFF
+backlash_steer_rate: -n 300 --seed 1 --arg gp=sym:gBacklashState --mem gBacklashState+0x96:3=bytes:0*3,1,2*3 \
+    --mem gBacklashSteerRateDiv=words:0x40000000,0x40800000,0x3F000000,0x40C00000 \
+    --mem gBacklashState+0x76:2=halves:0,1,2,3,5,6,9,15,0x7FFF,0x8000,0xFFFD,0xFFF7,0xFFFF,0xFFFE
+backlash_steer_rate: -n 300 --seed 2 --arg gp=sym:gBacklashState --mem gBacklashState+0x96:3=bytes:0,1,2 \
+    --mem gBacklashSteerRateDiv:4=floats:0.25:40 --mem gBacklashState+0x76:2=int:0:0xFFFF
+# backlash_lean_limit: f2 (-> f0) = 0.5 +- |speed(+0x76)| / 240 * 0.5 (+ when s2 (-> a0) != 0); $gp = gBacklashState
+backlash_lean_limit: -n 300 --seed 0 --arg gp=sym:gBacklashState --arg s2=choice:0*2,1,-1,0x100,0x80000000 \
+    --mem gBacklashState+0x76:2=int:0:0xFFFF
+backlash_lean_limit: -n 200 --seed 1 --arg gp=sym:gBacklashState --arg s2=choice:0,1 \
+    --mem gBacklashState+0x76:2=halves:0,1,0xFFFF,240,0xFF10,480,0x7FFF,0x8000,0x8001,120
+
+# zone lookup wrapper (id 5 at gBacklashPos): veh_zone_alpha stubbed (scan registers mapped through r)
+backlash_zone_alpha: -n 200 --mem gBacklashPos:12=rand
+backlash_zone_alpha: -n 300 --seed 1 --follow veh_zone_alpha,math_dist3 --mem gBacklashPos=int:-100:100 --mem gBacklashPos+4=int:-100:100 \
+    --mem gBacklashPos+8=int:-100:100 --mem gAlphaZonesEnd=rel:gAlphaZones+0x24*int:0:4 --mem gAlphaZones:0x90=rand \
+    --mem gAlphaZones*0x24:4=int:-100:100 --mem gAlphaZones+4*0x24:4=int:-100:100 --mem gAlphaZones+8*0x24:4=int:-100:100 \
+    --mem gAlphaZones+0xC*0x24:4=choice:1,10,50,100,200,1000 --mem gAlphaZones+0x10*0x24:4/1=choice:0,1,1,2 \
+    --mem gAlphaZones+0x12*0x24:4/1=choice:0,1,1,1 --mem gAlphaZones+0x13*0x24:4/1=choice:0,1,2,3 \
+    --mem gAlphaZones+0x14*0x24:4/1=choice:0,0,5,0xFF --mem gAlphaZones+0x15*0x24:4/1=choice:5,5,0x30 \
+    --mem gAlphaZones+0x16*0x24:4/1=choice:5,0x31 --mem gAlphaZones+0x17*0x24:4/1=choice:5,0x32 \
+    --mem gDefaultVehAlpha:1=choice:0,1,0x80,0xFF,0x40 --mem gVehicles+0x5C*0x74:3=choice:0x100,0x200 \
+    --mem gVehicles+0x1B8=5 --mem gVehicles+0x60*0x74:4=int
+
+# ---- phase D (wave 3, wt-f6) ----
+# backlash_enter: enter vehicle 5: gBacklashState[0x99] = 0; channel setters on gBacklashAnim (1, 2 + 0.5f, 4, 5), the
+# gBacklashYawTexAnimA / gBacklashYawTexAnimB entries' setters, gCamDistance / gCamHeightBase = 3400, 300, veh_start_engine_sound(&gBacklashAnim, 5). `clobbers gp`.
+backlash_enter: -n 100 --seed 0 --ret void --sig veh_start_engine_sound=a0,a1 \
+    --mem gBacklashState+0x99:1=bytes:1,0xFF --mem gCamDistance:2=rand --mem gCamHeightBase:2=rand
+# setters run for real: gBacklashYawTexAnimA in one of entries 0..14 of gTexAnims, gBacklashYawTexAnimB in entry 15 (or entry 0
+# with gBacklashYawTexAnimA later); veh_start_engine_sound stubbed
+backlash_enter: -n 200 --seed 1 --ret void --sig veh_start_engine_sound=a0,a1 \
+    --follow anim_play,anim_set_frame,anim_set_speed,anim_set_reverse,anim_set_loop_mode,anim_tex_play,anim_tex_set_speed,anim_tex_set_reverse,anim_tex_set_loop_mode,anim_tex_find \
+    --mem gBacklashState+0x99:1=rand --mem gCamDistance:2=rand --mem gCamHeightBase:2=rand --mem gBacklashAnim:0x90=rand \
+    --mem gTexAnims:0x168=onehot:0x18:0x802C2208:rand --mem gTexAnims+0x168=0x802C226C
+backlash_enter: -n 100 --seed 2 --ret void --sig veh_start_engine_sound=a0,a1 \
+    --follow anim_play,anim_set_frame,anim_set_speed,anim_set_reverse,anim_set_loop_mode,anim_tex_play,anim_tex_set_speed,anim_tex_set_reverse,anim_tex_set_loop_mode,anim_tex_find \
+    --mem gBacklashState+0x99:1=rand --mem gCamDistance:2=rand --mem gCamHeightBase:2=rand --mem gBacklashAnim:0x90=rand \
+    --mem gTexAnims:0x180=rand --mem gTexAnims=0x802C226C --mem gTexAnims+0x48=0x802C2208
+# backlash_leave: leave vehicle 5: speed (+0x76) = 0, veh_sync_buffers(gBacklashMtxA, gBacklashMtxB, 0x800), veh_stop_engine_sounds()
+backlash_leave: -n 100 --seed 0 --ret void --sig veh_sync_buffers=a0,a1,a2 --sig veh_stop_engine_sounds= \
+    --mem gBacklashState+0x76:2=rand --mem gBacklashMtxA=int --mem gBacklashMtxB=int
+backlash_leave: -n 30 --seed 1 --ret void --follow veh_sync_buffers --sig veh_stop_engine_sounds= --heap 0x800 --heap 0x800 \
+    --mem gBacklashState+0x76:2=rand --mem gBacklashMtxA=rel:heap0 --mem gBacklashMtxB=rel:heap1
+# backlash_update_anims: vehicle 5 per-frame update ($gp = gBacklashState). Heading + camera yaw (cvt.w.s) - gBacklashYawBase folded to
+# 0..0x7FF, / 0x55 -> two anim_tex_set_frame entries; balance gBacklashLean (buttons C15/C16 vs backlash_lean_limit limits, else towards
+# 0.5) -> channel 5; gBacklashTilt (veh_near_top_speed gear check, C23 / C1C, else towards 0.5) -> channel 4; speed -> channel 1
+# and veh_set_engine_level; level gBacklashSteerAnim (+-5 / 10 towards 50) -> channel 2. veh_near_top_speed leaves f0 alone (the asm keeps
+# gBacklashTilt in f0 across it; its conventions line lacks f0, hence --stub-preserve).
+backlash_update_anims: -n 400 --seed 0 --ret void --arg gp=sym:gBacklashState --stub-preserve veh_near_top_speed=f0 \
+    --stub-ret veh_near_top_speed=choice:0*2,1 --stub-ret backlash_lean_limit=float:0:1 \
+    --mem gCamHeading:4=floats:0:360 --mem gBacklashState+0x4C:2=int:0:0xFFFF --mem gBacklashYawBase:2=int:-0x1000:0x1000 \
+    --mem gBacklashLean:4=floats:-0.5:1.5 --mem gBacklashTilt:4=floats:-0.5:1.5 \
+    --mem gHeldLeft:1=bytes:0*2,1 --mem gHeldRight:1=bytes:0*2,1 --mem gHeldA:1=bytes:0,1 --mem gHeldBOrZ:1=bytes:0,1 \
+    --mem gBacklashSteerAnim:1=bytes:0,4,5,9,0x27,0x28,0x29,0x31,0x32,0x33,0x3B,0x3C,0x3D,0x5F,0x60,0x64,0x65,0xFF \
+    --mem gBacklashState+0x76:2=halves:0,1,13,14,15,0xFFFF,0xFFF2,0xFFF1,0x8000,0x7FFF,0x1234
+# fold boundaries (sum 0x1000, difference 0 / -1 / 0x800) and exact 0.5 / limit ties; step constants varied
+backlash_update_anims: -n 400 --seed 1 --ret void --arg gp=sym:gBacklashState --stub-preserve veh_near_top_speed=f0 \
+    --stub-ret veh_near_top_speed=choice:0,1 --stub-ret backlash_lean_limit=float:0.25:0.75 \
+    --mem gCamHeading:4=words:0,0x43B40000,0x43340000,0x3F800000,0x42B40000,0x3EB40000,0x3F340000 \
+    --mem gBacklashState+0x4C:2=halves:0,0xFFF,0x1000,0x7FF,0x800,0x801,0xFFFF,0x55,0x54 \
+    --mem gBacklashYawBase:2=halves:0,1,0x800,0x7FF,0xFFFF,0x1000,0xF000 \
+    --mem gBacklashLean:4=words:0x3F000000,0x3EFFFFFF,0x3F000001,0,0x3F800000,0x3E800000,0x3F400000,0x7FC00000 \
+    --mem gBacklashTilt:4=words:0x3F000000,0x3EFFFFFF,0x3F000001,0,0x3F800000,0x3C23D70A,0x3F7AE148,0x7FC00000 \
+    --mem gBacklashLeanLeftStep:4=floats:0:0.3 --mem gBacklashLeanRightStep:4=floats:0:0.3 --mem gBacklashLeanReturnStep:4=choice:0x3C23D70A,0x3D800000 \
+    --mem gBacklashTiltDownStep:4=floats:0:0.3 --mem gBacklashTiltUpStep:4=floats:0:0.3 --mem gBacklashTiltReturnStep:4=choice:0x3C23D70A,0x3D800000 \
+    --mem gHeldLeft:1=bytes:0,1 --mem gHeldRight:1=bytes:0,1 --mem gHeldA:1=bytes:0,1 --mem gHeldBOrZ:1=bytes:0,1 \
+    --mem gBacklashSteerAnim:1=int:0:0xFF --mem gBacklashState+0x76:2=int:0:0xFFFF
+# backlash_lean_limit, veh_near_top_speed and the channel setters run for real (random gear table at +0x78)
+backlash_update_anims: -n 300 --seed 2 --ret void --arg gp=sym:gBacklashState \
+    --follow backlash_lean_limit,veh_near_top_speed,anim_set_frame,anim_set_speed,anim_set_reverse \
+    --mem gBacklashAnim:0x90=rand --mem gBacklashState+0x50:1=int:0:6 --mem gBacklashState+0x78:0x2A=halves:0,10,20,30,0xFFF6,0x8000 \
+    --mem gCamHeading:4=floats:0:360 --mem gBacklashState+0x4C:2=int:0:0xFFFF --mem gBacklashYawBase:2=int:-0x1000:0x1000 \
+    --mem gBacklashLean:4=floats:-0.5:1.5 --mem gBacklashTilt:4=floats:-0.5:1.5 \
+    --mem gHeldLeft:1=bytes:0*2,1 --mem gHeldRight:1=bytes:0*2,1 --mem gHeldA:1=bytes:0,1 --mem gHeldBOrZ:1=bytes:0,1 \
+    --mem gBacklashSteerAnim:1=int:0:0xFF --mem gBacklashState+0x76:2=halves:0,5,10,15,20,25,0xFFF6,0xFFEC,0x7FFF,0x8000,0x1234
+
+# ---- wt-v5 ----
+# backlash_build_model: model matrices/points of vehicle 5. Stubbed mtx_build_model doesn't leave s2 = the matrix as the asm one
+# does, so the stubbed run skips veh_place_parts's s2 slot; the --follow run compares it.
+backlash_build_model: -n 200 --arg gp=sym:gBacklashState --heap 0x200=hex:00000100000001400000018000000000000000000000004000000000 \
+    --heap 0x400 --mem gBacklashModel=rel:heap0 --mem @heap0+0x44=0x80 --mem gBacklashMtxA=rel:heap1 --mem gBacklashMtxB=rel:heap1+0x200 \
+    --mem gBufferIndex:1=choice:0,1 --mem gBacklashPos:12=rand --mem gBacklashState+0x4C:2=rand --mem gModelRot:6=rand \
+    --sig veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2,*stack3+0x8,*stack3+0xC,*stack3+0x14
+backlash_build_model: -n 100 --seed 1 --follow mtx_build_model --arg gp=sym:gBacklashState \
+    --heap 0x200=hex:00000100000001400000018000000000000000000000004000000000 \
+    --heap 0x400 --mem gBacklashModel=rel:heap0 --mem @heap0+0x44=0x80 --mem gBacklashMtxA=rel:heap1 --mem gBacklashMtxB=rel:heap1+0x200 \
+    --mem gBufferIndex:1=choice:0,1 --mem gBacklashPos:12=rand --mem gBacklashState+0x4C:2=rand --mem gModelRot:6=rand
+# backlash_ride_attach / backlash_ride_follow: path-following setup / step (FP state chained through r / f; conventions.txt)
+backlash_ride_attach: -n 300 --arg a3=int:0:0x200 --mem gBacklashPos:12=rand --mem gBacklashState+0x4C:0x2A=rand --stub-ret veh_deck_to_local.t3=int --stub-ret veh_deck_to_local.t4=int --stub-ret veh_wheel_offset=int:-500:500 --stub-ret veh_wheel_offset.t6=int:-500:500 --sig veh_wheel_offset=a0,a1,a2
+backlash_ride_follow: -n 300 --arg a3=int:0:0x200 --mem gBacklashPos:12=rand --mem gBacklashState+0x4C:0x2A=rand --mem gBounceSound:1=rand --stub-ret veh_follow_heading=int --stub-ret veh_follow_heading.s3=int --stub-ret veh_deck_to_world.t3=int --stub-ret veh_deck_to_world.t4=int --sig backlash_build_model= --sig backlash_set_physics= --sig veh_set_record=a0,a1,a2,a3,stack0
+backlash_ride_follow: -n 200 --seed 1 --arg a3=int:0:0x200 --mem gBacklashPos:12=rand --mem gBacklashState+0x4C:0x2A=rand --mem gBounceSound:1=rand --stub-ret veh_follow_heading=int --stub-ret veh_follow_heading.s3=int --stub-ret veh_deck_to_world.t3=int --stub-ret veh_deck_to_world.t4=int --sig veh_set_record=a0,a1,a2,a3,stack0 --heap 0x200=hex:00000100000001400000018000000200000000000000004000000000 --heap 0x400 --mem gBacklashModel=rel:heap0 --mem @heap0+0x44=0x80 --mem gBacklashMtxA=rel:heap1 --mem gBacklashMtxB=rel:heap1+0x200 --mem gBufferIndex:1=bytes:0,1 --mem gModelRot:6=rand --follow backlash_build_model,backlash_set_physics,mtx_build_model --sig veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2 --sig veh_points_transform=a0,a1,a2,a3,*stack0,*stack0+0x4 --mem gHeldL:1=bytes:0,1 --mem gHeldR:1=bytes:0,1
+# backlash_reground: place vehicle 5 on the ground. veh_reground's fp (stack4) and FP state are the C caller's leftover
+# registers (0 in C, not compared; FIDELITY AUDIT).
+backlash_reground: -n 200 --mem gBacklashPos:12=rand --mem gBacklashState+0x4C:0x2A=rand --sig veh_reground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack5 --sig veh_set_record=a0,a1,a2,a3,stack0 --sig backlash_build_model=
+backlash_reground: -n 200 --seed 1 --mem gBacklashPos:12=rand --mem gBacklashState+0x4C:0x2A=rand --sig veh_reground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack5 --sig veh_set_record=a0,a1,a2,a3,stack0 --heap 0x200=hex:00000100000001400000018000000200000000000000004000000000 --heap 0x400 --mem gBacklashModel=rel:heap0 --mem @heap0+0x44=0x80 --mem gBacklashMtxA=rel:heap1 --mem gBacklashMtxB=rel:heap1+0x200 --mem gBufferIndex:1=bytes:0,1 --mem gModelRot:6=rand --follow backlash_build_model,mtx_build_model --sig veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2 --sig veh_points_transform=a0,a1,a2,a3,*stack0,*stack0+0x4
+
+# backlash_update: per-frame update of vehicle 5. Leaked-register slots (zone scan regs, veh_ground_contact's f14-f26,
+# backlash_build_model's chain inputs, fx_spawn's ignored words) are 0 in C and not compared (FIDELITY AUDIT).
+backlash_update: -n 400 --mem gBacklashState+0x4C:0x50=rand --mem gBacklashState+0x76:2=halves:0,1,0x4F,0x50,0x51,0xFFB1,0xFFB0,0xFFAF,0xFFFF,0x8000,0x7FFF --mem gBacklashState+0x99:1=bytes:0,1 --mem gBacklashState+0x9A:1=bytes:0*2,1 --mem gTurboPending:1=bytes:0,1 --mem gBacklashGrip:2=rand --mem gBacklashDeflecting:1=bytes:0,1 --mem gBacklashDeflectHeading:2=rand --mem gBacklashSmokeCooldown:1=bytes:0,1,2 --mem gBacklashHitSound:1=rand --mem gBufferIndex:1=bytes:0,1 --mem gBacklashMtxA=rand --mem gBacklashMtxB=rand --mem gBacklashPos:12=rand --mem gCollBlocked:1=bytes:0,1 --mem gLevelKind=choice:0x40,0,0x41 --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand --mem gCollVehicleAnim=rand --mem gBounceSound:1=rand --mem gCollHit:1=rand --stub-ret backlash_steer_rate=int --stub-ret veh_slope=float --stub-ret veh_move_along_heading=int --stub-ret veh_move_along_heading.t1=int --stub-ret veh_move_along_heading.s3=int --stub-ret mb_is_active=choice:0,1 --stub-ret fx_count_active=choice:0,3,4,5,-1 --stub-ret veh_free_arc_mid=int:0:0xFFF --stub-ret veh_turn_into_free_arc=int --stub-ret veh_turn_into_free_arc.a0=int:0:0xFFFF --stub-ret veh_step_heading=int --sig backlash_zone_alpha= --sig backlash_update_anims= --sig backlash_set_physics= --sig backlash_steer_rate= --sig veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12,*stack13 --sig mb_is_active= --sig mb_start=a0,a1,a2 --sig mb_stop= --sig backlash_add_tyre_trail= --sig fx_count_active= --sig fx_spawn=*a0,a1,a2,a3,stack0,stack1,stack2,stack8 --sig backlash_build_model= --sig veh_collide_spheres=a0,a1 --sig veh_collide_world=a0 --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= --sig obj_collide_vehicle=a0,a1 --sig veh_rollback=a0,a1,a2,a3,stack0,stack1,stack2,stack3 --sig veh_set_record=a0,a1,a2,a3,stack0 --sig snd_play=a0,a1:2,a2
+# collision hit: the obj_collide_vehicle stand-in sets gCollHit, driving the bounce path (speed -0x4F..0x4F -> +-0x50)
+backlash_update: -n 300 --seed 1 --mem gBacklashState+0x4C:0x50=rand --mem gBacklashState+0x76:2=halves:0,1,0x4F,0x50,0x51,0xFFB1,0xFFB0,0xFFAF,0xFFFF,0x8000,0x7FFF --mem gBacklashState+0x99:1=bytes:0,1 --mem gBacklashState+0x9A:1=bytes:0*2,1 --mem gTurboPending:1=bytes:0,1 --mem gBacklashGrip:2=rand --mem gBacklashDeflecting:1=bytes:0,1 --mem gBacklashDeflectHeading:2=rand --mem gBacklashSmokeCooldown:1=bytes:0,1,2 --mem gBacklashHitSound:1=rand --mem gBufferIndex:1=bytes:0,1 --mem gBacklashMtxA=rand --mem gBacklashMtxB=rand --mem gBacklashPos:12=rand --mem gCollBlocked:1=bytes:0,1 --mem gLevelKind=choice:0x40,0,0x41 --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand --mem gCollVehicleAnim=rand --mem gBounceSound:1=rand --mem gCollHit:1=rand --stub-ret backlash_steer_rate=int --stub-ret veh_slope=float --stub-ret veh_move_along_heading=int --stub-ret veh_move_along_heading.t1=int --stub-ret veh_move_along_heading.s3=int --stub-ret mb_is_active=choice:0,1 --stub-ret fx_count_active=choice:0,3,4,5,-1 --stub-ret veh_free_arc_mid=int:0:0xFFF --stub-ret veh_turn_into_free_arc=int --stub-ret veh_turn_into_free_arc.a0=int:0:0xFFFF --stub-ret veh_step_heading=int --sig backlash_zone_alpha= --sig backlash_update_anims= --sig backlash_set_physics= --sig backlash_steer_rate= --sig veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12,*stack13 --sig mb_is_active= --sig mb_start=a0,a1,a2 --sig mb_stop= --sig backlash_add_tyre_trail= --sig fx_count_active= --sig fx_spawn=*a0,a1,a2,a3,stack0,stack1,stack2,stack8 --sig backlash_build_model= --sig veh_collide_spheres=a0,a1 --sig veh_collide_world=a0 --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= --sig obj_collide_vehicle=a0,a1 --sig veh_rollback=a0,a1,a2,a3,stack0,stack1,stack2,stack3 --sig veh_set_record=a0,a1,a2,a3,stack0 --sig snd_play=a0,a1:2,a2 --model obj_collide_vehicle=func_802BE77C_hit.py
+# callees followed (zone lookup, setup leaf, speed divisor, model rebuild)
+backlash_update: -n 200 --seed 2 --mem gBacklashState+0x4C:0x50=rand --mem gBacklashState+0x76:2=halves:0,1,0x4F,0x50,0x51,0xFFB1,0xFFB0,0xFFAF,0xFFFF,0x8000,0x7FFF --mem gBacklashState+0x99:1=bytes:0,1 --mem gBacklashState+0x9A:1=bytes:0*2,1 --mem gTurboPending:1=bytes:0,1 --mem gBacklashGrip:2=rand --mem gBacklashDeflecting:1=bytes:0,1 --mem gBacklashDeflectHeading:2=rand --mem gBacklashSmokeCooldown:1=bytes:0,1,2 --mem gBacklashHitSound:1=rand --mem gBufferIndex:1=bytes:0,1 --mem gBacklashPos:12=rand --mem gCollBlocked:1=bytes:0,1 --mem gLevelKind=choice:0x40,0,0x41 --mem gPlayerX:12=rand --mem gPlayerSpeed:6=rand --mem gCollVehicleAnim=rand --mem gBounceSound:1=rand --mem gCollHit:1=rand --stub-ret veh_slope=float --stub-ret veh_move_along_heading=int --stub-ret veh_move_along_heading.t1=int --stub-ret veh_move_along_heading.s3=int --stub-ret mb_is_active=choice:0,1 --stub-ret fx_count_active=choice:0,3,4,5,-1 --stub-ret veh_free_arc_mid=int:0:0xFFF --stub-ret veh_turn_into_free_arc=int --stub-ret veh_turn_into_free_arc.a0=int:0:0xFFFF --stub-ret veh_step_heading=int --sig backlash_update_anims= --sig veh_ground_contact=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5,stack6,stack7,stack8,stack9,stack10,stack11,*stack12,*stack13 --sig mb_is_active= --sig mb_start=a0,a1,a2 --sig mb_stop= --sig backlash_add_tyre_trail= --sig fx_count_active= --sig fx_spawn=*a0,a1,a2,a3,stack0,stack1,stack2,stack8 --sig veh_collide_spheres=a0,a1 --sig veh_collide_world=a0 --sig veh_prepare_escape=a0 --sig veh_free_arc_mid= --sig obj_collide_vehicle=a0,a1 --sig veh_rollback=a0,a1,a2,a3,stack0,stack1,stack2,stack3 --sig veh_set_record=a0,a1,a2,a3,stack0 --sig snd_play=a0,a1:2,a2 --heap 0x200=hex:00000100000001400000018000000200000000000000004000000000 --heap 0x400 --mem gBacklashModel=rel:heap0 --mem @heap0+0x44=0x80 --mem gBacklashMtxA=rel:heap1 --mem gBacklashMtxB=rel:heap1+0x200 --mem gModelRot:6=rand --mem gHeldL:1=bytes:0,1 --mem gHeldR:1=bytes:0,1 --mem gBacklashSteerRateDiv=choice:0x41200000,0x40C00000 --follow backlash_build_model,mtx_build_model,backlash_set_physics,backlash_steer_rate,backlash_zone_alpha --sig veh_zone_alpha=a0,a1,a2,a3 --sig veh_place_parts=a0,a1,a2,a3,stack0,stack1,stack2 --sig veh_points_transform=a0,a1,a2,a3,*stack0,*stack0+0x4
+
+# backlash_spawn: level setup of vehicle 5 (register inputs mapped in conventions.txt; fp reaches veh_init_ground, whose
+# FP-state slots are not compared)
+backlash_spawn: -n 300 --heap 0x200=hex:00000100000001400000018000000200000000000000004000000000 --mem @heap0+0x44=0x80 --arg s2=rel:heap0 --arg t7=int --arg s3=int --arg s0=int --arg s1=int --arg fp=int --mem gHeapPtr=int:0:0x7FFFE000 --mem gBacklashState:0xA4=rand --mem gBacklashPos:12=rand --mem gBacklashModel:12=rand --mem gBacklashTilt:16=rand --mem gCamHeading=floats:-720:720 --sig veh_init_ground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5 --sig veh_add_shadow=a0:1,a1,a2:2,a3:2 --sig backlash_update= --sig veh_reset_state=a0 --sig veh_widen_bands=a0
+# yaw boundaries: heading + yaw around 0x1000 and cvt.w.s ties (0.5 -> 0, 1.5 -> 2)
+backlash_spawn: -n 200 --seed 1 --heap 0x200=hex:00000100000001400000018000000200000000000000004000000000 --mem @heap0+0x44=0x80 --arg s2=rel:heap0 --arg t7=int --arg s3=int --arg s0=int --arg s1=int --arg fp=int --mem gHeapPtr=int:0:0x7FFFE000 --mem gBacklashState:0xA4=rand --mem gBacklashPos:12=rand --mem gBacklashModel:12=rand --mem gBacklashTilt:16=rand --mem gCamHeading=floats:-720:720 --sig veh_init_ground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5 --sig veh_add_shadow=a0:1,a1,a2:2,a3:2 --sig backlash_update= --sig veh_reset_state=a0 --sig veh_widen_bands=a0 --mem gCamHeading=choice:0x43B40000,0x43B3FFFF,0x3F000000,0x3F800000,0x40000000,0xBF000000,0x3EB40000,0x3F340000,0x3D340000,0x3E070000,0xBD340000 --mem gBacklashState+0x4C:2=halves:0,0xFFF,0xF000,0x1000,0x800
+backlash_spawn: -n 200 --seed 2 --heap 0x200=hex:00000100000001400000018000000200000000000000004000000000 --mem @heap0+0x44=0x80 --heap 0x2000 --arg s2=rel:heap0 --arg t7=int --arg s3=int --arg s0=int --arg s1=int --arg fp=int --mem gHeapPtr=rel:heap1 --mem gBacklashState:0xA4=rand --mem gBacklashPos:12=rand --mem gBacklashTilt:16=rand --mem gCamHeading=floats:-720:720 --sig veh_init_ground=a0,a1,a2,a3,stack0,stack1,stack2,stack3,stack4,stack5 --sig veh_add_shadow=a0:1,a1,a2:2,a3:2 --sig backlash_update= --follow veh_reset_state,mtx_copy_at,veh_widen_bands

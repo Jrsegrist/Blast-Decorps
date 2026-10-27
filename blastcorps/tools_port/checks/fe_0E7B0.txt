@@ -1,0 +1,86 @@
+# fe_0E7B0: hd_front_end 0E7B0.c (pfsHandler.c), the save thread fe_pak_thread (a loop that never returns).
+# osRecvMesg / osSendMesg are modelled on the real queues (tools_port/models/mesgqueue.py): the thread
+# takes the queued commands from gPakRequestQueue (messages in gPakRequestMesgs: cmd | arg1 << 8 | player << 16 |
+# reply << 24), gPakRetraceQueue always "delivers", replies go to pakToGameMessageQ, and the run ends when the thread
+# blocks on an empty command queue (or at the 60th osRecvMesg: a command that never settles loops).
+# Memory (queues, globals) and the calls are compared, registers are not (the run stops mid-loop).
+# gPreNmi stays 0 (otherwise the thread spins).
+
+# random commands 0..24 (0, 23, 24: "Nonsense"), every result branch, game-mode bits, Yoshi window test
+fe_pak_thread: -n 400 --model osRecvMesg=mesgqueue.py:recv --model osSendMesg=mesgqueue.py:send \
+    --stop-at osRecvMesg:60 --mem gPreNmi=0 \
+    --mem gPakRequestQueue+8=choice:1,2,3 --mem gPakRequestQueue+0xC=0 --mem gPakRequestQueue+0x10=8 --mem gPakRequestQueue+0x14=sym:gPakRequestMesgs \
+    --mem gPakRequestMesgs:32=rand --mem gPakRequestMesgs*4:8/1=choice:0,1 --mem gPakRequestMesgs+1*4:8/1=int:0:3 \
+    --mem gPakRequestMesgs+2*4:8/1=int:0:59 --mem gPakRequestMesgs+3*4:8/1=int:0:24 \
+    --mem gPakRetraceQueue:0x18=zero --mem gPakRetraceQueue+0x10=1 --mem gPakRetraceQueue+0x14=sym:gPakRetraceMesgs \
+    --mem pakToGameMessageQ=choice:0x80310BD0,0 --mem pakToGameMessageQ+8=0 --mem pakToGameMessageQ+0xC=0 --mem pakToGameMessageQ+0x10=8 \
+    --mem pakToGameMessageQ+0x14=sym:gPakReplyMesgs --mem gPakReplyMesgs:32=rand \
+    --mem gGameMode=int --mem gGameMode+4=choice:0,0x10E18000,0x8000,0x12345 --mem gNextGameMode=choice:0,0x200000 \
+    --mem gNextGameMode+4=int --mem gPakFullSlot:1=int:0:255 --mem gPakErrorWindow=rand --mem gPakErrorShown=rand \
+    --mem pakBusy:1=rand --mem gPakExtName:1=rand --mem yoshiState:2=rand --mem currentYoshiWindow:2=rand \
+    --stub-ret fe_pak_init_pak=choice:0,1,2,3,4,5,6,7,8,9,10,11,12,0x6E382,-1 \
+    --stub-ret fe_pak_create_file=choice:0,1,2,3,5,6,7,8,9,10,11,0x6E382 --stub-ret fe_pak_delete_file=choice:0,3,6,9,0x6E382,-1 \
+    --stub-ret fe_pak_delete_listed_file=choice:0,1,3,5,10,0x6E382 --stub-ret fe_pak_rw_player=choice:0,2,3,6,7,8,0x6E382 \
+    --stub-ret fe_pak_rw_times=choice:0,1,3,8,9,11,0x6E382 --stub-ret fe_pak_rw_eeprom_times=choice:0,2,4,6,7,10,0x6E382 \
+    --stub-ret fe_pak_rw_status=choice:0,3,5,8,11,0x6E382 --stub-ret osPfsFreeBlocks=choice:0,1,3,8,10 \
+    --stub-ret fe_pak_is_missing=choice:0,1,5 --stub-ret osEepromProbe=choice:0,1,8 --stub-ret fe_pak_get_file_state=choice:0,3,5,6 \
+    --stub-ret osPfsChecker=choice:0,2,3,7,11 --stub-ret fe_pak_put_semaphore=choice:0,1,6,9 \
+    --sig osSetEventMesg=a0,a1,a2 --sig cont_wait_read= --sig fe_pak_request_hook= --sig fe_pak_error_frame=a0 \
+    --sig fe_pak_init_pak= --sig fe_pak_is_missing= --sig fe_pak_create_file=a0:1 --sig fe_pak_delete_file=a0 --sig fe_pak_delete_listed_file=a0:1 \
+    --sig fe_pak_rw_player=a0:1,a1:1 --sig fe_pak_rw_times=a0:1,a1:1,a2:1 --sig fe_pak_rw_eeprom_times=a0:1,a1:1,a2:1 \
+    --sig fe_pak_rw_status=a0:1,a1:1,a2:1 --sig fe_pak_get_file_state=a0:1 --sig fe_pak_put_semaphore=a0:1,a2,a3 \
+    --sig osPfsFreeBlocks=a0,a1 --sig osPfsChecker=a0 --sig osEepromProbe=a0 --sig debug_printf=a0,a1,a2,a3
+# retries: commands whose results ask for another try (3: resend + 0x12, 6/10/11: tries, then 0x13 and
+# the Yoshi window from gPakErrorWindow), reply set, a full command queue for the resend
+fe_pak_thread: -n 300 --seed 1 --model osRecvMesg=mesgqueue.py:recv --model osSendMesg=mesgqueue.py:send \
+    --stop-at osRecvMesg:60 --mem gPreNmi=0 \
+    --mem gPakRequestQueue+8=choice:1,2,8 --mem gPakRequestQueue+0xC=choice:0,7 --mem gPakRequestQueue+0x10=8 \
+    --mem gPakRequestQueue+0x14=sym:gPakRequestMesgs --mem gPakRequestMesgs:32=rand --mem gPakRequestMesgs*4:8/1=choice:1,0 \
+    --mem gPakRequestMesgs+1*4:8/1=int:0:3 --mem gPakRequestMesgs+2*4:8/1=int:0:59 --mem gPakRequestMesgs+3*4:8/1=choice:3,6,10,0x12,0x13 \
+    --mem gPakRetraceQueue:0x18=zero --mem gPakRetraceQueue+0x10=1 --mem gPakRetraceQueue+0x14=sym:gPakRetraceMesgs \
+    --mem pakToGameMessageQ=choice:0x80310BD0,0 --mem pakToGameMessageQ+8=choice:0,8 --mem pakToGameMessageQ+0xC=0 --mem pakToGameMessageQ+0x10=8 \
+    --mem pakToGameMessageQ+0x14=sym:gPakReplyMesgs --mem gPakReplyMesgs:32=rand \
+    --mem gGameMode=0 --mem gGameMode+4=choice:0,0x10E18000 --mem gNextGameMode=choice:0,0x200000 --mem gNextGameMode+4=0 \
+    --mem gPakFullSlot:1=int:0:255 --mem gPakErrorWindow=rand --mem gPakErrorShown=rand \
+    --stub-ret fe_pak_create_file=choice:3*3,0 --stub-ret fe_pak_rw_player=choice:6*4,10,0 --stub-ret fe_pak_rw_eeprom_times=choice:10*4,11,0 \
+    --stub-ret fe_pak_put_semaphore=choice:0,1 --stub-ret fe_pak_init_pak=choice:3,0 \
+    --sig osSetEventMesg=a0,a1,a2 --sig cont_wait_read= --sig fe_pak_request_hook= --sig fe_pak_error_frame=a0 \
+    --sig fe_pak_init_pak= --sig fe_pak_create_file=a0:1 --sig fe_pak_rw_player=a0:1,a1:1 --sig fe_pak_rw_eeprom_times=a0:1,a1:1,a2:1 \
+    --sig fe_pak_put_semaphore=a0:1,a2,a3 --sig debug_printf=a0,a1,a2,a3
+# 0x6E382 (bad CRC/semaphore): done in pak-error game modes, else retried; 8 and 7 (pak changed / EEPROM)
+fe_pak_thread: -n 200 --seed 2 --model osRecvMesg=mesgqueue.py:recv --model osSendMesg=mesgqueue.py:send \
+    --stop-at osRecvMesg:60 --mem gPreNmi=0 \
+    --mem gPakRequestQueue+8=choice:1,2 --mem gPakRequestQueue+0xC=0 --mem gPakRequestQueue+0x10=8 --mem gPakRequestQueue+0x14=sym:gPakRequestMesgs \
+    --mem gPakRequestMesgs:32=rand --mem gPakRequestMesgs+3*4:8/1=choice:6,7,8,9,12,13 --mem gPakRequestMesgs+1*4:8/1=int:0:3 \
+    --mem gPakRetraceQueue:0x18=zero --mem gPakRetraceQueue+0x10=1 --mem gPakRetraceQueue+0x14=sym:gPakRetraceMesgs \
+    --mem pakToGameMessageQ=sym:gMainThread --mem pakToGameMessageQ+8=0 --mem pakToGameMessageQ+0xC=0 --mem pakToGameMessageQ+0x10=8 \
+    --mem pakToGameMessageQ+0x14=sym:gPakReplyMesgs \
+    --mem gGameMode=int --mem gGameMode+4=choice:0,0x10E18000,0x10000000,0x8000 --mem gNextGameMode=choice:0,0x200000,0x100000 \
+    --mem gNextGameMode+4=int --mem gPakFullSlot:1=choice:0,1,2,3,4,0xFF \
+    --stub-ret fe_pak_rw_player=choice:0x6E382*3,8,7 --stub-ret fe_pak_rw_times=choice:0x6E382*3,8,7,0 \
+    --stub-ret fe_pak_rw_status=choice:0x6E382,8,7,0 --stub-ret fe_pak_is_missing=choice:0,1 --stub-ret fe_pak_put_semaphore=0 \
+    --sig osSetEventMesg=a0,a1,a2 --sig cont_wait_read= --sig fe_pak_request_hook= --sig fe_pak_error_frame=a0 --sig fe_pak_is_missing= \
+    --sig fe_pak_rw_player=a0:1,a1:1 --sig fe_pak_rw_times=a0:1,a1:1,a2:1 --sig fe_pak_rw_status=a0:1,a1:1,a2:1 \
+    --sig fe_pak_put_semaphore=a0:1,a2,a3 --sig debug_printf=a0,a1,a2,a3
+# the command functions run (pak/EEPROM SDK calls stubbed): fe_pak_create_file / 61C8 / 6ED4 now return their
+# osPfs* result explicitly
+fe_pak_thread: -n 300 --seed 3 --follow-all --model osRecvMesg=mesgqueue.py:recv --model osSendMesg=mesgqueue.py:send \
+    --no-follow osSetEventMesg,cont_wait_read,fe_pak_request_hook,fe_pak_error_frame,osPfsAllocateFile,osPfsDeleteFile \
+    --no-follow osPfsFileState,osPfsFindFile,osPfsReadWriteFile,osPfsFreeBlocks,osPfsChecker,osPfsInitPak \
+    --no-follow osEepromProbe,cont_query_paks,cont_init,func_80204C10,func_802050F0,func_802042D0,func_80204410 \
+    --no-follow __osContDataCrc,debug_printf \
+    --stop-at osRecvMesg:60 --mem gPreNmi=0 \
+    --mem gPakRequestQueue+8=choice:1,2,3 --mem gPakRequestQueue+0xC=0 --mem gPakRequestQueue+0x10=8 --mem gPakRequestQueue+0x14=sym:gPakRequestMesgs \
+    --mem gPakRequestMesgs:32=rand --mem gPakRequestMesgs*4:8/1=choice:0,1 --mem gPakRequestMesgs+1*4:8/1=int:0:3 \
+    --mem gPakRequestMesgs+2*4:8/1=int:0:59 --mem gPakRequestMesgs+3*4:8/1=choice:1,2,3,4,5,14,15,16,17,18,19,20,21,22 \
+    --mem gPakRetraceQueue:0x18=zero --mem gPakRetraceQueue+0x10=1 --mem gPakRetraceQueue+0x14=sym:gPakRetraceMesgs \
+    --mem pakToGameMessageQ=choice:0x80310BD0,0 --mem pakToGameMessageQ+8=0 --mem pakToGameMessageQ+0xC=0 --mem pakToGameMessageQ+0x10=8 \
+    --mem pakToGameMessageQ+0x14=sym:gPakReplyMesgs --mem gSiMesgQueue+8=0 \
+    --mem gGameMode=int --mem gGameMode+4=choice:0,0x10E18000 --mem gNextGameMode=choice:0,0x200000 --mem gNextGameMode+4=0 \
+    --mem gPakFullSlot:1=int:0:255 --mem gPakFileCount=int:0:15 --mem gUseEeprom:1=choice:0,1 \
+    --stub-ret osPfsAllocateFile=choice:0,1,3,5,6,9 --stub-ret osPfsDeleteFile=choice:0,3,5,10,0x6E382 \
+    --stub-ret osPfsFileState=choice:0,3,5,6,9 --stub-ret osPfsFreeBlocks=choice:0,3,10 --stub-ret osPfsChecker=choice:0,7,11 \
+    --stub-ret osEepromProbe=choice:0,1,9 --stub-ret cont_query_paks=choice:0,1 --stub-ret osPfsInitPak=choice:0,3,10 \
+    --stub-ret osPfsReadWriteFile=choice:0,1 --stub-ret func_80204C10=0 \
+    --sig osSetEventMesg=a0,a1,a2 --sig cont_wait_read= --sig fe_pak_request_hook= --sig fe_pak_error_frame=a0 \
+    --sig cont_query_paks=a0 --sig cont_init= --sig debug_printf=a0,a1,a2,a3
